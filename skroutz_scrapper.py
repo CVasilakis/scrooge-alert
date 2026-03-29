@@ -1,16 +1,15 @@
 # Installed libraries
 import tls_client
 import apprise
+from filelock import FileLock, Timeout
 
 # Standard libraries
 import traceback
 import datetime
 import argparse
 import random
-import shutil
 import time
 import json
-import sys
 import os
 
 
@@ -24,7 +23,7 @@ def update_entry_timestamp(file_path, index):
     with open(file_path, mode='r') as file:
         data = json.load(file)
     if index < 0 or index >= len(data.get("products", [])):
-        raise Exception("index of temp file is out of bounds.")
+        raise Exception("Index out of bounds.")
     data["products"][index]['last_successful_check'] = current_datetime
     with open(file_path, mode='w') as file:
         json.dump(data, file, indent=2)
@@ -97,28 +96,14 @@ args = parser.parse_args()
 if not args.debug:
     time.sleep(generate_random_number(60))
 
-if os.path.exists(os.path.join(script_dir, "monitored_products_temp.json")):
-    file_age = time.time() - os.path.getmtime(os.path.join(script_dir, "monitored_products_temp.json"))
-    if file_age > 3000:
-        if args.debug:
-            print(f"Found stale temp file. Removing it.")
-        try:
-            os.remove(os.path.join(script_dir, "monitored_products_temp.json"))
-        except OSError:
-            pass
-    else:
-        appNotif.notify(title='Skroutz Check - Attention required!',
-                        body='Skroutz Check script did not start! Stale temp file detected. It will be deleted soon.')
-        if args.debug:
-            print('Skroutz Check script did not start! Stale temp file detected. It will be deleted soon.')
-        sys.exit()
+lock_file_path = os.path.join(script_dir, "skroutz_check.lock")
+lock = FileLock(lock_file_path, timeout=0)
 
 try:
-    shutil.copyfile(os.path.join(script_dir, "monitored_products.json"), os.path.join(script_dir, "monitored_products_temp.json"))
-
-    with open(os.path.join(script_dir, "monitored_products_temp.json"), mode='r') as file:
-        config_data = json.load(file)
-        check_list = config_data.get("products", [])
+    with lock:
+        with open(os.path.join(script_dir, "monitored_products.json"), mode='r') as file:
+            config_data = json.load(file)
+            check_list = config_data.get("products", [])
         
         for index, entry in enumerate(check_list):
             time.sleep(20 + random.uniform(1, 5))
@@ -184,15 +169,15 @@ try:
                         print(f'FAILED (Exception) --> {productName} --> {url}')
                     session.close()
                     raise
-    os.remove(os.path.join(script_dir, "monitored_products_temp.json"))
-    check_json_for_old_entries(os.path.join(script_dir, "monitored_products.json"), 24, appNotif)
+        check_json_for_old_entries(os.path.join(script_dir, "monitored_products.json"), 24, appNotif)
+except Timeout:
+    # A lock could not be acquired because another instance is already running
+    if args.debug:
+        print('Skroutz Check script did not start! Another instance is currently running.')
 except Exception:
     saveTraceback(script_dir)
     appNotif.notify(title='Skroutz Check - Attention required!',
                     body=f'Skroutz Check Script failed. Check error log.')
-finally:
-    if os.path.exists(os.path.join(script_dir, "monitored_products_temp.json")):
-        os.remove(os.path.join(script_dir, "monitored_products_temp.json"))
 
 if should_send_monthly_notification(script_dir):
     appNotif.notify(title='Skroutz Check monthly report...', body='Skroutz Check script is still running.')

@@ -209,3 +209,4 @@ __marimo__/
 # Script specific
 last_time_editted.txt
 *temp.*
+*.lock
