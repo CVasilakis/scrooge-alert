@@ -1,8 +1,13 @@
-[
-  {
-    "productName": "Samsung SSD 2TB",
-    "targetPrice": 115,
-    "url": "https://www.skroutz.gr/s/39358691/Samsung-990-PRO-SSD-2TB-M-2-NVMe-PCI-Express-4-0-MZ-V9P2T0BW.html",
-    "last_successful_check": "29-03-2026 23:50:21"
-  }
-]
+{
+  "credentials": {
+    "telegram": "tgram://<token>/<chat_id>/"
+  },
+  "products": [
+    {
+      "productName": "Samsung SSD 2TB",
+      "url": "https://www.skroutz.gr/s/39358691/Samsung-990-PRO-SSD-2TB-M-2-NVMe-PCI-Express-4-0-MZ-V9P2T0BW.html",
+      "targetPrice": "115",
+      "last_successful_check": "30-03-2026 00:18:29"
+    }
+  ]
+}

@@ -23,13 +23,13 @@ def update_entry_timestamp(file_path, index):
     current_datetime = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
     with open(file_path, mode='r') as file:
         data = json.load(file)
-    if index < 0 or index >= len(data):
+    if index < 0 or index >= len(data.get("products", [])):
         raise Exception("index of temp file is out of bounds.")
-    data[index]['last_successful_check'] = current_datetime
+    data["products"][index]['last_successful_check'] = current_datetime
     with open(file_path, mode='w') as file:
         json.dump(data, file, indent=2)
 
-def check_json_for_old_entries(json_file, hours):
+def check_json_for_old_entries(json_file, hours, appNotif):
     """
     Open the json file provided and check for entries with older timestamp
     than the hours provided. If a timestamp is older that the hours spesified
@@ -37,14 +37,14 @@ def check_json_for_old_entries(json_file, hours):
     """
     with open(json_file, mode='r') as file:
         data = json.load(file)
-        for row in data:
+        for row in data.get("products", []):
             url = row.get('url', '')
             if row.get('last_successful_check') is not None and row['last_successful_check'] != '':
                 timestamp = datetime.datetime.strptime(row['last_successful_check'], "%d-%m-%Y %H:%M:%S")
                 current_time = datetime.datetime.now()
                 time_difference = current_time - timestamp
                 if time_difference > datetime.timedelta(hours=hours):
-                    appNotif.notify(title='Insomnia Check - Attention required!',
+                    appNotif.notify(title='Skroutz Check - Attention required!',
                                     body=f'Link {url} has not been updated for {hours} hours.\nCheck if product page has a problem and error logs.')
 
 def is_first_sunday_of_the_month(dt):
@@ -53,7 +53,7 @@ def is_first_sunday_of_the_month(dt):
             return True
     return False
 
-def should_send_monthly_notification():
+def should_send_monthly_notification(script_dir):
     now = datetime.datetime.now()
     if is_first_sunday_of_the_month(now) and now.hour >= 9:
         if os.path.exists(os.path.join(script_dir, "last_notification_date.txt")):
@@ -68,7 +68,7 @@ def generate_random_number(seconds):
     random.seed(time.time())
     return random.randint(1, seconds)
 
-def saveTraceback ():
+def saveTraceback(script_dir):
     with open(os.path.join(script_dir, "error_log.txt"), "a", newline='') as log_file:
         time_now = datetime.datetime.now().strftime("%Y-%m-%d (%H:%M:%S)")
         log_file.write(f"\n\nAn error occurred at {time_now}:\n")
@@ -77,10 +77,18 @@ def saveTraceback ():
 
 ########################### MAIN ###########################
 
-appNotif = apprise.Apprise()
-appNotif.add('tgram://<token>/<chat_id>/')
-
 script_dir = os.path.dirname(os.path.abspath(__file__))
+
+json_file_path = os.path.join(script_dir, "monitored_products.json")
+telegram_url = ""
+if os.path.exists(json_file_path):
+    with open(json_file_path, 'r') as file:
+        config_data = json.load(file)
+        telegram_url = config_data.get("credentials", {}).get("telegram", "")
+
+appNotif = apprise.Apprise()
+if telegram_url:
+    appNotif.add(telegram_url)
 
 parser = argparse.ArgumentParser(description='Script with debug flag')
 parser.add_argument('--debug', action='store_true', help='Enable debug mode')
@@ -109,7 +117,8 @@ try:
     shutil.copyfile(os.path.join(script_dir, "monitored_products.json"), os.path.join(script_dir, "monitored_products_temp.json"))
 
     with open(os.path.join(script_dir, "monitored_products_temp.json"), mode='r') as file:
-        check_list = json.load(file)
+        config_data = json.load(file)
+        check_list = config_data.get("products", [])
         
         for index, entry in enumerate(check_list):
             time.sleep(20 + random.uniform(1, 5))
@@ -176,16 +185,16 @@ try:
                     session.close()
                     raise
     os.remove(os.path.join(script_dir, "monitored_products_temp.json"))
-    check_json_for_old_entries(os.path.join(script_dir, "monitored_products.json"), 24)
+    check_json_for_old_entries(os.path.join(script_dir, "monitored_products.json"), 24, appNotif)
 except Exception:
-    saveTraceback()
+    saveTraceback(script_dir)
     appNotif.notify(title='Skroutz Check - Attention required!',
                     body=f'Skroutz Check Script failed. Check error log.')
 finally:
     if os.path.exists(os.path.join(script_dir, "monitored_products_temp.json")):
         os.remove(os.path.join(script_dir, "monitored_products_temp.json"))
 
-if should_send_monthly_notification():
+if should_send_monthly_notification(script_dir):
     appNotif.notify(title='Skroutz Check monthly report...', body='Skroutz Check script is still running.')
     with open(os.path.join(script_dir, "last_notification_date.txt"), 'w', newline='') as file:
         file.write(str(datetime.datetime.now().month))
