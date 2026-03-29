@@ -11,6 +11,8 @@ import random
 import time
 import json
 import os
+import re
+from urllib.parse import urlparse
 
 
 ######################## FUNCTIONS ########################
@@ -135,8 +137,19 @@ try:
                         random_tls_extension_order=True
                     )
                     product_is_available = True
-                    idx = url.rindex("/")
-                    new_link = url[:idx + 1] + "filter_products.json?"
+                    
+                    parsed_url = urlparse(url)
+                    match = re.search(r'/s/(\d+)', parsed_url.path)
+                    
+                    if not match:
+                        if args.debug:
+                            print(f"{productName}: Failed to parse product ID from URL: {url}")
+                        session.close()
+                        break
+                        
+                    product_id = match.group(1)
+                    new_link = f"https://www.skroutz.gr/s/{product_id}/filter_products.json?"
+                    
                     response = session.get(new_link.strip(), headers=headers)
                     response_data = response.json()
                     if (response_data["price_min"] is None):
