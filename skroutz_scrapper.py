@@ -121,17 +121,17 @@ try:
                         'accept-language': 'en-US,en;q=0.9',
                         'dnt': '1',
                         'referer': 'https://www.skroutz.gr/search?keyphrase=witcher',
-                        'sec-ch-ua': '"Chromium";v="116", "Not)A;Brand";v="24", "Google Chrome";v="116"',
+                        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
                         'sec-ch-ua-mobile': '?0',
                         'sec-ch-ua-platform': '"Windows"',
                         'sec-fetch-dest': 'empty',
                         'sec-fetch-mode': 'cors',
                         'sec-fetch-site': 'same-origin',
-                        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
+                        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                         'x-requested-with': 'XMLHttpRequest',
                     }
                     session = tls_client.Session(
-                        client_identifier="chrome112",
+                        client_identifier="chrome120",
                         random_tls_extension_order=True
                     )
                     product_is_available = True
