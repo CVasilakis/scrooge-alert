@@ -25,7 +25,7 @@ def update_entry_timestamp(file_path, index):
         data = json.load(file)
     if index < 0 or index >= len(data):
         raise Exception("index of temp file is out of bounds.")
-    data[index]['last_time_editted'] = current_datetime
+    data[index]['last_successful_check'] = current_datetime
     with open(file_path, mode='w') as file:
         json.dump(data, file, indent=2)
 
@@ -38,12 +38,9 @@ def check_json_for_old_entries(json_file, hours):
     with open(json_file, mode='r') as file:
         data = json.load(file)
         for row in data:
-            productName = row.get('productName', '')
-            if (productName == "DISABLED"):
-                break
             url = row.get('url', '')
-            if row.get('last_time_editted') is not None and row['last_time_editted'] != '':
-                timestamp = datetime.datetime.strptime(row['last_time_editted'], "%d-%m-%Y %H:%M:%S")
+            if row.get('last_successful_check') is not None and row['last_successful_check'] != '':
+                timestamp = datetime.datetime.strptime(row['last_successful_check'], "%d-%m-%Y %H:%M:%S")
                 current_time = datetime.datetime.now()
                 time_difference = current_time - timestamp
                 if time_difference > datetime.timedelta(hours=hours):
@@ -117,8 +114,6 @@ try:
         for index, entry in enumerate(check_list):
             time.sleep(20 + random.uniform(1, 5))
             productName = entry['productName']
-            if (productName == "DISABLED"):
-                break
             url = entry['url']
             if (url == ""):
                 continue
@@ -142,7 +137,7 @@ try:
                         'x-requested-with': 'XMLHttpRequest',
                     }
                     session = tls_client.Session(
-                        client_identifier="chrome_112",
+                        client_identifier="chrome112",
                         random_tls_extension_order=True
                     )
                     product_is_available = True
