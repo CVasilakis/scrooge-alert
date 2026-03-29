@@ -210,3 +210,4 @@ __marimo__/
 last_time_editted.txt
 *temp.*
 *.lock
+*.tmp

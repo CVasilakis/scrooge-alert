@@ -17,19 +17,6 @@ from urllib.parse import urlparse
 
 ######################## FUNCTIONS ########################
 
-def update_entry_timestamp(file_path, index):
-    """
-    Open the json file provided and edit the timestamp of the object provided.
-    """
-    current_datetime = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-    with open(file_path, mode='r') as file:
-        data = json.load(file)
-    if index < 0 or index >= len(data.get("products", [])):
-        raise Exception("Index out of bounds.")
-    data["products"][index]['last_successful_check'] = current_datetime
-    with open(file_path, mode='w') as file:
-        json.dump(data, file, indent=2)
-
 def check_json_for_old_entries(json_file, hours, appNotif):
     """
     Open the json file provided and check for entries with older timestamp
@@ -169,7 +156,7 @@ try:
                     if (current_minimum_price < targetPrice):
                         appNotif.notify(title='Skroutz Check - Attention required!',
                                         body=f'{productName} found at a price bellow {targetPrice} €.\nCurrent price = {current_minimum_price} €.\nLink: {url}')
-                    update_entry_timestamp(os.path.join(script_dir, "monitored_products.json"), index)
+                    config_data["products"][index]['last_successful_check'] = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
                     session.close()
                     break
                 except json.JSONDecodeError as e:
@@ -182,6 +169,14 @@ try:
                         print(f'FAILED (Exception) --> {productName} --> {url}')
                     session.close()
                     raise
+        
+        # Save the updated timestamps atomically
+        json_file_path = os.path.join(script_dir, "monitored_products.json")
+        temp_file_path = json_file_path + ".tmp"
+        with open(temp_file_path, mode='w') as file:
+            json.dump(config_data, file, indent=2)
+        os.replace(temp_file_path, json_file_path)
+        
         check_json_for_old_entries(os.path.join(script_dir, "monitored_products.json"), 24, appNotif)
 except Timeout:
     # A lock could not be acquired because another instance is already running
