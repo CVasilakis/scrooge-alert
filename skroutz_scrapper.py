@@ -164,11 +164,13 @@ try:
                         print(f"Attempt {attempt + 1} failed: Received empty response from site.")
                     session.close()
                     time.sleep(20 + (3 * attempt) + random.uniform(1, 5))
-                except Exception:
+                except Exception as e:
                     if args.debug:
-                        print(f'FAILED (Exception) --> {productName} --> {url}')
+                        print(f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e} --> {productName} --> {url}")
                     session.close()
-                    raise
+                    if attempt == max_retries - 1:
+                        raise
+                    time.sleep(20 + (3 * attempt) + random.uniform(1, 5))
         
         # Save the updated timestamps atomically
         json_file_path = os.path.join(script_dir, "monitored_products.json")
