@@ -35,23 +35,6 @@ def check_json_for_old_entries(json_file, hours, appNotif):
                     appNotif.notify(title='Skroutz Check - Attention required!',
                                     body=f'Link {url} has not been updated for {hours} hours.\nCheck if product page has a problem and error logs.')
 
-def is_first_sunday_of_the_month(dt):
-    if dt.weekday() == 6:
-        if dt.day <= 7:
-            return True
-    return False
-
-def should_send_monthly_notification(script_dir):
-    now = datetime.datetime.now()
-    if is_first_sunday_of_the_month(now) and now.hour >= 9:
-        if os.path.exists(os.path.join(script_dir, "last_notification_date.txt")):
-            with open(os.path.join(script_dir, "last_notification_date.txt"), 'r', newline='') as file:
-                last_printed_month = int(file.read().strip())
-                if last_printed_month == now.month:
-                    return False
-        return True
-    return False
-
 def generate_random_number(seconds):
     random.seed(time.time())
     return random.randint(1, seconds)
@@ -195,8 +178,3 @@ except Exception:
     saveTraceback(script_dir)
     appNotif.notify(title='Skroutz Check - Attention required!',
                     body=f'Skroutz Check Script failed. Check error log.')
-
-if should_send_monthly_notification(script_dir):
-    appNotif.notify(title='Skroutz Check monthly report...', body='Skroutz Check script is still running.')
-    with open(os.path.join(script_dir, "last_notification_date.txt"), 'w', newline='') as file:
-        file.write(str(datetime.datetime.now().month))
