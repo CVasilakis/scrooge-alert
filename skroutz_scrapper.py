@@ -94,6 +94,7 @@ try:
             config_data = json.load(file)
             check_list = config_data.get("products", [])
         
+        has_errors = False
         for index, entry in enumerate(check_list):
             time.sleep(20 + random.uniform(1, 5))
             productName = entry['productName']
@@ -101,7 +102,7 @@ try:
             if (url == ""):
                 continue
             targetPrice = float(entry['targetPrice'])
-            max_retries = 10
+            max_retries = 3
             for attempt in range(max_retries):
                 try:
                     headers = {
@@ -169,7 +170,9 @@ try:
                         print(f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e} --> {productName} --> {url}")
                     session.close()
                     if attempt == max_retries - 1:
-                        raise
+                        saveTraceback(script_dir)
+                        has_errors = True
+                        break
                     time.sleep(20 + (3 * attempt) + random.uniform(1, 5))
         
         # Save the updated timestamps atomically
@@ -180,6 +183,10 @@ try:
         os.replace(temp_file_path, json_file_path)
         
         check_json_for_old_entries(os.path.join(script_dir, "monitored_products.json"), 24, appNotif)
+        
+        if has_errors:
+            appNotif.notify(title='Skroutz Check - Attention required!',
+                            body='Skroutz Check Script encountered errors on some products. Check error log.')
 except Timeout:
     # A lock could not be acquired because another instance is already running
     if args.debug:
