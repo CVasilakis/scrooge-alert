@@ -13,168 +13,266 @@ import json
 import os
 import re
 from urllib.parse import urlparse
+from typing import Dict, Any, Optional
 
+# --- Configuration Constants ---
 
-######################## FUNCTIONS ########################
+# Maximum number of times to retry scraping a product if the request fails
+MAX_RETRIES: int = 3
 
-def check_json_for_old_entries(json_file, hours, appNotif):
-    """
-    Open the json file provided and check for entries with older timestamp
-    than the hours provided. If a timestamp is older that the hours spesified
-    then a notification will be sent to telegram.
-    """
-    with open(json_file, mode='r') as file:
-        data = json.load(file)
-        for row in data.get("products", []):
-            url = row.get('url', '')
-            if row.get('last_successful_check') is not None and row['last_successful_check'] != '':
-                timestamp = datetime.datetime.strptime(row['last_successful_check'], "%d-%m-%Y %H:%M:%S")
-                current_time = datetime.datetime.now()
-                time_difference = current_time - timestamp
-                if time_difference > datetime.timedelta(hours=hours):
-                    appNotif.notify(title='Skroutz Check - Attention required!',
-                                    body=f'Link {url} has not been updated for {hours} hours.\nCheck if product page has a problem and error logs.')
+# Number of hours after which a product check is considered old, triggering a warning
+OLD_ENTRY_HOURS: int = 24
 
-def generate_random_number(seconds):
-    random.seed(time.time())
-    return random.randint(1, seconds)
+# Base delay in seconds between processing each product to avoid rate limits
+MIN_DELAY_SECONDS: int = 20
 
-def saveTraceback(script_dir):
-    with open(os.path.join(script_dir, "error_log.txt"), "a", newline='') as log_file:
+# Minimum random time in seconds added to the base delay (jitter)
+RANDOM_DELAY_MIN: float = 1.0
+
+# Maximum random time in seconds added to the base delay (jitter)
+RANDOM_DELAY_MAX: float = 5.0
+
+# Maximum possible startup delay in seconds (used only in non-debug mode)
+STARTUP_DELAY_MAX: int = 60
+
+# Timeout in seconds when trying to acquire the file lock (0 means fail immediately if locked)
+LOCK_TIMEOUT: int = 0
+
+# Multiplier used to increase the wait time on each retry attempt
+RETRY_DELAY_MULTIPLIER: int = 3
+
+# Headers impersonating a real browser to avoid being blocked by anti-bot measures
+DEFAULT_HEADERS: Dict[str, str] = {
+    'authority': 'www.skroutz.gr',
+    'accept': 'application/json, text/plain, */*',
+    'accept-language': 'en-US,en;q=0.9',
+    'dnt': '1',
+    'referer': 'https://www.skroutz.gr/search?keyphrase=witcher',
+    'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-origin',
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'x-requested-with': 'XMLHttpRequest',
+}
+
+# --- Classes ---
+
+class ErrorHandler:
+    @staticmethod
+    def save_traceback(script_dir: str) -> None:
+        """Saves the current exception traceback to an error log file."""
+        log_path = os.path.join(script_dir, "error_log.txt")
         time_now = datetime.datetime.now().strftime("%Y-%m-%d (%H:%M:%S)")
-        log_file.write(f"\n\nAn error occurred at {time_now}:\n")
-        traceback.print_exc(file=log_file)
-        log_file.write(f"\n{'-'*100}")
+        with open(log_path, "a", newline='') as log_file:
+            log_file.write(f"\n\nAn error occurred at {time_now}:\n")
+            traceback.print_exc(file=log_file)
+            log_file.write(f"\n{'-'*100}")
 
-########################### MAIN ###########################
+class Notifier:
+    def __init__(self, telegram_url: str):
+        self.app_notif = apprise.Apprise()
+        if telegram_url:
+            self.app_notif.add(telegram_url)
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
+    def notify(self, title: str, body: str) -> None:
+        """Sends a notification with the given title and body."""
+        self.app_notif.notify(title=title, body=body)
 
-json_file_path = os.path.join(script_dir, "monitored_products.json")
-telegram_url = ""
-if os.path.exists(json_file_path):
-    with open(json_file_path, 'r') as file:
-        config_data = json.load(file)
-        telegram_url = config_data.get("credentials", {}).get("telegram", "")
+    def notify_low_price(self, product_name: str, target_price: float, current_price: float, url: str) -> None:
+        self.notify(
+            title='Skroutz Check - Attention required!',
+            body=f'{product_name} found at a price bellow {target_price} €.\nCurrent price = {current_price} €.\nLink: {url}'
+        )
 
-appNotif = apprise.Apprise()
-if telegram_url:
-    appNotif.add(telegram_url)
+    def notify_old_entries(self, hours: int, url: str) -> None:
+        self.notify(
+            title='Skroutz Check - Attention required!',
+            body=f'Link {url} has not been updated for {hours} hours.\nCheck if product page has a problem and error logs.'
+        )
 
-parser = argparse.ArgumentParser(description='Script with debug flag')
-parser.add_argument('--debug', action='store_true', help='Enable debug mode')
-args = parser.parse_args()
+    def notify_errors(self) -> None:
+        self.notify(
+            title='Skroutz Check - Attention required!',
+            body='Skroutz Check Script encountered errors on some products. Check error log.'
+        )
 
-if not args.debug:
-    time.sleep(generate_random_number(60))
+class ConfigManager:
+    def __init__(self, config_path: str):
+        self.config_path = config_path
+        self.config_data: Dict[str, Any] = {}
 
-lock_file_path = os.path.join(script_dir, "skroutz_check.lock")
-lock = FileLock(lock_file_path, timeout=0)
+    def load(self) -> Dict[str, Any]:
+        """Loads the configuration from the JSON file."""
+        if os.path.exists(self.config_path):
+            with open(self.config_path, 'r') as file:
+                self.config_data = json.load(file)
+        return self.config_data
 
-try:
-    with lock:
-        with open(os.path.join(script_dir, "monitored_products.json"), mode='r') as file:
-            config_data = json.load(file)
-            check_list = config_data.get("products", [])
-        
-        has_errors = False
-        for index, entry in enumerate(check_list):
-            time.sleep(20 + random.uniform(1, 5))
-            productName = entry['productName']
-            url = entry['url']
-            if (url == ""):
-                continue
-            targetPrice = float(entry['targetPrice'])
-            max_retries = 3
-            for attempt in range(max_retries):
+    def save_atomically(self) -> None:
+        """Saves the configuration back to the JSON file atomically."""
+        temp_file_path = self.config_path + ".tmp"
+        with open(temp_file_path, mode='w') as file:
+            json.dump(self.config_data, file, indent=2)
+        os.replace(temp_file_path, self.config_path)
+
+    def check_for_old_entries(self, hours: int, notifier: Notifier) -> None:
+        """Checks if any products haven't been successfully checked in the specified hours."""
+        for row in self.config_data.get("products", []):
+            url = row.get('url', '')
+            last_check = row.get('last_successful_check')
+            if last_check:
                 try:
-                    headers = {
-                        'authority': 'www.skroutz.gr',
-                        'accept': 'application/json, text/plain, */*',
-                        'accept-language': 'en-US,en;q=0.9',
-                        'dnt': '1',
-                        'referer': 'https://www.skroutz.gr/search?keyphrase=witcher',
-                        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-                        'sec-ch-ua-mobile': '?0',
-                        'sec-ch-ua-platform': '"Windows"',
-                        'sec-fetch-dest': 'empty',
-                        'sec-fetch-mode': 'cors',
-                        'sec-fetch-site': 'same-origin',
-                        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'x-requested-with': 'XMLHttpRequest',
-                    }
-                    session = tls_client.Session(
-                        client_identifier="chrome120",
-                        random_tls_extension_order=True
-                    )
-                    product_is_available = True
+                    timestamp = datetime.datetime.strptime(last_check, "%d-%m-%Y %H:%M:%S")
+                    current_time = datetime.datetime.now()
+                    if (current_time - timestamp) > datetime.timedelta(hours=hours):
+                        notifier.notify_old_entries(hours, url)
+                except ValueError:
+                    pass
+
+class SkroutzScraper:
+    def __init__(self, debug: bool = False):
+        self.debug = debug
+
+    def _sleep_with_jitter(self, base_delay: float, attempt: int = 0) -> None:
+        """Sleeps for a base time plus some jitter based on the current attempt."""
+        jitter = random.uniform(RANDOM_DELAY_MIN, RANDOM_DELAY_MAX)
+        total_delay = base_delay + (RETRY_DELAY_MULTIPLIER * attempt) + jitter
+        time.sleep(total_delay)
+
+    def scrape_product(self, product_url: str, product_name: str) -> Optional[float]:
+        """Scrapes the Skroutz product page and returns the minimum price found."""
+        parsed_url = urlparse(product_url)
+        match = re.search(r'/s/(\d+)', parsed_url.path)
+        
+        if not match:
+            if self.debug:
+                print(f"{product_name}: Failed to parse product ID from URL: {product_url}")
+            return None
+            
+        product_id = match.group(1)
+        api_link = f"https://www.skroutz.gr/s/{product_id}/filter_products.json?"
+
+        session = tls_client.Session(
+            client_identifier="chrome120",
+            random_tls_extension_order=True
+        )
+
+        try:
+            response = session.get(api_link.strip(), headers=DEFAULT_HEADERS)
+            response_data = response.json()
+
+            if response_data.get("price_min") is None:
+                if self.debug:
+                    print(f"{product_name}: Not available")
+                return None
+
+            price_str = response_data["price_min"].replace('€', '').replace(",", ".")
+            if price_str.count(".") == 2:
+                price_str = price_str.replace(".", "", 1)
+                
+            return float(price_str)
+
+        finally:
+            session.close()
+
+    def process_products(self, config_manager: ConfigManager, notifier: Notifier, script_dir: str) -> None:
+        """Orchestrates the scraping of all products in the configuration."""
+        products = config_manager.config_data.get("products", [])
+        has_errors = False
+
+        for index, entry in enumerate(products):
+            self._sleep_with_jitter(MIN_DELAY_SECONDS)
+            
+            product_name = entry.get('productName', 'Unknown')
+            url = entry.get('url', '')
+            if not url:
+                continue
+                
+            target_price = float(entry.get('targetPrice', 0.0))
+            
+            for attempt in range(MAX_RETRIES):
+                try:
+                    current_price = self.scrape_product(url, product_name)
                     
-                    parsed_url = urlparse(url)
-                    match = re.search(r'/s/(\d+)', parsed_url.path)
-                    
-                    if not match:
-                        if args.debug:
-                            print(f"{productName}: Failed to parse product ID from URL: {url}")
-                        session.close()
-                        break
-                        
-                    product_id = match.group(1)
-                    new_link = f"https://www.skroutz.gr/s/{product_id}/filter_products.json?"
-                    
-                    response = session.get(new_link.strip(), headers=headers)
-                    response_data = response.json()
-                    if (response_data["price_min"] is None):
-                        current_minimum_price = "-1"
-                        product_is_available = False
+                    if current_price is not None:
+                        if self.debug:
+                            print(f"{product_name}: {current_price} €")
+                            
+                        if current_price < target_price:
+                            notifier.notify_low_price(product_name, target_price, current_price, url)
+                            
+                        # Update the timestamp
+                        config_manager.config_data["products"][index]['last_successful_check'] = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+                        break # Success, move to the next product
                     else:
-                        current_minimum_price = response_data["price_min"].replace('€', '').replace(",",".")
-                    if (not product_is_available):
-                        if args.debug:
-                            print(f"{productName}: Not available")
-                        continue
-                    if (current_minimum_price.count(".") == 2):
-                        current_minimum_price = current_minimum_price.replace(".", "", 1)
-                    current_minimum_price = float(current_minimum_price)
-                    if args.debug:
-                        print(f"{productName}: {current_minimum_price} €")
-                    if (current_minimum_price < targetPrice):
-                        appNotif.notify(title='Skroutz Check - Attention required!',
-                                        body=f'{productName} found at a price bellow {targetPrice} €.\nCurrent price = {current_minimum_price} €.\nLink: {url}')
-                    config_data["products"][index]['last_successful_check'] = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-                    session.close()
-                    break
+                        break # Unavailable or invalid URL, move to next
+
                 except json.JSONDecodeError as e:
-                    if args.debug:
+                    if self.debug:
                         print(f"Attempt {attempt + 1} failed: Received empty response from site.")
-                    session.close()
-                    time.sleep(20 + (3 * attempt) + random.uniform(1, 5))
+                    self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
                 except Exception as e:
-                    if args.debug:
-                        print(f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e} --> {productName} --> {url}")
-                    session.close()
-                    if attempt == max_retries - 1:
-                        saveTraceback(script_dir)
+                    if self.debug:
+                        print(f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e} --> {product_name} --> {url}")
+                    
+                    if attempt == MAX_RETRIES - 1:
+                        ErrorHandler.save_traceback(script_dir)
                         has_errors = True
                         break
-                    time.sleep(20 + (3 * attempt) + random.uniform(1, 5))
-        
-        # Save the updated timestamps atomically
-        json_file_path = os.path.join(script_dir, "monitored_products.json")
-        temp_file_path = json_file_path + ".tmp"
-        with open(temp_file_path, mode='w') as file:
-            json.dump(config_data, file, indent=2)
-        os.replace(temp_file_path, json_file_path)
-        
-        check_json_for_old_entries(os.path.join(script_dir, "monitored_products.json"), 24, appNotif)
+                        
+                    self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
+
+        # Save updates
+        config_manager.save_atomically()
+        config_manager.check_for_old_entries(OLD_ENTRY_HOURS, notifier)
         
         if has_errors:
-            appNotif.notify(title='Skroutz Check - Attention required!',
-                            body='Skroutz Check Script encountered errors on some products. Check error log.')
-except Timeout:
-    # A lock could not be acquired because another instance is already running
-    if args.debug:
-        print('Skroutz Check script did not start! Another instance is currently running.')
-except Exception:
-    saveTraceback(script_dir)
-    appNotif.notify(title='Skroutz Check - Attention required!',
-                    body=f'Skroutz Check Script failed. Check error log.')
+            notifier.notify_errors()
+
+
+# --- Main Execution ---
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description='Script with debug flag')
+    parser.add_argument('--debug', action='store_true', help='Enable debug mode')
+    args = parser.parse_args()
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    json_file_path = os.path.join(script_dir, "monitored_products.json")
+
+    # Initial Setup & Delay
+    random.seed(time.time())
+    if not args.debug:
+        time.sleep(random.randint(1, STARTUP_DELAY_MAX))
+
+    # Initialize Config and Notifier
+    config_manager = ConfigManager(json_file_path)
+    config_data = config_manager.load()
+    telegram_url = config_data.get("credentials", {}).get("telegram", "")
+    notifier = Notifier(telegram_url)
+
+    # Locking and Execution
+    lock_file_path = os.path.join(script_dir, "skroutz_check.lock")
+    lock = FileLock(lock_file_path, timeout=LOCK_TIMEOUT)
+
+    try:
+        with lock:
+            scraper = SkroutzScraper(debug=args.debug)
+            scraper.process_products(config_manager, notifier, script_dir)
+
+    except Timeout:
+        if args.debug:
+            print('Skroutz Check script did not start! Another instance is currently running.')
+    except Exception:
+        ErrorHandler.save_traceback(script_dir)
+        notifier.notify(
+            title='Skroutz Check - Attention required!',
+            body='Skroutz Check Script failed. Check error log.'
+        )
+
+if __name__ == "__main__":
+    main()
+
