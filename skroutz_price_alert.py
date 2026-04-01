@@ -241,7 +241,7 @@ def main() -> None:
     args = parser.parse_args()
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    json_file_path = os.path.join(script_dir, "monitored_products.json")
+    json_file_path = os.path.join(script_dir, "config.json")
 
     # Initial Setup & Delay
     random.seed(time.time())
@@ -251,11 +251,11 @@ def main() -> None:
     # Initialize Config and Notifier
     config_manager = ConfigManager(json_file_path)
     config_data = config_manager.load()
-    telegram_url = config_data.get("credentials", {}).get("telegram", "")
+    telegram_url = config_data.get("notification", {}).get("telegram", "")
     notifier = Notifier(telegram_url)
 
     # Locking and Execution
-    lock_file_path = os.path.join(script_dir, "skroutz_check.lock")
+    lock_file_path = os.path.join(script_dir, "skroutz_price_alert_running.lock")
     lock = FileLock(lock_file_path, timeout=LOCK_TIMEOUT)
 
     try:

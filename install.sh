@@ -20,7 +20,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 # Environment and File Configurations
 VENV_DIR="venv"
 REQUIREMENTS_FILE="requirements.txt"
-MAIN_SCRIPT="skroutz_scrapper.py"
+MAIN_SCRIPT="skroutz_price_alert.py"
 
 # Cronjob Configurations
 CRON_SCHEDULE="0 * * * *"
