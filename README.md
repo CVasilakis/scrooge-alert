@@ -1,30 +1,27 @@
-# Skroutz Price Alert
+<h1 align="center">
+  <img src="assets/banner.svg" alt="Project Banner" width="120"><br>
+  Skroutz Price Alert
+</h1>
 
-![Python Version](https://img.shields.io/badge/python-3.x-blue.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
+<p align="center">Get notified via push notification when a product on Skroutz drops below your target price.</p>
 
 > [!IMPORTANT]
 > Skroutz is a registered trademark of Skroutz S.A. This project is an independent, unofficial tool and is not affiliated with, authorized, maintained, sponsored, or endorsed by Skroutz S.A. in any way.
 
-Automatically track product prices on [Skroutz.gr](https://www.skroutz.gr) and get notified via Telegram (or other services supported by [Apprise](https://github.com/caronc/apprise)) when a product drops below your target price.
+## ✨ Features
 
-![Screenshot of Notification](docs/screenshot_placeholder.png) <!-- Replace docs/screenshot_placeholder.png with an actual screenshot of your notification -->
+*   **Automated Monitoring:** Set it and forget it. Tracks products silently in the background.
+*   **Custom Target Prices:** Define specific price drop thresholds for every individual item.
+*   **Smart Notifications:** Get instant alerts via [Apprise](https://github.com/caronc/apprise) (Telegram, Discord, etc.) for price drops or errors.
+*   **Anti-Bot Evasion:** Safely fetches data using realistic browser fingerprints and randomized delays to avoid blocks.
 
-## Features
-
-*   **Automated Tracking:** Periodically checks product prices using a configurable cron job.
-*   **Custom Target Prices:** Set a specific target price for each product.
-*   **Notification System:** Uses [Apprise](https://github.com/caronc/apprise) to push notifications. Alerts you on price drops, stale script entries (if a product hasn't updated in 24 hours), or script errors.
-*   **Anti-Bot Evasion:** Utilizes [tls-client](https://github.com/FlorianREGAZ/Python-Tls-Client) with impersonation headers and randomized delays/jitter to bypass basic anti-bot protections.
-*   **Concurrency Safe:** Uses [filelock](https://github.com/tox-dev/filelock) to ensure only one instance of the script runs at a time.
-
-## Prerequisites
+## 📋 Prerequisites
 
 *   Linux/Unix environment.
 *   Python 3 installed.
 *   crontab available for scheduling.
 
-## Installation
+## 🚀 Installation
 
 1.  **Clone the repository:**
     ```bash
@@ -33,13 +30,17 @@ Automatically track product prices on [Skroutz.gr](https://www.skroutz.gr) and g
     ```
 
 2.  **Run the installation script:**
-    The `install.sh` script will automatically create a Python virtual environment (`venv`), install the required dependencies (from `requirements.txt`), and set up a cron job to run the script hourly. It is safe to run this script multiple times—it will cleanly update the virtual environment, refresh dependencies, and update the cron job without duplicating entries.
     ```bash
     chmod +x install.sh
     ./install.sh
     ```
+    The `install.sh` script will automatically:
+    *   Create a Python virtual environment.
+    *   Install required dependencies.
+    *   Set up an hourly cron job.
+    *   Safely update existing installations (safe to run multiple times).
 
-## Configuration
+## ⚙️ Configuration
 
 Before running the script, you need to configure the products to monitor and notification settings in `config.json`.
 
@@ -50,53 +51,89 @@ Before running the script, you need to configure the products to monitor and not
   },
   "products": [
     {
-      "productName": "Samsung SSD 2TB",
-      "url": "https://www.skroutz.gr/s/39358691/Samsung-990-PRO-SSD-2TB-M-2-NVMe-PCI-Express-4-0-MZ-V9P2T0BW.html",
+      "productName": "Product 1",
+      "url": "https://www.skroutz.gr/s/xxxxxxxx/product_1_url.html",
       "targetPrice": "115",
+      "last_successful_check": ""
+    },
+    {
+      "productName": "Product 2",
+      "url": "https://www.skroutz.gr/s/xxxxxxxx/product_2_url.html",
+      "targetPrice": "30",
+      "last_successful_check": ""
+    },
+    {
+      "productName": "Product 3",
+      "url": "https://www.skroutz.gr/s/xxxxxxxx/product_3_url.html",
+      "targetPrice": "1100",
       "last_successful_check": ""
     }
   ]
 }
 ```
 
-*   **notification.telegram**: Your Apprise-formatted Telegram URL.
+*   **`products`** (Items to monitor):
+    *   `productName`: Friendly name for your notifications.
+    *   `url`: The Skroutz product page URL.
+    *   `targetPrice`: The price threshold for alerts.
+    *   `last_successful_check`: Leave blank. Used internally to track stale entries.
 
-    **Telegram Setup Guide:**
-    Setting up Telegram is free and takes about 15-20 minutes max. Here's what you need to do:
-    *   Create a bot by following the official [Telegram bot guide](https://core.telegram.org/bots#how-do-i-create-a-bot). After setup, you'll get a bot token like this: `1825365092:HDSH6d7h65SDJd762vvsh-Tdfsd835C`.
-    *   Find the chat ID where you want to receive messages. [This guide](https://www.alphr.com/find-chat-id-telegram/) shows how to locate it—it will look something like: `1927562839`.
-    
-    Once you have both, construct your URL in this format: `tgram://<bot_token>/<chat_id>/` and add it to your `config.json`. You'll start receiving notifications directly in your Telegram chats.
-*   **products**: A list of items to track.
-    *   `productName`: A friendly name used for the notification. Use whatever you like.
-    *   `url`: The full Skroutz product URL. Just paste it here from your browser.
-    *   `targetPrice`: The price threshold below which you want to be notified.
-    *   `last_successful_check`: Used internally by the script to track stale entries. You can leave it blank initially.
+*   **`notification.telegram`**: Your Telegram Webhook Apprise URL (`tgram://<bot_token>/<chat_id>/`).
+    *   **Bot Token:** Follow the [Telegram Bot Guide](https://core.telegram.org/bots#how-do-i-create-a-bot) to generate one.
+    *   **Chat ID:** Follow [this guide](https://www.alphr.com/find-chat-id-telegram/) to find yours.
 
-## Usage
+## 💻 Usage
+
+There are two ways to execute the script: automatically via the scheduled cron job, or manually for testing.
 
 ### Automated Run
-If you ran `install.sh`, the script is automatically scheduled to run every hour (`0 * * * *`) via cron. It will silently update timestamps in `config.json` and send notifications when necessary. Note that in standard mode, the script includes a random startup delay (up to 60 seconds) to avoid precise periodic patterns.
+If you ran `install.sh`, the script runs hourly in the background via cron. It includes a random 0-60s startup delay to avoid precise bot patterns and sends notifications when thresholds are met.
 
 ### Manual Run / Debug Mode
-You can manually run the script to test your configuration or scrape immediately. Use the `--debug` flag to see verbose output and skip the random startup delay.
+If you want to manually test your configurations and scrape immediately you can execute the script using the `--debug` flag, which shows verbose output and skips the startup delay.
 
 ```bash
 source venv/bin/activate
 python skroutz_price_alert.py --debug
 ```
 
-## Rate Limiting & Disclaimer
+> [!TIP]
+> For best results, this script should **not** run behind a VPN, and should ideally be executed from a **Greek IP address**. 
+> * High traffic from known VPN providers will trigger strict anti-bot captchas or blocks.
+> * Running from outside the Greek IP address space often results in much stricter anti-bot measures.
 
-**Responsible Usage:** The default configuration of this script is intentionally designed to minimize the load on Skroutz's servers. 
-*   **Sequential Queries:** Products are checked sequentially, not concurrently.
-*   **Enforced Delays:** A deliberate base delay, combined with randomized jitter, is enforced between each request.
-*   **1-Hour Cron Job:** The default installation schedules the script to run once an hour (`0 * * * *`). This is more than frequent enough to catch price drops while remaining respectful.
+## ⚖️ Rate Limiting
 
-These measures are crucial to protect users from IP bans and prevent server overloading. Please do not decrease the delays or run the cron job more frequently. 
+The default configuration of this script is intentionally designed to minimize the load on Skroutz's servers and protect its users. 
+*   Products are checked sequentially, not concurrently.
+*   A base delay, combined with randomized jitter, is enforced between each request.
+*   The default installation schedules the script to run once an hour. This is more than frequent enough to catch price drops while remaining respectful.
 
-**Disclaimer:** Please use this script responsibly. This tool is intended for personal, educational use. Users are solely responsible for how they use the tool and must comply with Skroutz's Terms of Service. The author is not responsible for any bans, blocks, or legal issues that may arise from using this software.
+**Good Practices:**
+*   Remove items from your `config.json` once you purchase them.
+*   Delete entries if you lose interest in a product or if it drops below your target price (and you act on it). Tracking unnecessary products wastes bandwidth.
 
-## License
+These measures are important to protect users from IP bans and prevent server overloading. Please do not decrease the delays or run the cron job more frequently. 
+
+## 🗺️ Future Updates (Roadmap)
+
+- [ ] **Cross-Platform Support:** Add install scripts for macOS and Windows.
+- [ ] **More Notification Services:** Add Discord, Email, Slack, etc.
+- [ ] **Enhanced Evasion:** Rotate TLS sessions and fingerprints between requests.
+- [ ] **User Interface:** Add a more friendly User Interface for setup.
+
+## 🤝 Contributing & Issues
+
+If you have a suggestion that would make this project better, please fork the repo and create a pull request.
+
+If you discover any bugs or issues, please open an issue in the repository. Provide as much detail as possible to help reproduce and fix the problem.
+
+Don't forget to give the project a star! Thanks again!
+
+## ⚠️ Disclaimer
+
+Please use this script responsibly. This script is intended for personal, educational use. Users are solely responsible for how they use the script and must comply with Skroutz's Terms of Service. The author is not responsible for any bans, blocks, or legal issues that may arise from using this software.
+
+## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
