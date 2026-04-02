@@ -1,3 +1,4 @@
 tls-client
 apprise
 filelock
+python-dotenv

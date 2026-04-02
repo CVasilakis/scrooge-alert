@@ -2,6 +2,7 @@
 import tls_client
 import apprise
 from filelock import FileLock, Timeout
+from dotenv import load_dotenv
 
 # Standard libraries
 import traceback
@@ -72,10 +73,13 @@ class ErrorHandler:
             log_file.write(f"\n{'-'*100}")
 
 class Notifier:
-    def __init__(self, telegram_url: str):
+    def __init__(self, notification_urls: str):
         self.app_notif = apprise.Apprise()
-        if telegram_url:
-            self.app_notif.add(telegram_url)
+        if notification_urls:
+            for url in notification_urls.split(','):
+                url = url.strip()
+                if url:
+                    self.app_notif.add(url)
 
     def notify(self, title: str, body: str) -> None:
         """Sends a notification with the given title and body."""
@@ -236,6 +240,7 @@ class SkroutzScraper:
 # --- Main Execution ---
 
 def main() -> None:
+    load_dotenv()
     parser = argparse.ArgumentParser(description='Script with debug flag')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     args = parser.parse_args()
@@ -251,8 +256,8 @@ def main() -> None:
     # Initialize Config and Notifier
     config_manager = ConfigManager(json_file_path)
     config_data = config_manager.load()
-    telegram_url = config_data.get("notification", {}).get("telegram", "")
-    notifier = Notifier(telegram_url)
+    notification_urls = os.environ.get("NOTIFICATION_URLS", "")
+    notifier = Notifier(notification_urls)
 
     # Locking and Execution
     lock_file_path = os.path.join(script_dir, "skroutz_price_alert_running.lock")
