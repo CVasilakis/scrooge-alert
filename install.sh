@@ -53,6 +53,9 @@ if ! command -v bash &> /dev/null; then
     exit 1
 fi
 
+# Make the wrapper script executable
+chmod +x "$SCRIPT_DIR/$MAIN_SCRIPT"
+
 
 # ------------------------------------------------------------------------------
 # PYTHON VIRTUAL ENVIRONMENT SETUP

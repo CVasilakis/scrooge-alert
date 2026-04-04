@@ -8,6 +8,23 @@
 > [!IMPORTANT]
 > Skroutz is a registered trademark of Skroutz S.A. This project is an independent, unofficial tool and is not affiliated with, authorized, maintained, sponsored, or endorsed by Skroutz S.A. in any way.
 
+## 📑 Table of Contents
+1. [Features](#-features)
+2. [Supported Domains](#-supported-domains)
+3. [Prerequisites](#-prerequisites)
+4. [Installation](#-installation)
+5. [Configuration](#️-configuration)
+   - [Notification Settings (.env)](#1-notification-settings-env)
+   - [Product Tracking (products.json)](#2-product-tracking-dataproductsjson)
+6. [Usage](#-usage)
+   - [Automated Cron Run](#automated-run)
+   - [Manual & Debug Modes (CLI Flags)](#manual-run--debug-mode-cli-flags)
+7. [Notifications & Messages](#-notifications--messages)
+8. [Troubleshooting & Debugging](#-troubleshooting--debugging)
+9. [Rate Limiting](#️-rate-limiting)
+10. [Roadmap](#️-future-updates-roadmap)
+11. [Disclaimer & License](#️-disclaimer)
+
 ## ✨ Features
 
 *   **Automated Monitoring:** Set it and forget it. Tracks products silently in the background.
@@ -15,11 +32,19 @@
 *   **Smart Notifications:** Get instant alerts via [Apprise](https://github.com/caronc/apprise) (Telegram, Discord, etc.) for price drops or errors.
 *   **Anti-Bot Evasion:** Safely fetches data using realistic browser fingerprints and randomized delays to avoid blocks.
 
+## 🌍 Supported Domains
+The script dynamically detects the locale and currency based on the Skroutz URL. It supports all known Skroutz platform domains, including:
+*   `.gr` (Greece - €)
+*   `.cy` (Cyprus - €)
+*   `.bg` (Bulgaria - €)
+*   `.de` (Germany - €)
+*   `.ro` (Romania - Lei)
+
 ## 📋 Prerequisites
 
-*   Linux/Unix environment.
-*   Python 3 installed.
-*   crontab available for scheduling.
+*   Linux/Unix environment (`bash`).
+*   Python 3 installed (`python3`, `python3-venv`).
+*   `crontab` available for scheduling.
 
 ## 🚀 Installation
 
@@ -43,106 +68,139 @@
     The `install.sh` script will automatically:
     *   Create a Python virtual environment.
     *   Install required dependencies.
-    *   Set up an hourly cron job.
-    *   Safely update existing installations (safe to run multiple times).
+    *   Set up an hourly cron job pointing to the script wrapper.
 
 ## ⚙️ Configuration
 
-Before running the script, you need to configure the products to monitor in `products.json` and notification settings in a `.env` file.
+All custom user parameters reside outside the source code logic. Apprise Notification URLs go in the `.env` file, and the Skroutz products you want to monitor go inside the `data/products.json` file.
 
-**1. Create a `.env` file in the root directory:**
-You can start by copying the provided `.env.example` file:
+### File 1: Notification Settings (`.env`)
+The script uses the popular [Apprise library](https://github.com/caronc/apprise) to push notifications to almost any major platform (Discord, Telegram, Slack, Email, etc.). Check the [Apprise Supported Services Documentation](https://appriseit.com/services/) to learn how to format your notification URL. Alternatively, you can use this handy [URL Builder Tool](https://appriseit.com/tools/url-builder/) to generate your string easily.
+
+Start by making a copy of the template:
 ```bash
 cp .env.example .env
 ```
-Then, edit the `.env` file to add your notification URL(s):
+Then configure the `NOTIFICATION_URLS` variable (you can separate multiple platforms with commas). Here is an example to receive Telegram and Discord notification simultaneously:
 ```env
-NOTIFICATION_URLS="tgram://<bot_token>/<chat_id>/"
+NOTIFICATION_URLS = tgram://<bot_token>/<chat_id>/, discord://<webhook_id>/<webhook_token>
 ```
-*   **`NOTIFICATION_URLS`**: Your Apprise Notification URLs separated by commas. For Telegram (`tgram://<bot_token>/<chat_id>`), for Discord (`discord://<webhook_id>/<webhook_token>`).
-    *   **Bot Token:** Follow the [Telegram Bot Guide](https://core.telegram.org/bots#how-do-i-create-a-bot) to generate one.
-    *   **Chat ID:** Follow [this guide](https://www.alphr.com/find-chat-id-telegram/) to find yours.
 
-**2. Configure products in `products.json`:**
+### File 2: Product Tracking (`data/products.json`)
+The `data/` directory handles all persistent state. Create your tracking file from the template:
+```bash
+cp data/products.json.example data/products.json
+```
 
+**Example `data/products.json`:**
 ```json
 {
   "products": [
     {
-      "productName": "Product 1",
-      "url": "https://www.skroutz.gr/s/xxxxxxxx/product_1_url.html",
-      "targetPrice": "115",
-      "last_successful_check": ""
-    },
-    {
-      "productName": "Product 2",
-      "url": "https://www.skroutz.gr/s/xxxxxxxx/product_2_url.html",
-      "targetPrice": "30",
-      "last_successful_check": ""
-    },
-    {
-      "productName": "Product 3",
-      "url": "https://www.skroutz.gr/s/xxxxxxxx/product_3_url.html",
-      "targetPrice": "1100",
-      "last_successful_check": ""
+      "productName": "Awesome Monitor",
+      "url": "https://www.skroutz.gr/s/xxxxxxxx/product_url.html",
+      "targetPrice": 150
     }
   ]
 }
 ```
 
-*   **`products`** (Items to monitor):
-    *   `productName`: Friendly name for your notifications.
-    *   `url`: The Skroutz product page URL.
-    *   `targetPrice`: The price threshold for alerts.
-    *   `last_successful_check`: Leave blank. Used internally to track stale entries.
+#### Supported Fields:
+| Field | Type | Status | Description |
+| :--- | :--- | :--- | :--- |
+| `productName` | String | **Mandatory** | A friendly naming label used inside the notifications. |
+| `url` | String | **Mandatory** | The direct link to the Skroutz product page. |
+| `targetPrice` | String/Number | **Mandatory** | The maximum price threshold. If the price drops below this, you get alerted. |
+| `last_price` | Number | *Internal* | Auto-generated by the script. Do not modify. Stores the latest scraped down price. |
+| `last_successful_check`| String | *Internal* | Auto-generated by the script. Do not modify. Timestamp of the time the product was last successfully verified. |
+
+*(Note: You do not need to manually add the internal fields; the script will generate and maintain them during execution).*
 
 ## 💻 Usage
 
 There are two ways to execute the script: automatically via the scheduled cron job, or manually for testing.
 
-### Automated Run
-If you ran `install.sh`, the script runs hourly in the background via cron. It includes a random 0-60s startup delay to avoid precise bot patterns and sends notifications when thresholds are met.
+### Option 1: Automated Run
+Once `install.sh` has run successfully, the script executes automatically via `cron` every hour. It uses an execution wrapper (`scripts/run_scraper.sh`) and includes a random up-to-60s startup delay to simulate human timing and avoid exact scheduling footprints.
 
-### Manual Run / Debug Mode
-If you want to manually test your configurations and scrape immediately you can execute the script using the `--debug` flag, which shows verbose output and skips the startup delay.
+### Option 2: Manual Run / Debug Mode (CLI Flags)
+You can manually interact with the application using the wrapper script. The wrapper safely loads the virtual environment and passes commands along to the backend application.
 
 ```bash
-source venv/bin/activate
-python skroutz_price_alert.py --debug
+./scripts/run_scraper.sh [FLAGS]
 ```
 
+#### Available CLI Flags:
+| Flag | Action |
+| :--- | :--- |
+| `--debug` | Runs the script immediately **without** the randomized 0-60s startup delay. Best used for manual scraping or setup verification. |
+| `--silent` | Suppresses all console output. This is automatically used by the system cron setup to prevent Linux mail spam. |
+| `--test-notification` | Sends a test payload directly to your configured Apprise URLs, then immediately exits. Helps pinpoint `.env` misconfigurations. |
+
+*Example output checking:*
+```bash
+./scripts/run_scraper.sh --debug
+```
+
+## 🔔 Notifications & Messages
+
+You might receive the following notification alerts throughout the lifecycle of the script:
+
+| Notification Title | Body / Cause |
+| :--- | :--- |
+| **Attention required!** | `"{Product} found at a price below {target} {currency}..."` <br> Sent when an item's requested price successfully matches your tracking rule limits. |
+| **Attention required!** | `"Link {url} has not been updated for 24 hours..."` <br> Sent if a specific Skroutz URL continuously fails the scrape. |
+| **Attention required!** | `"Skroutz Price Alert Script encountered errors on some products..."` <br> Sent if the application hits fatal request limits or unhandled exceptions. |
+| **Attention required!** | `"Skroutz Price Alert Script failed. Check error log."` <br> Sent if the system completely failed to run. |
+
+## 🔧 Troubleshooting & Debugging
+
+1. **Checking Error Logs:**
+   If the script fails in the background, tracebacks are written directly to the `data/` directory. Look for `error_log.txt`:
+   ```bash
+   cat data/error_log.txt
+   ```
+2. **Verifying Your Cron Schedule:**
+   You can verify that the system securely installed the background scheduler by running:
+   ```bash
+   crontab -l
+   ```
+   You should see a cron line pointing directly to the `scripts/run_scraper.sh --silent` path.
+3. **Missing Notifications:**
+   Run the script with the `--test-notification` flag:
+   ```bash
+   `./scripts/run_scraper.sh --test-notification`
+   ```
+   If you don't receive a notification, read again the [Notification Settings](#1-notification-settings-env) section and thoroughly verify your Apprise URL syntax in `.env`.
+4. **Failing to Fetch Products:**
+   If the script fails to fetch data for certain products, it could be due to:
+   *   **Incorrect URL / Missing Product:** Check that the product link in `data/products.json` is still valid and active on the platform.
+   *   **Anti-Bot Protection:** If multiple products fail systematically, Skroutz's anti-bot protection might have temporarily blocked the script from fetching data. To resolve this, **decrease the frequency** of the script (edit your cron job) and **remove uninteresting products** to reduce overall network traffic.
+
 > [!TIP]
-> For best results, this script should **not** run behind a VPN, and should ideally be executed from a **Greek IP address**.
-> * High traffic from known VPN providers will trigger strict anti-bot captchas or blocks.
-> * Running from outside the Greek IP address space often results in much stricter anti-bot measures.
+> For best results, this script should **not** run behind a VPN, and should ideally be executed from a **Greek/Local IP address**. High traffic from known VPS/VPN platforms will definitively trigger strict anti-bot captchas and the script will fail to fetch the product data.
 
 ## ⚖️ Rate Limiting
 
-The default configuration of this script is intentionally designed to minimize the load on Skroutz's servers and protect its users.
+The default configuration applies rate limiting to reduce traffic and increase the success rate of the script:
 *   Products are checked sequentially, not concurrently.
-*   A base delay, combined with randomized jitter, is enforced between each request.
-*   The default installation schedules the script to run once an hour. This is more than frequent enough to catch price drops while remaining respectful.
+*   A base 20s delay, plus randomized jitter (1-5s), is enforced between requests.
 
-**Good Practices:**
-*   Remove items from your `products.json` once you purchase them.
-*   Delete entries if you lose interest in a product or if it drops below your target price (and you act on it). Tracking unnecessary products wastes bandwidth.
-
-These measures are important to protect users from IP bans and prevent server overloading. Please do not decrease the delays or run the cron job more frequently.
+**Good Practice:** Periodically remove items from `products.json` once you purchase them or abandon interest. Please do not aggressively decrease the scraping delays. Over-frequent scraping will trigger strict anti-bot captchas and the script will fail to fetch the product data.
 
 ## 🗺️ Future Updates (Roadmap)
 
-- [ ] **Cross-Platform Support:** Add install scripts for macOS and Windows.
-- [ ] **More Notification Services:** Add Discord, Email, Slack, etc.
-- [ ] **Enhanced Evasion:** Rotate TLS sessions and fingerprints between requests.
-- [ ] **User Interface:** Add a more friendly User Interface for setup.
+- [ ] **Enhanced Evasion:** Rotate TLS sessions and request fingerprints intelligently.
+- [ ] **User Interface:** Introduction of a Web UI for non-CLI management.
+- [ ] **Docker Support:** Add an alternative Dockerized setup via docker-compose configuration.
 
 ## 🤝 Contributing & Issues
 
-If you have a suggestion that would make this project better, please fork the repo and create a pull request.
+Contributions are always welcome! If you have an idea to make this project better, feel free to fork the repository and submit a pull request.
 
-If you discover any bugs or issues, please open an issue in the repository. Provide as much detail as possible to help reproduce and fix the problem.
+If you encounter a bug or run into any issues, please open an issue. To help me resolve it quickly, include as much detail as possible, along with a sanitized copy of your `error_log.txt`.
 
-Don't forget to give the project a star! Thanks again!
+Finally, if you find this project helpful, a ⭐ on the repository is hugely appreciated. Thanks for your support!
 
 ## ⚠️ Disclaimer
 
