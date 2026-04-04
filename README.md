@@ -29,7 +29,13 @@
     cd skroutz-price-alert
     ```
 
-2.  **Run the installation script:**
+2.  **Install needed packages**
+    ```bash
+    sudo apt update
+    sudo apt install python3-venv
+    ```
+
+3.  **Run the installation script:**
     ```bash
     chmod +x install.sh
     ./install.sh
@@ -98,13 +104,13 @@ python skroutz_price_alert.py --debug
 ```
 
 > [!TIP]
-> For best results, this script should **not** run behind a VPN, and should ideally be executed from a **Greek IP address**. 
+> For best results, this script should **not** run behind a VPN, and should ideally be executed from a **Greek IP address**.
 > * High traffic from known VPN providers will trigger strict anti-bot captchas or blocks.
 > * Running from outside the Greek IP address space often results in much stricter anti-bot measures.
 
 ## ⚖️ Rate Limiting
 
-The default configuration of this script is intentionally designed to minimize the load on Skroutz's servers and protect its users. 
+The default configuration of this script is intentionally designed to minimize the load on Skroutz's servers and protect its users.
 *   Products are checked sequentially, not concurrently.
 *   A base delay, combined with randomized jitter, is enforced between each request.
 *   The default installation schedules the script to run once an hour. This is more than frequent enough to catch price drops while remaining respectful.
@@ -113,7 +119,7 @@ The default configuration of this script is intentionally designed to minimize t
 *   Remove items from your `config.json` once you purchase them.
 *   Delete entries if you lose interest in a product or if it drops below your target price (and you act on it). Tracking unnecessary products wastes bandwidth.
 
-These measures are important to protect users from IP bans and prevent server overloading. Please do not decrease the delays or run the cron job more frequently. 
+These measures are important to protect users from IP bans and prevent server overloading. Please do not decrease the delays or run the cron job more frequently.
 
 ## 🗺️ Future Updates (Roadmap)
 

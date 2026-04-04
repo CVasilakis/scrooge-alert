@@ -2,7 +2,7 @@
 set -e
 
 # ==============================================================================
-# COLORS 
+# COLORS
 # ==============================================================================
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -35,6 +35,11 @@ cd "$SCRIPT_DIR"
 
 if ! command -v python3 &> /dev/null; then
     echo -e "${RED}Error: python3 is not installed. Please install it first.${NC}"
+    exit 1
+fi
+
+if ! python3 -c "import ensurepip" &> /dev/null; then
+    echo -e "${RED}Error: python3-venv is not installed. Please install it first.${NC}"
     exit 1
 fi
 
