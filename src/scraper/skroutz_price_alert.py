@@ -250,7 +250,7 @@ class SkroutzScraper:
                     print(f"{product_name}: Not available")
                 return None
 
-            price_str = response_data["price_min"]
+            price_str = str(response_data["price_min"])
             # Remove any non-numeric characters except for '.' and ','
             price_str = re.sub(r'[^\d.,]', '', price_str)
             price_str = price_str.replace(",", ".")
@@ -372,14 +372,15 @@ def main() -> None:
     args = parser.parse_args()
 
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    env_path = os.path.join(base_dir, '.env')
+    env_loaded = load_dotenv(dotenv_path=env_path)
+
     default_data_dir = os.path.join(base_dir, "data")
     data_dir = os.environ.get("DATA_DIR", default_data_dir)
 
     if not os.path.exists(data_dir):
         os.makedirs(data_dir)
-
-    env_path = os.path.join(base_dir, '.env')
-    env_loaded = load_dotenv(dotenv_path=env_path)
 
     products_file_path = os.path.join(data_dir, "products.json")
 
