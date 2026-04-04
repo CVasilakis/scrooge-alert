@@ -230,8 +230,9 @@ class SkroutzScraper:
                             if self.debug:
                                 print(f"✅ {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
 
-                        # Update the timestamp
+                        # Update the timestamp and last price
                         products_manager.products_data["products"][index]['last_successful_check'] = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+                        products_manager.products_data["products"][index]['last_price'] = current_price
                         break # Success, move to the next product
                     else:
                         break # Unavailable or invalid URL, move to next
