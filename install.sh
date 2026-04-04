@@ -48,6 +48,11 @@ if ! command -v crontab &> /dev/null; then
     exit 1
 fi
 
+if ! command -v bash &> /dev/null; then
+    echo -e "${RED}Error: bash is not installed. This script requires bash to run the cronjob.${NC}"
+    exit 1
+fi
+
 
 # ------------------------------------------------------------------------------
 # PYTHON VIRTUAL ENVIRONMENT SETUP
@@ -80,7 +85,8 @@ deactivate
 
 echo -e "\n${CYAN}Setting up Cronjob...${NC}"
 
-CRON_CMD="$CRON_SCHEDULE $SCRIPT_DIR/$VENV_DIR/bin/python $SCRIPT_DIR/$MAIN_SCRIPT"
+# Use bash -lc to inherit the user's PATH and environment variables from their profile
+CRON_CMD="$CRON_SCHEDULE /bin/bash -lc 'cd \"$SCRIPT_DIR\" && \"$SCRIPT_DIR/$VENV_DIR/bin/python\" \"$MAIN_SCRIPT\"'"
 CRON_COMMENT="# ${CRON_DESC} (run based on schedule: ${CRON_SCHEDULE})"
 
 # Capture existing crontab
