@@ -193,13 +193,14 @@ class ProductsManager:
                     pass
 
 class SkroutzScraper:
-    def __init__(self, debug: bool = False):
-        self.debug = debug
+    def __init__(self, silent: bool = False):
+        self.silent = silent
         self.interrupted = False
 
     def signal_handler(self, signum, frame):
         sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
-        print(f"\nReceived signal {sig_name}. Gracefully shutting down...")
+        if not self.silent:
+            print(f"\nReceived signal {sig_name}. Gracefully shutting down...")
         self.interrupted = True
 
     def _sleep_with_jitter(self, base_delay: float, attempt: int = 0) -> None:
@@ -207,7 +208,7 @@ class SkroutzScraper:
         jitter = random.uniform(RANDOM_DELAY_MIN, RANDOM_DELAY_MAX)
         total_delay = base_delay + (RETRY_DELAY_MULTIPLIER * attempt) + jitter
 
-        if self.debug:
+        if not self.silent:
             print(f"⏳ Sleeping for {total_delay:.2f} seconds...")
 
         # Break sleep into smaller chunks to remain responsive to interruptions
@@ -224,7 +225,7 @@ class SkroutzScraper:
         match = re.search(r'/s/(\d+)', parsed_url.path)
 
         if not match:
-            if self.debug:
+            if not self.silent:
                 print(f"{product_name}: Failed to parse product ID from URL: {product_url}")
             return None
 
@@ -245,7 +246,7 @@ class SkroutzScraper:
             response_data = response.json()
 
             if response_data.get("price_min") is None:
-                if self.debug:
+                if not self.silent:
                     print(f"{product_name}: Not available")
                 return None
 
@@ -270,14 +271,14 @@ class SkroutzScraper:
         products = products_manager.products_data.get("products", [])
         has_errors = False
 
-        if self.debug:
+        if not self.silent:
             print(f"Loaded {len(products)} products from products data.")
 
         for index, entry in enumerate(products):
             if self.interrupted:
                 break
 
-            if self.debug and index >= 0:
+            if not self.silent and index >= 0:
                 print()
 
             self._sleep_with_jitter(MIN_DELAY_SECONDS)
@@ -288,7 +289,7 @@ class SkroutzScraper:
 
             url = entry.get('url', '')
             if not url:
-                if self.debug:
+                if not self.silent:
                     print(f"⚠️ {product_name}: URL is missing, skipping product.")
                 continue
 
@@ -297,7 +298,7 @@ class SkroutzScraper:
             currency = 'Lei' if domain.endswith('.ro') else '€'
 
             if 'targetPrice' not in entry:
-                if self.debug:
+                if not self.silent:
                     print(f"⚠️ {product_name}: Target price is missing, defaulting to 0.0.")
             target_price = float(entry.get('targetPrice', 0.0))
 
@@ -313,11 +314,11 @@ class SkroutzScraper:
 
                     if current_price is not None:
                         if current_price < target_price:
-                            if self.debug:
+                            if not self.silent:
                                 print(f"🚨 {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
                             notifier.notify_low_price(product_name, target_price, current_price, url, currency)
                         else:
-                            if self.debug:
+                            if not self.silent:
                                 print(f"✅ {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
 
                         # Update the timestamp and last price
@@ -331,11 +332,11 @@ class SkroutzScraper:
                         break # Unavailable or invalid URL, move to next
 
                 except json.JSONDecodeError as e:
-                    if self.debug:
+                    if not self.silent:
                         print(f"Attempt {attempt + 1} failed: Received empty response for {product_name}.")
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
                 except Exception as e:
-                    if self.debug:
+                    if not self.silent:
                         print(f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e} --> {product_name} --> {url}")
 
                     if attempt == MAX_RETRIES - 1:
@@ -346,7 +347,7 @@ class SkroutzScraper:
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
 
         # Save updates
-        if self.debug:
+        if not self.silent:
             print()
             if self.interrupted:
                 print("Saving products data...")
@@ -366,34 +367,27 @@ class SkroutzScraper:
 def main() -> None:
     env_loaded = load_dotenv()
     parser = argparse.ArgumentParser(description='Script with debug flag')
-    parser.add_argument('--debug', action='store_true', help='Enable debug mode')
+    parser.add_argument('--debug', action='store_true', help='Skip the initial startup delay')
+    parser.add_argument('--silent', action='store_true', help='Run script with no console output')
+    parser.add_argument('--test-notification', action='store_true', help='Send a test notification via Apprise and exit')
     args = parser.parse_args()
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     products_file_path = os.path.join(script_dir, "products.json")
 
-    if args.debug:
+    if not args.silent:
         print("Starting Skroutz Price Alert...")
         if not env_loaded or not os.path.exists(os.path.join(script_dir, '.env')):
             print("⚠️ No .env file found or loaded.")
 
     if not os.path.exists(products_file_path):
-        if args.debug:
-            print(f"⚠️ Products file not found at {products_file_path}.")
-        print("Error: products.json file is missing. Please create it or copy from products.json.example.")
+        if not args.silent:
+            print(f"❌ The products.json file is missing! Please create it at {products_file_path} or copy from products.json.example.")
         return
 
-    # Initial Setup & Delay
-    random.seed(time.time())
-    if not args.debug:
-        time.sleep(random.randint(1, STARTUP_DELAY_MAX))
-
-    # Initialize ProductsManager and Notifier
-    products_manager = ProductsManager(products_file_path)
-    products_data = products_manager.load()
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
 
-    if args.debug:
+    if not args.silent:
         env_exists = env_loaded or os.path.exists(os.path.join(script_dir, '.env'))
         if not notification_urls and env_exists:
             print("⚠️ No NOTIFICATION_URLS provided in environment.")
@@ -402,17 +396,40 @@ def main() -> None:
 
     notifier = Notifier(notification_urls)
 
+    if args.test_notification:
+        if not args.silent:
+            print("Sending test notification...")
+        notifier.notify(
+            title="Skroutz Price Alert Test",
+            body="This is a test notification from Skroutz Price Alert."
+        )
+        if not args.silent:
+            print("Test notification sent. Exiting.")
+        return
+
+    # Initial Delay
+    random.seed(time.time())
+    if not args.debug:
+        delay = random.randint(1, STARTUP_DELAY_MAX)
+        if not args.silent:
+            print(f"⏳ Waiting for {delay} seconds before starting. Use the --debug flag to skip this.")
+        time.sleep(delay)
+
+    # Initialize ProductsManager
+    products_manager = ProductsManager(products_file_path)
+    products_data = products_manager.load()
+
     # Locking and Execution
     lock_file_path = os.path.join(script_dir, "skroutz_price_alert_running.lock")
     lock = FileLock(lock_file_path, timeout=LOCK_TIMEOUT)
 
     try:
         with lock:
-            scraper = SkroutzScraper(debug=args.debug)
+            scraper = SkroutzScraper(silent=args.silent)
             scraper.process_products(products_manager, notifier, script_dir)
 
     except Timeout:
-        if args.debug:
+        if not args.silent:
             print('Skroutz Price Alert script did not start! Another instance is currently running.')
     except Exception:
         ErrorHandler.save_traceback(script_dir)

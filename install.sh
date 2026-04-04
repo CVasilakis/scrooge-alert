@@ -86,7 +86,7 @@ deactivate
 echo -e "\n${CYAN}Setting up Cronjob...${NC}"
 
 # Use bash -lc to inherit the user's PATH and environment variables from their profile
-CRON_CMD="$CRON_SCHEDULE /bin/bash -lc 'cd \"$SCRIPT_DIR\" && \"$SCRIPT_DIR/$VENV_DIR/bin/python\" \"$MAIN_SCRIPT\"'"
+CRON_CMD="$CRON_SCHEDULE /bin/bash -lc 'cd \"$SCRIPT_DIR\" && \"$SCRIPT_DIR/$VENV_DIR/bin/python\" \"$MAIN_SCRIPT\" --silent'"
 CRON_COMMENT="# ${CRON_DESC} (run based on schedule: ${CRON_SCHEDULE})"
 
 # Capture existing crontab
