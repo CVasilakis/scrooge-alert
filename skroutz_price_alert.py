@@ -270,7 +270,7 @@ class SkroutzScraper:
 # --- Main Execution ---
 
 def main() -> None:
-    load_dotenv()
+    env_loaded = load_dotenv()
     parser = argparse.ArgumentParser(description='Script with debug flag')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     args = parser.parse_args()
@@ -280,6 +280,14 @@ def main() -> None:
 
     if args.debug:
         print("Starting Skroutz Price Alert...")
+        if not env_loaded or not os.path.exists(os.path.join(script_dir, '.env')):
+            print("⚠️ No .env file found or loaded.")
+
+    if not os.path.exists(products_file_path):
+        if args.debug:
+            print(f"⚠️ Products file not found at {products_file_path}.")
+        print("Error: products.json file is missing. Please create it or copy from products.json.example.")
+        return
 
     # Initial Setup & Delay
     random.seed(time.time())
@@ -290,6 +298,14 @@ def main() -> None:
     products_manager = ProductsManager(products_file_path)
     products_data = products_manager.load()
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
+
+    if args.debug:
+        env_exists = env_loaded or os.path.exists(os.path.join(script_dir, '.env'))
+        if not notification_urls and env_exists:
+            print("⚠️ No NOTIFICATION_URLS provided in environment.")
+        elif notification_urls and ("<bot_token>" in notification_urls or "<chat_id>" in notification_urls):
+            print("⚠️ NOTIFICATION_URLS contains an unconfigured placeholder. Please update it.")
+
     notifier = Notifier(notification_urls)
 
     # Locking and Execution
