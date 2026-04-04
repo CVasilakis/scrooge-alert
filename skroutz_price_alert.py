@@ -2,6 +2,7 @@
 import tls_client
 import apprise
 from filelock import FileLock, Timeout
+from dotenv import load_dotenv
 
 # Standard libraries
 import traceback
@@ -72,10 +73,13 @@ class ErrorHandler:
             log_file.write(f"\n{'-'*100}")
 
 class Notifier:
-    def __init__(self, telegram_url: str):
+    def __init__(self, notification_urls: str):
         self.app_notif = apprise.Apprise()
-        if telegram_url:
-            self.app_notif.add(telegram_url)
+        if notification_urls:
+            for url in notification_urls.split(','):
+                url = url.strip()
+                if url:
+                    self.app_notif.add(url)
 
     def notify(self, title: str, body: str) -> None:
         """Sends a notification with the given title and body."""
@@ -146,12 +150,12 @@ class SkroutzScraper:
         """Scrapes the Skroutz product page and returns the minimum price found."""
         parsed_url = urlparse(product_url)
         match = re.search(r'/s/(\d+)', parsed_url.path)
-        
+
         if not match:
             if self.debug:
                 print(f"{product_name}: Failed to parse product ID from URL: {product_url}")
             return None
-            
+
         product_id = match.group(1)
         api_link = f"https://www.skroutz.gr/s/{product_id}/filter_products.json?"
 
@@ -172,7 +176,7 @@ class SkroutzScraper:
             price_str = response_data["price_min"].replace('€', '').replace(",", ".")
             if price_str.count(".") == 2:
                 price_str = price_str.replace(".", "", 1)
-                
+
             return float(price_str)
 
         finally:
@@ -185,25 +189,25 @@ class SkroutzScraper:
 
         for index, entry in enumerate(products):
             self._sleep_with_jitter(MIN_DELAY_SECONDS)
-            
+
             product_name = entry.get('productName', 'Unknown')
             url = entry.get('url', '')
             if not url:
                 continue
-                
+
             target_price = float(entry.get('targetPrice', 0.0))
-            
+
             for attempt in range(MAX_RETRIES):
                 try:
                     current_price = self.scrape_product(url, product_name)
-                    
+
                     if current_price is not None:
                         if self.debug:
                             print(f"{product_name}: {current_price} €")
-                            
+
                         if current_price < target_price:
                             notifier.notify_low_price(product_name, target_price, current_price, url)
-                            
+
                         # Update the timestamp
                         config_manager.config_data["products"][index]['last_successful_check'] = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
                         break # Success, move to the next product
@@ -217,18 +221,18 @@ class SkroutzScraper:
                 except Exception as e:
                     if self.debug:
                         print(f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e} --> {product_name} --> {url}")
-                    
+
                     if attempt == MAX_RETRIES - 1:
                         ErrorHandler.save_traceback(script_dir)
                         has_errors = True
                         break
-                        
+
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
 
         # Save updates
         config_manager.save_atomically()
         config_manager.check_for_old_entries(OLD_ENTRY_HOURS, notifier)
-        
+
         if has_errors:
             notifier.notify_errors()
 
@@ -236,12 +240,13 @@ class SkroutzScraper:
 # --- Main Execution ---
 
 def main() -> None:
+    load_dotenv()
     parser = argparse.ArgumentParser(description='Script with debug flag')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     args = parser.parse_args()
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    json_file_path = os.path.join(script_dir, "config.json")
+    json_file_path = os.path.join(script_dir, "products.json")
 
     # Initial Setup & Delay
     random.seed(time.time())
@@ -251,8 +256,8 @@ def main() -> None:
     # Initialize Config and Notifier
     config_manager = ConfigManager(json_file_path)
     config_data = config_manager.load()
-    telegram_url = config_data.get("notification", {}).get("telegram", "")
-    notifier = Notifier(telegram_url)
+    notification_urls = os.environ.get("NOTIFICATION_URLS", "")
+    notifier = Notifier(notification_urls)
 
     # Locking and Execution
     lock_file_path = os.path.join(script_dir, "skroutz_price_alert_running.lock")

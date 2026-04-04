@@ -1,7 +1,4 @@
 {
-  "notification": {
-    "telegram": "tgram://<token>/<chat_id>/"
-  },
   "products": [
     {
       "productName": "Samsung SSD 2TB",
