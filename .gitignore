@@ -210,3 +210,5 @@ __marimo__/
 *.lock
 *.tmp
 *.json
+*.pyc
+*.txt

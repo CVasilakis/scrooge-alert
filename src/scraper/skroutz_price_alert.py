@@ -64,9 +64,9 @@ DEFAULT_HEADERS: Dict[str, str] = {
 
 class ErrorHandler:
     @staticmethod
-    def save_traceback(script_dir: str) -> None:
+    def save_traceback(data_dir: str) -> None:
         """Saves the current exception traceback to an error log file."""
-        log_path = os.path.join(script_dir, "error_log.txt")
+        log_path = os.path.join(data_dir, "error_log.txt")
         time_now = datetime.datetime.now().strftime("%Y-%m-%d (%H:%M:%S)")
         with open(log_path, "a", newline='') as log_file:
             log_file.write(f"\n\nAn error occurred at {time_now}:\n")
@@ -262,7 +262,7 @@ class SkroutzScraper:
         finally:
             session.close()
 
-    def process_products(self, products_manager: ProductsManager, notifier: Notifier, script_dir: str) -> None:
+    def process_products(self, products_manager: ProductsManager, notifier: Notifier, data_dir: str) -> None:
         """Orchestrates the scraping of all products in the products data."""
         # Register signal handlers
         signal.signal(signal.SIGINT, self.signal_handler)
@@ -340,7 +340,7 @@ class SkroutzScraper:
                         print(f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e} --> {product_name} --> {url}")
 
                     if attempt == MAX_RETRIES - 1:
-                        ErrorHandler.save_traceback(script_dir)
+                        ErrorHandler.save_traceback(data_dir)
                         has_errors = True
                         break
 
@@ -365,19 +365,27 @@ class SkroutzScraper:
 # --- Main Execution ---
 
 def main() -> None:
-    env_loaded = load_dotenv()
     parser = argparse.ArgumentParser(description='Script with debug flag')
     parser.add_argument('--debug', action='store_true', help='Skip the initial startup delay')
     parser.add_argument('--silent', action='store_true', help='Run script with no console output')
     parser.add_argument('--test-notification', action='store_true', help='Send a test notification via Apprise and exit')
     args = parser.parse_args()
 
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    products_file_path = os.path.join(script_dir, "products.json")
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    default_data_dir = os.path.join(base_dir, "data")
+    data_dir = os.environ.get("DATA_DIR", default_data_dir)
+
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
+
+    env_path = os.path.join(base_dir, '.env')
+    env_loaded = load_dotenv(dotenv_path=env_path)
+
+    products_file_path = os.path.join(data_dir, "products.json")
 
     if not args.silent:
         print("Starting Skroutz Price Alert...")
-        if not env_loaded or not os.path.exists(os.path.join(script_dir, '.env')):
+        if not env_loaded or not os.path.exists(env_path):
             print("⚠️ No .env file found or loaded.")
 
     if not os.path.exists(products_file_path):
@@ -388,7 +396,7 @@ def main() -> None:
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
 
     if not args.silent:
-        env_exists = env_loaded or os.path.exists(os.path.join(script_dir, '.env'))
+        env_exists = env_loaded or os.path.exists(env_path)
         if not notification_urls and env_exists:
             print("⚠️ No NOTIFICATION_URLS provided in environment.")
         elif notification_urls and ("<bot_token>" in notification_urls or "<chat_id>" in notification_urls or "<webhook_id>" in notification_urls or "<webhook_token>" in notification_urls):
@@ -420,19 +428,19 @@ def main() -> None:
     products_data = products_manager.load()
 
     # Locking and Execution
-    lock_file_path = os.path.join(script_dir, "skroutz_price_alert_running.lock")
+    lock_file_path = os.path.join(data_dir, "skroutz_price_alert_running.lock")
     lock = FileLock(lock_file_path, timeout=LOCK_TIMEOUT)
 
     try:
         with lock:
             scraper = SkroutzScraper(silent=args.silent)
-            scraper.process_products(products_manager, notifier, script_dir)
+            scraper.process_products(products_manager, notifier, data_dir)
 
     except Timeout:
         if not args.silent:
             print('Skroutz Price Alert script did not start! Another instance is currently running.')
     except Exception:
-        ErrorHandler.save_traceback(script_dir)
+        ErrorHandler.save_traceback(data_dir)
         notifier.notify(
             title='Skroutz Price Alert - Attention required!',
             body='Skroutz Price Alert Script failed. Check error log.'

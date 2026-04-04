@@ -20,7 +20,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 # Environment and File Configurations
 VENV_DIR="venv"
 REQUIREMENTS_FILE="requirements.txt"
-MAIN_SCRIPT="skroutz_price_alert.py"
+MAIN_SCRIPT="scripts/run_scraper.sh"
 
 # Cronjob Configurations
 CRON_SCHEDULE="0 * * * *"
@@ -85,9 +85,9 @@ deactivate
 
 echo -e "\n${CYAN}Setting up Cronjob...${NC}"
 
-# Use bash -lc to inherit the user's PATH and environment variables from their profile
-CRON_CMD="$CRON_SCHEDULE /bin/bash -lc 'cd \"$SCRIPT_DIR\" && \"$SCRIPT_DIR/$VENV_DIR/bin/python\" \"$MAIN_SCRIPT\" --silent'"
-CRON_COMMENT="# ${CRON_DESC} (run based on schedule: ${CRON_SCHEDULE})"
+# Execute the wrapper script directly
+CRON_CMD="$CRON_SCHEDULE \"$SCRIPT_DIR/$MAIN_SCRIPT\" --silent"
+CRON_COMMENT="# ${CRON_DESC} (runs every hour)"
 
 # Capture existing crontab
 CURRENT_CRON=$(crontab -l 2>/dev/null || true)
@@ -107,6 +107,11 @@ else
 fi
 
 echo -e "${GREEN}Cronjob configured successfully.${NC}"
+
+if [ ! -f "data/products.json" ]; then
+    echo -e "\n${YELLOW}Note: Configuration required!${NC}"
+    echo -e "You need to copy ${CYAN}data/products.json.example${NC} to ${CYAN}data/products.json${NC} and fill it with your desired products."
+fi
 
 echo -e "\n${GREEN}Installation complete!${NC}"
 
