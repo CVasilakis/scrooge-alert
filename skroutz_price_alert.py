@@ -207,6 +207,9 @@ class SkroutzScraper:
         jitter = random.uniform(RANDOM_DELAY_MIN, RANDOM_DELAY_MAX)
         total_delay = base_delay + (RETRY_DELAY_MULTIPLIER * attempt) + jitter
 
+        if self.debug:
+            print(f"⏳ Sleeping for {total_delay:.2f} seconds...")
+
         # Break sleep into smaller chunks to remain responsive to interruptions
         start_time = time.time()
         while time.time() - start_time < total_delay:
@@ -274,13 +277,14 @@ class SkroutzScraper:
             if self.interrupted:
                 break
 
+            if self.debug and index >= 0:
+                print()
+
             self._sleep_with_jitter(MIN_DELAY_SECONDS)
             if self.interrupted:
                 break
 
             product_name = entry.get('productName', 'Unknown')
-            if self.debug:
-                print(f"Checking product: {product_name}")
 
             url = entry.get('url', '')
             if not url:
@@ -328,7 +332,7 @@ class SkroutzScraper:
 
                 except json.JSONDecodeError as e:
                     if self.debug:
-                        print(f"Attempt {attempt + 1} failed: Received empty response from site.")
+                        print(f"Attempt {attempt + 1} failed: Received empty response for {product_name}.")
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
                 except Exception as e:
                     if self.debug:
@@ -343,6 +347,7 @@ class SkroutzScraper:
 
         # Save updates
         if self.debug:
+            print()
             if self.interrupted:
                 print("Saving products data...")
             else:
