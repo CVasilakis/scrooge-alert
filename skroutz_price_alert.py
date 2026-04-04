@@ -209,12 +209,17 @@ class SkroutzScraper:
 
             url = entry.get('url', '')
             if not url:
+                if self.debug:
+                    print(f"⚠️ {product_name}: URL is missing, skipping product.")
                 continue
 
             parsed_url = urlparse(url)
             domain = parsed_url.netloc
             currency = 'Lei' if domain.endswith('.ro') else '€'
 
+            if 'targetPrice' not in entry:
+                if self.debug:
+                    print(f"⚠️ {product_name}: Target price is missing, defaulting to 0.0.")
             target_price = float(entry.get('targetPrice', 0.0))
 
             for attempt in range(MAX_RETRIES):
