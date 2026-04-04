@@ -85,10 +85,10 @@ class Notifier:
         """Sends a notification with the given title and body."""
         self.app_notif.notify(title=title, body=body)
 
-    def notify_low_price(self, product_name: str, target_price: float, current_price: float, url: str) -> None:
+    def notify_low_price(self, product_name: str, target_price: float, current_price: float, url: str, currency: str = '€') -> None:
         self.notify(
             title='Skroutz Price Alert - Attention required!',
-            body=f'{product_name} found at a price bellow {target_price} €.\nCurrent price = {current_price} €.\nLink: {url}'
+            body=f'{product_name} found at a price bellow {target_price} {currency}.\nCurrent price = {current_price} {currency}.\nLink: {url}'
         )
 
     def notify_old_entries(self, hours: int, url: str) -> None:
@@ -151,6 +151,7 @@ class SkroutzScraper:
     def scrape_product(self, product_url: str, product_name: str) -> Optional[float]:
         """Scrapes the Skroutz product page and returns the minimum price found."""
         parsed_url = urlparse(product_url)
+        domain = parsed_url.netloc
         match = re.search(r'/s/(\d+)', parsed_url.path)
 
         if not match:
@@ -159,7 +160,7 @@ class SkroutzScraper:
             return None
 
         product_id = match.group(1)
-        api_link = f"https://www.skroutz.gr/s/{product_id}/filter_products.json?"
+        api_link = f"https://{domain}/s/{product_id}/filter_products.json?"
 
         session = tls_client.Session(
             client_identifier="chrome120",
@@ -167,7 +168,11 @@ class SkroutzScraper:
         )
 
         try:
-            response = session.get(api_link.strip(), headers=DEFAULT_HEADERS)
+            headers = DEFAULT_HEADERS.copy()
+            headers['authority'] = domain
+            headers['referer'] = f"https://{domain}/search?keyphrase=witcher"
+
+            response = session.get(api_link.strip(), headers=headers)
             response_data = response.json()
 
             if response_data.get("price_min") is None:
@@ -175,7 +180,10 @@ class SkroutzScraper:
                     print(f"{product_name}: Not available")
                 return None
 
-            price_str = response_data["price_min"].replace('€', '').replace(",", ".")
+            price_str = response_data["price_min"]
+            # Remove any non-numeric characters except for '.' and ','
+            price_str = re.sub(r'[^\d.,]', '', price_str)
+            price_str = price_str.replace(",", ".")
             if price_str.count(".") == 2:
                 price_str = price_str.replace(".", "", 1)
 
@@ -203,6 +211,10 @@ class SkroutzScraper:
             if not url:
                 continue
 
+            parsed_url = urlparse(url)
+            domain = parsed_url.netloc
+            currency = 'Lei' if domain.endswith('.ro') else '€'
+
             target_price = float(entry.get('targetPrice', 0.0))
 
             for attempt in range(MAX_RETRIES):
@@ -212,11 +224,11 @@ class SkroutzScraper:
                     if current_price is not None:
                         if current_price < target_price:
                             if self.debug:
-                                print(f"🚨 {product_name}: {current_price} € (Target: {target_price} €)")
-                            notifier.notify_low_price(product_name, target_price, current_price, url)
+                                print(f"🚨 {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
+                            notifier.notify_low_price(product_name, target_price, current_price, url, currency)
                         else:
                             if self.debug:
-                                print(f"✅ {product_name}: {current_price} € (Target: {target_price} €)")
+                                print(f"✅ {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
 
                         # Update the timestamp
                         config_manager.config_data["products"][index]['last_successful_check'] = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")

@@ -3,14 +3,27 @@
     {
       "productName": "Samsung SSD 2TB",
       "url": "https://www.skroutz.gr/s/39358691/Samsung-990-PRO-SSD-2TB-M-2-NVMe-PCI-Express-4-0-MZ-V9P2T0BW.html",
-      "targetPrice": "120",
-      "last_successful_check": ""
+      "targetPrice": "100"
     },
     {
-      "productName": "Apple MacBook Pro 14 2023",
-      "url": "https://www.skroutz.gr/s/48136245/Apple-MacBook-Pro-14-2023-14-2-Retina-Display-120Hz-M3-8-core-8GB-1TB-SSD-10-Core-GPU-Silver-US-Keyboard.html",
-      "targetPrice": "2000",
-      "last_successful_check": ""
+      "productName": "Dremel",
+      "url": "https://www.skroutz.cy/s/32650272/Dremel-4250-Peristrofiko-Polyergaleio-175W-me-Rythmisi-Tachytitas.html",
+      "targetPrice": "50"
+    },
+    {
+      "productName": "Nintendo Switch 2 256GB",
+      "url": "https://www.skroutz.bg/s/58318540/Nintendo-Switch-2-256GB.html",
+      "targetPrice": "100"
+    },
+    {
+      "productName": "Tommy Hilfiger watch",
+      "url": "https://www.skroutz.de/s/17582724/Tommy-Hilfiger-Daniel-Herrenuhr-44mm-Chronograph-Batterie-mit-Schwarz-Metallarmband-1710383.html",
+      "targetPrice": "10"
+    },
+    {
+      "productName": "New Balance 530 Adidasi Albi",
+      "url": "https://www.skroutz.ro/s/65221433/new-balance-530-adidasi-albi-mr530asg.html",
+      "targetPrice": "10"
     }
   ]
 }
