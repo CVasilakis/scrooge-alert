@@ -2,3 +2,4 @@ tls-client
 apprise
 filelock
 python-dotenv
+typing_extensions

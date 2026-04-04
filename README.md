@@ -42,13 +42,25 @@
 
 ## ⚙️ Configuration
 
-Before running the script, you need to configure the products to monitor and notification settings in `config.json`.
+Before running the script, you need to configure the products to monitor in `products.json` and notification settings in a `.env` file.
+
+**1. Create a `.env` file in the root directory:**
+You can start by copying the provided `.env.example` file:
+```bash
+cp .env.example .env
+```
+Then, edit the `.env` file to add your notification URL(s):
+```env
+NOTIFICATION_URLS="tgram://<bot_token>/<chat_id>/"
+```
+*   **`NOTIFICATION_URLS`**: Your Apprise Notification URLs separated by commas. For Telegram (`tgram://<bot_token>/<chat_id>/`).
+    *   **Bot Token:** Follow the [Telegram Bot Guide](https://core.telegram.org/bots#how-do-i-create-a-bot) to generate one.
+    *   **Chat ID:** Follow [this guide](https://www.alphr.com/find-chat-id-telegram/) to find yours.
+
+**2. Configure products in `products.json`:**
 
 ```json
 {
-  "notification": {
-    "telegram": "tgram://<bot_token>/<chat_id>/"
-  },
   "products": [
     {
       "productName": "Product 1",
@@ -78,10 +90,6 @@ Before running the script, you need to configure the products to monitor and not
     *   `targetPrice`: The price threshold for alerts.
     *   `last_successful_check`: Leave blank. Used internally to track stale entries.
 
-*   **`notification.telegram`**: Your Telegram Webhook Apprise URL (`tgram://<bot_token>/<chat_id>/`).
-    *   **Bot Token:** Follow the [Telegram Bot Guide](https://core.telegram.org/bots#how-do-i-create-a-bot) to generate one.
-    *   **Chat ID:** Follow [this guide](https://www.alphr.com/find-chat-id-telegram/) to find yours.
-
 ## 💻 Usage
 
 There are two ways to execute the script: automatically via the scheduled cron job, or manually for testing.
@@ -98,22 +106,22 @@ python skroutz_price_alert.py --debug
 ```
 
 > [!TIP]
-> For best results, this script should **not** run behind a VPN, and should ideally be executed from a **Greek IP address**. 
+> For best results, this script should **not** run behind a VPN, and should ideally be executed from a **Greek IP address**.
 > * High traffic from known VPN providers will trigger strict anti-bot captchas or blocks.
 > * Running from outside the Greek IP address space often results in much stricter anti-bot measures.
 
 ## ⚖️ Rate Limiting
 
-The default configuration of this script is intentionally designed to minimize the load on Skroutz's servers and protect its users. 
+The default configuration of this script is intentionally designed to minimize the load on Skroutz's servers and protect its users.
 *   Products are checked sequentially, not concurrently.
 *   A base delay, combined with randomized jitter, is enforced between each request.
 *   The default installation schedules the script to run once an hour. This is more than frequent enough to catch price drops while remaining respectful.
 
 **Good Practices:**
-*   Remove items from your `config.json` once you purchase them.
+*   Remove items from your `products.json` once you purchase them.
 *   Delete entries if you lose interest in a product or if it drops below your target price (and you act on it). Tracking unnecessary products wastes bandwidth.
 
-These measures are important to protect users from IP bans and prevent server overloading. Please do not decrease the delays or run the cron job more frequently. 
+These measures are important to protect users from IP bans and prevent server overloading. Please do not decrease the delays or run the cron job more frequently.
 
 ## 🗺️ Future Updates (Roadmap)
 
