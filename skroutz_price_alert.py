@@ -5,6 +5,7 @@ from filelock import FileLock, Timeout
 from dotenv import load_dotenv
 
 # Standard libraries
+import signal
 import traceback
 import datetime
 import argparse
@@ -194,12 +195,24 @@ class ProductsManager:
 class SkroutzScraper:
     def __init__(self, debug: bool = False):
         self.debug = debug
+        self.interrupted = False
+
+    def signal_handler(self, signum, frame):
+        sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
+        print(f"\nReceived signal {sig_name}. Gracefully shutting down...")
+        self.interrupted = True
 
     def _sleep_with_jitter(self, base_delay: float, attempt: int = 0) -> None:
         """Sleeps for a base time plus some jitter based on the current attempt."""
         jitter = random.uniform(RANDOM_DELAY_MIN, RANDOM_DELAY_MAX)
         total_delay = base_delay + (RETRY_DELAY_MULTIPLIER * attempt) + jitter
-        time.sleep(total_delay)
+
+        # Break sleep into smaller chunks to remain responsive to interruptions
+        start_time = time.time()
+        while time.time() - start_time < total_delay:
+            if self.interrupted:
+                break
+            time.sleep(0.5)
 
     def scrape_product(self, product_url: str, product_name: str) -> Optional[float]:
         """Scrapes the Skroutz product page and returns the minimum price found."""
@@ -247,6 +260,10 @@ class SkroutzScraper:
 
     def process_products(self, products_manager: ProductsManager, notifier: Notifier, script_dir: str) -> None:
         """Orchestrates the scraping of all products in the products data."""
+        # Register signal handlers
+        signal.signal(signal.SIGINT, self.signal_handler)
+        signal.signal(signal.SIGTERM, self.signal_handler)
+
         products = products_manager.products_data.get("products", [])
         has_errors = False
 
@@ -254,7 +271,12 @@ class SkroutzScraper:
             print(f"Loaded {len(products)} products from products data.")
 
         for index, entry in enumerate(products):
+            if self.interrupted:
+                break
+
             self._sleep_with_jitter(MIN_DELAY_SECONDS)
+            if self.interrupted:
+                break
 
             product_name = entry.get('productName', 'Unknown')
             if self.debug:
@@ -276,8 +298,14 @@ class SkroutzScraper:
             target_price = float(entry.get('targetPrice', 0.0))
 
             for attempt in range(MAX_RETRIES):
+                if self.interrupted:
+                    break
+
                 try:
                     current_price = self.scrape_product(url, product_name)
+
+                    if self.interrupted:
+                        break
 
                     if current_price is not None:
                         if current_price < target_price:
@@ -315,11 +343,16 @@ class SkroutzScraper:
 
         # Save updates
         if self.debug:
-            print("Saving products data and checking for old entries...")
+            if self.interrupted:
+                print("Saving products data...")
+            else:
+                print("Saving products data and checking for old entries...")
         products_manager.save_atomically()
-        products_manager.check_for_old_entries(OLD_ENTRY_HOURS, notifier)
 
-        if has_errors:
+        if not self.interrupted:
+            products_manager.check_for_old_entries(OLD_ENTRY_HOURS, notifier)
+
+        if has_errors and not self.interrupted:
             notifier.notify_errors()
 
 
