@@ -87,20 +87,20 @@ class Notifier:
 
     def notify_low_price(self, product_name: str, target_price: float, current_price: float, url: str) -> None:
         self.notify(
-            title='Skroutz Check - Attention required!',
+            title='Skroutz Price Alert - Attention required!',
             body=f'{product_name} found at a price bellow {target_price} €.\nCurrent price = {current_price} €.\nLink: {url}'
         )
 
     def notify_old_entries(self, hours: int, url: str) -> None:
         self.notify(
-            title='Skroutz Check - Attention required!',
+            title='Skroutz Price Alert - Attention required!',
             body=f'Link {url} has not been updated for {hours} hours.\nCheck if product page has a problem and error logs.'
         )
 
     def notify_errors(self) -> None:
         self.notify(
-            title='Skroutz Check - Attention required!',
-            body='Skroutz Check Script encountered errors on some products. Check error log.'
+            title='Skroutz Price Alert - Attention required!',
+            body='Skroutz Price Alert Script encountered errors on some products. Check error log.'
         )
 
 class ConfigManager:
@@ -126,12 +126,14 @@ class ConfigManager:
         """Checks if any products haven't been successfully checked in the specified hours."""
         for row in self.config_data.get("products", []):
             url = row.get('url', '')
+            product_name = row.get('productName', 'Unknown')
             last_check = row.get('last_successful_check')
             if last_check:
                 try:
                     timestamp = datetime.datetime.strptime(last_check, "%d-%m-%Y %H:%M:%S")
                     current_time = datetime.datetime.now()
                     if (current_time - timestamp) > datetime.timedelta(hours=hours):
+                        print(f"⚠️ Old entry found for {product_name}: {url} (Last check: {last_check})")
                         notifier.notify_old_entries(hours, url)
                 except ValueError:
                     pass
@@ -187,10 +189,16 @@ class SkroutzScraper:
         products = config_manager.config_data.get("products", [])
         has_errors = False
 
+        if self.debug:
+            print(f"Loaded {len(products)} products from configuration.")
+
         for index, entry in enumerate(products):
             self._sleep_with_jitter(MIN_DELAY_SECONDS)
 
             product_name = entry.get('productName', 'Unknown')
+            if self.debug:
+                print(f"Checking product: {product_name}")
+
             url = entry.get('url', '')
             if not url:
                 continue
@@ -202,11 +210,13 @@ class SkroutzScraper:
                     current_price = self.scrape_product(url, product_name)
 
                     if current_price is not None:
-                        if self.debug:
-                            print(f"{product_name}: {current_price} €")
-
                         if current_price < target_price:
+                            if self.debug:
+                                print(f"🚨 {product_name}: {current_price} € (Target: {target_price} €)")
                             notifier.notify_low_price(product_name, target_price, current_price, url)
+                        else:
+                            if self.debug:
+                                print(f"✅ {product_name}: {current_price} € (Target: {target_price} €)")
 
                         # Update the timestamp
                         config_manager.config_data["products"][index]['last_successful_check'] = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
@@ -230,6 +240,8 @@ class SkroutzScraper:
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
 
         # Save updates
+        if self.debug:
+            print("Saving configuration and checking for old entries...")
         config_manager.save_atomically()
         config_manager.check_for_old_entries(OLD_ENTRY_HOURS, notifier)
 
@@ -247,6 +259,9 @@ def main() -> None:
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     json_file_path = os.path.join(script_dir, "products.json")
+
+    if args.debug:
+        print("Starting Skroutz Price Alert...")
 
     # Initial Setup & Delay
     random.seed(time.time())
@@ -270,12 +285,12 @@ def main() -> None:
 
     except Timeout:
         if args.debug:
-            print('Skroutz Check script did not start! Another instance is currently running.')
+            print('Skroutz Price Alert script did not start! Another instance is currently running.')
     except Exception:
         ErrorHandler.save_traceback(script_dir)
         notifier.notify(
-            title='Skroutz Check - Attention required!',
-            body='Skroutz Check Script failed. Check error log.'
+            title='Skroutz Price Alert - Attention required!',
+            body='Skroutz Price Alert Script failed. Check error log.'
         )
 
 if __name__ == "__main__":
