@@ -16,7 +16,7 @@ import re
 from urllib.parse import urlparse
 from typing import Dict, Any, Optional
 
-# --- Configuration Constants ---
+# --- Script Constants ---
 
 # Maximum number of times to retry scraping a product if the request fails
 MAX_RETRIES: int = 3
@@ -103,28 +103,28 @@ class Notifier:
             body='Skroutz Price Alert Script encountered errors on some products. Check error log.'
         )
 
-class ConfigManager:
-    def __init__(self, config_path: str):
-        self.config_path = config_path
-        self.config_data: Dict[str, Any] = {}
+class ProductsManager:
+    def __init__(self, products_path: str):
+        self.products_path = products_path
+        self.products_data: Dict[str, Any] = {}
 
     def load(self) -> Dict[str, Any]:
-        """Loads the configuration from the JSON file."""
-        if os.path.exists(self.config_path):
-            with open(self.config_path, 'r') as file:
-                self.config_data = json.load(file)
-        return self.config_data
+        """Loads the products data from the JSON file."""
+        if os.path.exists(self.products_path):
+            with open(self.products_path, 'r') as file:
+                self.products_data = json.load(file)
+        return self.products_data
 
     def save_atomically(self) -> None:
-        """Saves the configuration back to the JSON file atomically."""
-        temp_file_path = self.config_path + ".tmp"
+        """Saves the products data back to the JSON file atomically."""
+        temp_file_path = self.products_path + ".tmp"
         with open(temp_file_path, mode='w') as file:
-            json.dump(self.config_data, file, indent=2)
-        os.replace(temp_file_path, self.config_path)
+            json.dump(self.products_data, file, indent=2)
+        os.replace(temp_file_path, self.products_path)
 
     def check_for_old_entries(self, hours: int, notifier: Notifier) -> None:
         """Checks if any products haven't been successfully checked in the specified hours."""
-        for row in self.config_data.get("products", []):
+        for row in self.products_data.get("products", []):
             url = row.get('url', '')
             product_name = row.get('productName', 'Unknown')
             last_check = row.get('last_successful_check')
@@ -192,13 +192,13 @@ class SkroutzScraper:
         finally:
             session.close()
 
-    def process_products(self, config_manager: ConfigManager, notifier: Notifier, script_dir: str) -> None:
-        """Orchestrates the scraping of all products in the configuration."""
-        products = config_manager.config_data.get("products", [])
+    def process_products(self, products_manager: ProductsManager, notifier: Notifier, script_dir: str) -> None:
+        """Orchestrates the scraping of all products in the products data."""
+        products = products_manager.products_data.get("products", [])
         has_errors = False
 
         if self.debug:
-            print(f"Loaded {len(products)} products from configuration.")
+            print(f"Loaded {len(products)} products from products data.")
 
         for index, entry in enumerate(products):
             self._sleep_with_jitter(MIN_DELAY_SECONDS)
@@ -231,7 +231,7 @@ class SkroutzScraper:
                                 print(f"✅ {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
 
                         # Update the timestamp
-                        config_manager.config_data["products"][index]['last_successful_check'] = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+                        products_manager.products_data["products"][index]['last_successful_check'] = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
                         break # Success, move to the next product
                     else:
                         break # Unavailable or invalid URL, move to next
@@ -253,9 +253,9 @@ class SkroutzScraper:
 
         # Save updates
         if self.debug:
-            print("Saving configuration and checking for old entries...")
-        config_manager.save_atomically()
-        config_manager.check_for_old_entries(OLD_ENTRY_HOURS, notifier)
+            print("Saving products data and checking for old entries...")
+        products_manager.save_atomically()
+        products_manager.check_for_old_entries(OLD_ENTRY_HOURS, notifier)
 
         if has_errors:
             notifier.notify_errors()
@@ -270,7 +270,7 @@ def main() -> None:
     args = parser.parse_args()
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    json_file_path = os.path.join(script_dir, "products.json")
+    products_file_path = os.path.join(script_dir, "products.json")
 
     if args.debug:
         print("Starting Skroutz Price Alert...")
@@ -280,9 +280,9 @@ def main() -> None:
     if not args.debug:
         time.sleep(random.randint(1, STARTUP_DELAY_MAX))
 
-    # Initialize Config and Notifier
-    config_manager = ConfigManager(json_file_path)
-    config_data = config_manager.load()
+    # Initialize ProductsManager and Notifier
+    products_manager = ProductsManager(products_file_path)
+    products_data = products_manager.load()
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
     notifier = Notifier(notification_urls)
 
@@ -293,7 +293,7 @@ def main() -> None:
     try:
         with lock:
             scraper = SkroutzScraper(debug=args.debug)
-            scraper.process_products(config_manager, notifier, script_dir)
+            scraper.process_products(products_manager, notifier, script_dir)
 
     except Timeout:
         if args.debug:
