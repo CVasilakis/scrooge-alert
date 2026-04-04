@@ -88,19 +88,19 @@ class Notifier:
 
     def notify_low_price(self, product_name: str, target_price: float, current_price: float, url: str, currency: str = '€') -> None:
         self.notify(
-            title='Skroutz Price Alert - Attention required!',
-            body=f'{product_name} found at a price bellow {target_price} {currency}.\nCurrent price = {current_price} {currency}.\nLink: {url}'
+            title='Skroutz Price Drop Alert! 📉',
+            body=f'{product_name} found at a price below {target_price} {currency}.\nCurrent price = {current_price} {currency}.\nLink: {url}'
         )
 
     def notify_old_entries(self, hours: int, url: str) -> None:
         self.notify(
-            title='Skroutz Price Alert - Attention required!',
+            title='Skroutz Tracking Stale ⚠️',
             body=f'Link {url} has not been updated for {hours} hours.\nCheck if product page has a problem and error logs.'
         )
 
     def notify_errors(self) -> None:
         self.notify(
-            title='Skroutz Price Alert - Attention required!',
+            title='Skroutz Scraping Errors ❌',
             body='Skroutz Price Alert Script encountered errors on some products. Check error log.'
         )
 
@@ -442,7 +442,7 @@ def main() -> None:
     except Exception:
         ErrorHandler.save_traceback(data_dir)
         notifier.notify(
-            title='Skroutz Price Alert - Attention required!',
+            title='Skroutz Script Crash 💥',
             body='Skroutz Price Alert Script failed. Check error log.'
         )
 

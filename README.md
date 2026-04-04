@@ -148,10 +148,10 @@ You might receive the following notification alerts throughout the lifecycle of 
 
 | Notification Title | Body / Cause |
 | :--- | :--- |
-| **Attention required!** | `"{Product} found at a price below {target} {currency}..."` <br> Sent when an item's requested price successfully matches your tracking rule limits. |
-| **Attention required!** | `"Link {url} has not been updated for 24 hours..."` <br> Sent if a specific Skroutz URL continuously fails the scrape. |
-| **Attention required!** | `"Skroutz Price Alert Script encountered errors on some products..."` <br> Sent if the application hits fatal request limits or unhandled exceptions. |
-| **Attention required!** | `"Skroutz Price Alert Script failed. Check error log."` <br> Sent if the system completely failed to run. |
+| **Skroutz Price Drop Alert! 📉** | `"{Product} found at a price below {target} {currency}..."` <br> Sent when an item's requested price successfully matches your tracking rule limits. |
+| **Skroutz Tracking Stale ⚠️** | `"Link {url} has not been updated for 24 hours..."` <br> Sent if a specific Skroutz URL continuously fails the scrape. |
+| **Skroutz Scraping Errors ❌** | `"Skroutz Price Alert Script encountered errors on some products..."` <br> Sent if the application hits fatal request limits or unhandled exceptions. |
+| **Skroutz Script Crash 💥** | `"Skroutz Price Alert Script failed. Check error log."` <br> Sent if the system completely failed to run. |
 
 ## 🔧 Troubleshooting & Debugging
 
