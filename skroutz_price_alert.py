@@ -397,7 +397,7 @@ def main() -> None:
         env_exists = env_loaded or os.path.exists(os.path.join(script_dir, '.env'))
         if not notification_urls and env_exists:
             print("⚠️ No NOTIFICATION_URLS provided in environment.")
-        elif notification_urls and ("<bot_token>" in notification_urls or "<chat_id>" in notification_urls):
+        elif notification_urls and ("<bot_token>" in notification_urls or "<chat_id>" in notification_urls or "<webhook_id>" in notification_urls or "<webhook_token>" in notification_urls):
             print("⚠️ NOTIFICATION_URLS contains an unconfigured placeholder. Please update it.")
 
     notifier = Notifier(notification_urls)

@@ -59,7 +59,7 @@ Then, edit the `.env` file to add your notification URL(s):
 ```env
 NOTIFICATION_URLS="tgram://<bot_token>/<chat_id>/"
 ```
-*   **`NOTIFICATION_URLS`**: Your Apprise Notification URLs separated by commas. For Telegram (`tgram://<bot_token>/<chat_id>/`).
+*   **`NOTIFICATION_URLS`**: Your Apprise Notification URLs separated by commas. For Telegram (`tgram://<bot_token>/<chat_id>`), for Discord (`discord://<webhook_id>/<webhook_token>`).
     *   **Bot Token:** Follow the [Telegram Bot Guide](https://core.telegram.org/bots#how-do-i-create-a-bot) to generate one.
     *   **Chat ID:** Follow [this guide](https://www.alphr.com/find-chat-id-telegram/) to find yours.
 
