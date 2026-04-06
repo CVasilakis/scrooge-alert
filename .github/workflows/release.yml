@@ -1,0 +1,31 @@
+name: Manual Draft Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Tag for this release (e.g., v1.1.0)'
+        required: true
+        type: string
+      release_name:
+        description: 'Title of the release (e.g., Spring Update)'
+        required: true
+        type: string
+
+jobs:
+  create-draft-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Create Draft Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version_tag }}
+          name: "${{ inputs.version_tag }} - ${{ inputs.release_name }}"
+          draft: true
+          generate_release_notes: true
