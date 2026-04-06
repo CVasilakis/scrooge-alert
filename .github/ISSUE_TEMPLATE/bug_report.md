@@ -12,17 +12,18 @@ A clear and concise description of what the bug is.
 
 **To Reproduce**
 Steps to reproduce the behavior:
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
 
 **Screenshots**
 If applicable, add screenshots to help explain your problem.
 
-**Please complete the following information:**
- - OS: [e.g. Windows]
- - Number of monitored products:
+**Please complete the following information (if relevant to your issue):**
+ - OS: [e.g. Ubuntu 22.04]
+ - Python version: [e.g., 3.12]
+ - Number of monitored products: [e.g., 8]
+ - Index of the failed product: [e.g., 5th URL]
+ - URL of the failed product: [e.g., https://www.skroutz.gr/s/.../...html]
+ - VPN usage along with the script:[e.g., Yes / No]
+ - What country is your script connecting from? [e.g., Greece, Germany, etc]
 
 **Files:**
 Add here any files relevant to the issue (e.g. log files or monitored products URLs).
