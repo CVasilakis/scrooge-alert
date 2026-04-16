@@ -11,22 +11,26 @@
 3. [Prerequisites](#-prerequisites)
 4. [Installation](#-installation)
 5. [Configuration](#️-configuration)
-   - [Notification Settings (.env)](#1-notification-settings-env)
-   - [Product Tracking (products.json)](#2-product-tracking-dataproductsjson)
+   - [Notification Settings (.env)](#file-1-notification-settings-env)
+   - [Product Tracking (products.json)](#file-2-product-tracking-dataproductsjson)
 6. [Usage](#-usage)
-   - [Automated Cron Run](#automated-run)
-   - [Manual & Debug Modes (CLI Flags)](#manual-run--debug-mode-cli-flags)
+   - [Automated Cron Run](#option-1-automated-run)
+   - [Manual & Debug Modes (CLI Flags)](#option-2-manual-run--debug-mode-cli-flags)
 7. [Notifications & Messages](#-notifications--messages)
 8. [Troubleshooting & Debugging](#-troubleshooting--debugging)
 9. [Rate Limiting](#️-rate-limiting)
-10. [Roadmap](#️-future-updates-roadmap)
-11. [Disclaimer & License](#️-disclaimer)
+10. [Frequently Asked Questions (FAQ)](#-frequently-asked-questions-faq)
+11. [Future Updates (Roadmap)](#️-future-updates-roadmap)
+12. [Contributing & Issues](#-contributing--issues)
+13. [Support & Donations](#-support--donations)
+14. [Disclaimer](#️-disclaimer)
+15. [License](#-license)
 
 ## ✨ Features
 
 *   **Automated Monitoring:** Set it and forget it. Tracks products silently in the background.
 *   **Custom Target Prices:** Define specific price drop thresholds for every individual item.
-*   **Smart Notifications:** Get instant push notifications (Telegram, Discord, Slack, Email, etc.) for price drops or errors.
+*   **Instant Notifications:** Get instant push notifications (Telegram, Discord, Slack, Email, etc.) for price drops or errors.
 *   **Anti-Bot Evasion:** Safely fetches data using realistic browser fingerprints and randomized delays to avoid blocks.
 
 ## 🌍 Supported Domains
@@ -42,6 +46,8 @@ The script dynamically detects the locale and currency based on the Skroutz URL.
 *   Linux/Unix environment (`bash`).
 *   Python 3 installed (`python3`, `python3-venv`).
 *   `crontab` available for scheduling.
+
+*(Note: Minimum required Python version is Python 3.7).*
 
 ## 🚀 Installation
 
@@ -166,24 +172,39 @@ You might receive the following notification alerts throughout the lifecycle of 
 3. **Missing Notifications:**
    Run the script with the `--test-notification` flag:
    ```bash
-   `./scripts/run_scraper.sh --test-notification`
+   ./scripts/run_scraper.sh --test-notification
    ```
-   If you don't receive a notification, read again the [Notification Settings](#1-notification-settings-env) section and thoroughly verify your Apprise URL syntax in `.env`.
+   If you don't receive a notification, read again the [Notification Settings](#file-1-notification-settings-env) section and thoroughly verify your Apprise URL syntax in `.env`.
 4. **Failing to Fetch Products:**
    If the script fails to fetch data for certain products, it could be due to:
    *   **Incorrect URL / Missing Product:** Check that the product link in `data/products.json` is still valid and active on the platform.
    *   **Anti-Bot Protection:** If multiple products fail systematically, Skroutz's anti-bot protection might have temporarily blocked the script from fetching data. To resolve this, **decrease the frequency** of the script (edit your cron job) and **remove uninteresting products** to reduce overall network traffic.
 
 > [!TIP]
-> For best results, this script should **not** run behind a VPN, and should ideally be executed from a **Greek/Local IP address**. High traffic from known VPS/VPN platforms will definitively trigger strict anti-bot captchas and the script will fail to fetch the product data.
+> For best results, this script should **not** run behind a VPN, and should ideally be executed from a **Greek/Local IP address**. High traffic from known VPS/VPN platforms will definitively trigger strict anti-bot mechanisms and the script will fail to fetch the product data.
 
 ## ⚖️ Rate Limiting
 
 The default configuration applies rate limiting to reduce traffic and increase the success rate of the script:
+*   A randomized startup delay (up to 60 seconds) is applied before each background execution to avoid exact scheduling footprints.
 *   Products are checked sequentially, not concurrently.
 *   A base 20s delay, plus randomized jitter (1-5s), is enforced between requests.
 
-**Good Practice:** Periodically remove items from `products.json` once you purchase them or abandon interest. Please do not aggressively decrease the scraping delays. Over-frequent scraping will trigger strict anti-bot captchas and the script will fail to fetch the product data.
+**Good Practice:** Periodically remove items from `products.json` once you purchase them or abandon interest. Please do not aggressively decrease the scraping delays. Over-frequent scraping will trigger strict anti-bot mechanisms and the script will fail to fetch the product data.
+
+## ❓ Frequently Asked Questions (FAQ)
+
+**1. Is it safe to modify the `products.json` file while the script is actively running?**  
+Yes, absolutely. You can safely edit, add, or remove products at any time. The script uses an atomic save mechanism. Changes you make will be safely preserved, and the script will pick up the updated list on its next scheduled execution cycle.
+
+**2. How long does it take for the script to finish if I monitor 10 products?**  
+By default, there is a randomized startup delay of up to `60` seconds. For each product, there's a base delay of `20` seconds plus a jitter of `1-5` seconds. So, for 10 products, the execution will take approximately **4 to 6 minutes** to completely finish.
+
+**3. With the default hourly configuration, is there an upper limit to the number of products I can monitor?**  
+Since the script takes about 25 seconds per product, monitoring too many products might cause the script execution to exceed the 60-minute window before the next cron job starts. The script has process locking to prevent overlaps, but practically, the soft upper limit is around **100 products** per instance while using the default hourly configuration.
+
+**4. Can I get notified in the XYZ service?**  
+Most likely, yes! The script uses the [Apprise](https://github.com/caronc/apprise) push notification library, which supports almost every major platform available. As long as you can format your target service as an Apprise URL inside the `.env` file, it will work. Check their [Supported Services](https://appriseit.com/services/) page.
 
 ## 🗺️ Future Updates (Roadmap)
 
@@ -197,7 +218,17 @@ Contributions are always welcome! If you have an idea to make this project bette
 
 If you encounter a bug or run into any issues, please open an issue. To help me resolve it quickly, include as much detail as possible, along with a sanitized copy of your `error_log.txt`.
 
-Finally, if you find this project helpful, a ⭐ on the repository is hugely appreciated. Thanks for your support!
+Finally, if you find this project helpful, a ⭐ on the repository is hugely appreciated!
+
+## 💝 Support & Donations
+
+If this project helped you snag a great deal or saved you some valuable time, please consider buying me a coffee or leaving a small tip. Thanks for your support!
+
+<p align="left">
+  <a href="https://www.paypal.com/donate/?hosted_button_id=EQ4BXMGA2R544">
+    <img src="assets/qrcode.svg" alt="Donation QR Code" width="150">
+  </a>
+</p>
 
 ## ⚠️ Disclaimer
 
