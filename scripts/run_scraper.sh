@@ -1,14 +1,15 @@
-#!/bin/bash
-# Wrapper script to run the Skroutz Price Alert scraper
+#!/bin/sh
+set -e
 
-SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+# Wrapper script to run the Skroutz Price Alert scraper
+SCRIPT_DIR="$(cd "$(dirname "$0")" >/dev/null 2>&1 && pwd)"
 BASE_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Activate virtual environment
-source "$BASE_DIR/venv/bin/activate"
+. "$BASE_DIR/venv/bin/activate"
 
-# Export data directory to be safe (though default handles it)
+# Export data directory to be safe
 export DATA_DIR="$BASE_DIR/data"
 
-# Run the python script and pass any arguments
+# Run the python script and pass arguments
 python "$BASE_DIR/src/scraper/skroutz_price_alert.py" "$@"

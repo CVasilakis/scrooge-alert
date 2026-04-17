@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
 # ==============================================================================
@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 # ==============================================================================
 
 # Automatically get the directory where the script is located
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+SCRIPT_DIR="$( cd "$( dirname "$0" )" >/dev/null 2>&1 && pwd )"
 
 # Environment and File Configurations
 VENV_DIR="venv"
@@ -33,23 +33,18 @@ CRON_DESC="Skroutz_check notification task"
 
 cd "$SCRIPT_DIR"
 
-if ! command -v python3 &> /dev/null; then
-    echo -e "${RED}Error: python3 is not installed. Please install it first.${NC}"
+if ! command -v python3 > /dev/null 2>&1; then
+    printf "%b\n" "${RED}Error: python3 is not installed. Please install it first.${NC}"
     exit 1
 fi
 
-if ! python3 -c "import ensurepip" &> /dev/null; then
-    echo -e "${RED}Error: python3-venv is not installed. Please install it first.${NC}"
+if ! python3 -c "import ensurepip" > /dev/null 2>&1; then
+    printf "%b\n" "${RED}Error: python3-venv is not installed. Please install it first.${NC}"
     exit 1
 fi
 
-if ! command -v crontab &> /dev/null; then
-    echo -e "${RED}Error: crontab is not installed. Please install it first.${NC}"
-    exit 1
-fi
-
-if ! command -v bash &> /dev/null; then
-    echo -e "${RED}Error: bash is not installed. This script requires bash to run the cronjob.${NC}"
+if ! command -v crontab > /dev/null 2>&1; then
+    printf "%b\n" "${RED}Error: crontab is not installed. Please install it first.${NC}"
     exit 1
 fi
 
@@ -63,30 +58,30 @@ chmod +x "$SCRIPT_DIR/$MAIN_SCRIPT"
 
 # Initialize or update python virtual environment
 if [ ! -d "$VENV_DIR" ]; then
-    echo -e "\n${CYAN}Creating python virtual environment...${NC}"
+    printf "%b\n" "\n${CYAN}Creating python virtual environment...${NC}"
     python3 -m venv "$VENV_DIR"
 else
-    echo -e "\n${CYAN}Updating python packages in existing virtual environment...${NC}"
+    printf "%b\n" "\n${CYAN}Updating python packages in existing virtual environment...${NC}"
 fi
 
-source "$VENV_DIR/bin/activate"
+. "$VENV_DIR/bin/activate"
 
 # Safely upgrade pip and install matching requirements
 pip install -q --upgrade pip
 if [ -f "$REQUIREMENTS_FILE" ]; then
     pip install -q --upgrade -r "$REQUIREMENTS_FILE"
 else
-    echo -e "${YELLOW}Warning: $REQUIREMENTS_FILE not found, skipping package installation.${NC}"
+    printf "%b\n" "${YELLOW}Warning: $REQUIREMENTS_FILE not found, skipping package installation.${NC}"
 fi
 
 deactivate
-
+printf "%b\n" "${GREEN}Python virtual environment successfully created/updated.${NC}"
 
 # ------------------------------------------------------------------------------
 # CRONJOB SETUP
 # ------------------------------------------------------------------------------
 
-echo -e "\n${CYAN}Setting up Cronjob...${NC}"
+printf "%b\n" "\n${CYAN}Setting up Cronjob...${NC}"
 
 # Execute the wrapper script directly
 CRON_CMD="$CRON_SCHEDULE \"$SCRIPT_DIR/$MAIN_SCRIPT\" --silent"
@@ -97,7 +92,7 @@ CURRENT_CRON=$(crontab -l 2>/dev/null || true)
 
 # Remove any existing cronjob and comment for this script (handles directory changes)
 if echo "$CURRENT_CRON" | grep -q "$MAIN_SCRIPT"; then
-    echo -e "${YELLOW}Found old cronjob entries. Updating...${NC}"
+    printf "%b\n" "${CYAN}Found old project cronjob entries. Updating...${NC}"
     # Filter out both the old script command and the associated comment
     CURRENT_CRON=$(echo "$CURRENT_CRON" | grep -v "$MAIN_SCRIPT" | grep -v "$CRON_DESC" || true)
 fi
@@ -109,12 +104,24 @@ else
     (echo "$CURRENT_CRON"; echo "$CRON_COMMENT"; echo "$CRON_CMD") | crontab -
 fi
 
-echo -e "${GREEN}Cronjob configured successfully.${NC}"
+printf "%b\n" "${GREEN}Cronjob configured successfully.${NC}"
 
-if [ ! -f "data/products.json" ]; then
-    echo -e "\n${YELLOW}Note: Configuration required!${NC}"
-    echo -e "You need to copy ${CYAN}data/products.json.example${NC} to ${CYAN}data/products.json${NC} and fill it with your desired products."
+if [ ! -f "data/products.json" ] || [ ! -f ".env" ]; then
+    printf "%b\n" "\n${YELLOW}Note: Configuration required!${NC}"
 fi
 
-echo -e "\n${GREEN}Installation complete!${NC}"
+if [ ! -f "data/products.json" ]; then
+    printf "%b\n" "- Copy data/products.json.example to data/products.json"
+    printf "%b\n" "  and fill it with your desired products."
+fi
 
+if [ ! -f ".env" ]; then
+    printf "%b\n" "- Copy .env.example to .env"
+    printf "%b\n" "  and configure your apprise notification URLs."
+fi
+
+if [ ! -f "data/products.json" ] || [ ! -f ".env" ]; then
+    printf "%b\n" "- Read the README.md file for more information."
+fi
+
+printf "%b\n" "\n${GREEN}Installation complete!${NC}"

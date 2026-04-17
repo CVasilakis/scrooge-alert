@@ -43,7 +43,7 @@ The script dynamically detects the locale and currency based on the Skroutz URL.
 
 ## 📋 Prerequisites
 
-*   Linux/Unix environment (`bash`).
+*   Linux/Unix environment.
 *   Python 3 installed (`python3`, `python3-venv`).
 *   `crontab` available for scheduling.
 
@@ -52,19 +52,19 @@ The script dynamically detects the locale and currency based on the Skroutz URL.
 ## 🚀 Installation
 
 1.  **Clone the repository:**
-    ```bash
+    ```sh
     git clone https://github.com/CVasilakis/skroutz-price-alert
     cd skroutz-price-alert
     ```
 
 2.  **Install needed packages**
-    ```bash
+    ```sh
     sudo apt update
     sudo apt install python3-venv
     ```
 
 3.  **Run the installation script:**
-    ```bash
+    ```sh
     chmod +x install.sh
     ./install.sh
     ```
@@ -81,7 +81,7 @@ All custom user parameters reside outside the source code logic. Apprise Notific
 The script uses the popular [Apprise library](https://github.com/caronc/apprise) to push notifications to almost any major platform (Discord, Telegram, Slack, Email, etc.). Check the [Apprise Supported Services Documentation](https://appriseit.com/services/) to learn how to format your notification URL. Alternatively, you can use this handy [URL Builder Tool](https://appriseit.com/tools/url-builder/) to generate your string easily.
 
 Start by making a copy of the template:
-```bash
+```sh
 cp .env.example .env
 ```
 Then configure the `NOTIFICATION_URLS` variable (you can separate multiple platforms with commas). Here is an example to receive Telegram and Discord notification simultaneously:
@@ -91,7 +91,7 @@ NOTIFICATION_URLS = tgram://<bot_token>/<chat_id>/, discord://<webhook_id>/<webh
 
 ### File 2: Product Tracking (`data/products.json`)
 The `data/` directory handles all persistent state. Create your tracking file from the template:
-```bash
+```sh
 cp data/products.json.example data/products.json
 ```
 
@@ -129,7 +129,7 @@ Once `install.sh` has run successfully, the script executes automatically via `c
 ### Option 2: Manual Run / Debug Mode (CLI Flags)
 You can manually interact with the application using the wrapper script. The wrapper safely loads the virtual environment and passes commands along to the backend application.
 
-```bash
+```sh
 ./scripts/run_scraper.sh [FLAGS]
 ```
 
@@ -141,7 +141,7 @@ You can manually interact with the application using the wrapper script. The wra
 | `--test-notification` | Sends a test payload directly to your configured Apprise URLs, then immediately exits. Helps pinpoint `.env` misconfigurations. |
 
 *Example output checking:*
-```bash
+```sh
 ./scripts/run_scraper.sh --debug
 ```
 
@@ -160,18 +160,18 @@ You might receive the following notification alerts throughout the lifecycle of 
 
 1. **Checking Error Logs:**
    If the script fails in the background, tracebacks are written directly to the `data/` directory. Look for `error_log.txt`:
-   ```bash
+   ```sh
    cat data/error_log.txt
    ```
 2. **Verifying Your Cron Schedule:**
    You can verify that the system securely installed the background scheduler by running:
-   ```bash
+   ```sh
    crontab -l
    ```
    You should see a cron line pointing directly to the `scripts/run_scraper.sh --silent` path.
 3. **Missing Notifications:**
    Run the script with the `--test-notification` flag:
-   ```bash
+   ```sh
    ./scripts/run_scraper.sh --test-notification
    ```
    If you don't receive a notification, read again the [Notification Settings](#file-1-notification-settings-env) section and thoroughly verify your Apprise URL syntax in `.env`.
