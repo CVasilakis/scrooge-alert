@@ -14,7 +14,7 @@
    - [Notification Settings (.env)](#file-1-notification-settings-env)
    - [Product Tracking (products.json)](#file-2-product-tracking-dataproductsjson)
 6. [Usage](#-usage)
-   - [Automated Cron Run](#option-1-automated-run)
+   - [Automated Systemd Run](#option-1-automated-run)
    - [Manual & Debug Modes (CLI Flags)](#option-2-manual-run--debug-mode-cli-flags)
 7. [Notifications & Messages](#-notifications--messages)
 8. [Troubleshooting & Debugging](#-troubleshooting--debugging)
@@ -45,7 +45,7 @@ The script dynamically detects the locale and currency based on the Skroutz URL.
 
 *   Linux/Unix environment.
 *   Python 3 installed (`python3`, `python3-venv`).
-*   `crontab` available for scheduling.
+*   `systemd` available for scheduling (standard on most distros).
 
 *(Note: Minimum required Python version is Python 3.7).*
 
@@ -71,7 +71,7 @@ The script dynamically detects the locale and currency based on the Skroutz URL.
     The `install.sh` script will automatically:
     *   Create a Python virtual environment.
     *   Install required dependencies.
-    *   Set up an hourly cron job pointing to the script wrapper.
+    *   Set up an hourly systemd user timer pointing to the script wrapper.
 
 ## ⚙️ Configuration
 
@@ -121,10 +121,10 @@ cp data/products.json.example data/products.json
 
 ## 💻 Usage
 
-There are two ways to execute the script: automatically via the scheduled cron job, or manually for testing.
+There are two ways to execute the script: automatically via the scheduled systemd timer, or manually for testing.
 
 ### Option 1: Automated Run
-Once `install.sh` has run successfully, the script executes automatically via `cron` every hour. It uses an execution wrapper (`scripts/run_scraper.sh`) and includes a random up-to-60s startup delay to simulate human timing and avoid exact scheduling footprints.
+Once `install.sh` has run successfully, the script executes automatically via a systemd timer every hour. It uses an execution wrapper (`scripts/run_scraper.sh`) and includes a random up-to-60s startup delay to simulate human timing and avoid exact scheduling footprints.
 
 ### Option 2: Manual Run / Debug Mode (CLI Flags)
 You can manually interact with the application using the wrapper script. The wrapper safely loads the virtual environment and passes commands along to the backend application.
@@ -137,7 +137,7 @@ You can manually interact with the application using the wrapper script. The wra
 | Flag | Action |
 | :--- | :--- |
 | `--debug` | Runs the script immediately **without** the randomized 0-60s startup delay. Best used for manual scraping or setup verification. |
-| `--silent` | Suppresses all console output. This is automatically used by the system cron setup to prevent Linux mail spam. |
+| `--silent` | Suppresses all console output. This is automatically used by the systemd setup to prevent unnecessary log spam. |
 | `--test-notification` | Sends a test payload directly to your configured Apprise URLs, then immediately exits. Helps pinpoint `.env` misconfigurations. |
 
 *Example output checking:*
@@ -163,12 +163,15 @@ You might receive the following notification alerts throughout the lifecycle of 
    ```sh
    cat data/error_log.txt
    ```
-2. **Verifying Your Cron Schedule:**
+2. **Verifying Your Systemd Timer:**
    You can verify that the system securely installed the background scheduler by running:
    ```sh
-   crontab -l
+   systemctl --user status skroutz-price-alert.timer
    ```
-   You should see a cron line pointing directly to the `scripts/run_scraper.sh --silent` path.
+   If you need to view the logs outputted by the background agent, use:
+   ```sh
+   journalctl --user -u skroutz-price-alert.service -e
+   ```
 3. **Missing Notifications:**
    Run the script with the `--test-notification` flag:
    ```sh
@@ -178,7 +181,7 @@ You might receive the following notification alerts throughout the lifecycle of 
 4. **Failing to Fetch Products:**
    If the script fails to fetch data for certain products, it could be due to:
    *   **Incorrect URL / Missing Product:** Check that the product link in `data/products.json` is still valid and active on the platform.
-   *   **Anti-Bot Protection:** If multiple products fail systematically, Skroutz's anti-bot protection might have temporarily blocked the script from fetching data. To resolve this, **decrease the frequency** of the script (edit your cron job) and **remove uninteresting products** to reduce overall network traffic.
+   *   **Anti-Bot Protection:** If multiple products fail systematically, Skroutz's anti-bot protection might have temporarily blocked the script from fetching data. To resolve this, **decrease the frequency** of the script (edit your systemd timer in `~/.config/systemd/user/skroutz-price-alert.timer`) and **remove uninteresting products** to reduce overall network traffic.
 
 > [!TIP]
 > For best results, this script should **not** run behind a VPN, and should ideally be executed from a **Greek/Local IP address**. High traffic from known VPS/VPN platforms will definitively trigger strict anti-bot mechanisms and the script will fail to fetch the product data.
@@ -201,7 +204,7 @@ Yes, absolutely. You can safely edit, add, or remove products at any time. The s
 By default, there is a randomized startup delay of up to `60` seconds. For each product, there's a base delay of `20` seconds plus a jitter of `1-5` seconds. So, for 10 products, the execution will take approximately **4 to 6 minutes** to completely finish.
 
 **3. With the default hourly configuration, is there an upper limit to the number of products I can monitor?**  
-Since the script takes about 25 seconds per product, monitoring too many products might cause the script execution to exceed the 60-minute window before the next cron job starts. The script has process locking to prevent overlaps, but practically, the soft upper limit is around **100 products** per instance while using the default hourly configuration.
+Since the script takes about 25 seconds per product, monitoring too many products might cause the script execution to exceed the 60-minute window before the next systemd timer starts. The script has process locking to prevent overlaps, but practically, the soft upper limit is around **100 products** per instance while using the default hourly configuration.
 
 **4. Can I get notified in the XYZ service?**  
 Most likely, yes! The script uses the [Apprise](https://github.com/caronc/apprise) push notification library, which supports almost every major platform available. As long as you can format your target service as an Apprise URL inside the `.env` file, it will work. Check their [Supported Services](https://appriseit.com/services/) page.
@@ -218,7 +221,7 @@ Running `./install.sh` again ensures that any new dependencies are installed and
 Because Python virtual environments cannot be simply moved, you should:
 1. Clone the repository to your new desired location.
 2. Move your `data/products.json` and `.env` files from the old project folder to the new one.
-3. Run `./install.sh` in the new location to set up the environment and update your crontab.
+3. Run `./install.sh` in the new location to set up the environment and update your systemd configurations.
 4. Safely delete the old project folder.
 
 ## 🗺️ Future Updates (Roadmap)

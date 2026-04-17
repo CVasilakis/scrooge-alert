@@ -22,9 +22,9 @@ VENV_DIR="venv"
 REQUIREMENTS_FILE="requirements.txt"
 MAIN_SCRIPT="scripts/run_scraper.sh"
 
-# Cronjob Configurations
-CRON_SCHEDULE="0 * * * *"
-CRON_DESC="Skroutz_check notification task"
+# Systemd Configurations
+SERVICE_NAME="skroutz-price-alert"
+SERVICE_DESC="Skroutz Price Alert notification task"
 
 
 # ==============================================================================
@@ -43,8 +43,8 @@ if ! python3 -c "import ensurepip" > /dev/null 2>&1; then
     exit 1
 fi
 
-if ! command -v crontab > /dev/null 2>&1; then
-    printf "%b\n" "${RED}Error: crontab is not installed. Please install it first.${NC}"
+if ! command -v systemctl > /dev/null 2>&1; then
+    printf "%b\n" "${RED}Error: systemctl (systemd) is not installed or not available. Please install it first.${NC}"
     exit 1
 fi
 
@@ -78,33 +78,46 @@ deactivate
 printf "%b\n" "${GREEN}Python virtual environment successfully created/updated.${NC}"
 
 # ------------------------------------------------------------------------------
-# CRONJOB SETUP
+# SYSTEMD SETUP
 # ------------------------------------------------------------------------------
 
-printf "%b\n" "\n${CYAN}Setting up Cronjob...${NC}"
+printf "%b\n" "\n${CYAN}Setting up Systemd Timer...${NC}"
 
-# Execute the wrapper script directly
-CRON_CMD="$CRON_SCHEDULE \"$SCRIPT_DIR/$MAIN_SCRIPT\" --silent"
-CRON_COMMENT="# ${CRON_DESC} (runs every hour)"
+SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+mkdir -p "$SYSTEMD_USER_DIR"
 
-# Capture existing crontab
-CURRENT_CRON=$(crontab -l 2>/dev/null || true)
+cat > "$SYSTEMD_USER_DIR/$SERVICE_NAME.service" << EOF
+[Unit]
+Description=$SERVICE_DESC
 
-# Remove any existing cronjob and comment for this script (handles directory changes)
-if echo "$CURRENT_CRON" | grep -q "$MAIN_SCRIPT"; then
-    printf "%b\n" "${CYAN}Found old project cronjob entries. Updating...${NC}"
-    # Filter out both the old script command and the associated comment
-    CURRENT_CRON=$(echo "$CURRENT_CRON" | grep -v "$MAIN_SCRIPT" | grep -v "$CRON_DESC" || true)
+[Service]
+Type=oneshot
+WorkingDirectory=$SCRIPT_DIR
+ExecStart=$SCRIPT_DIR/$MAIN_SCRIPT --silent
+EOF
+
+cat > "$SYSTEMD_USER_DIR/$SERVICE_NAME.timer" << EOF
+[Unit]
+Description=Run $SERVICE_NAME hourly
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=60s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl --user daemon-reload
+systemctl --user enable --now "$SERVICE_NAME.timer"
+
+if command -v loginctl >/dev/null 2>&1; then
+    printf "%b\n" "${CYAN}Enabling user lingering to allow timer to run when logged out...${NC}"
+    loginctl enable-linger "$USER"
 fi
 
-# Append the new cronjob and install
-if [ -z "$CURRENT_CRON" ]; then
-    (echo "$CRON_COMMENT"; echo "$CRON_CMD") | crontab -
-else
-    (echo "$CURRENT_CRON"; echo "$CRON_COMMENT"; echo "$CRON_CMD") | crontab -
-fi
-
-printf "%b\n" "${GREEN}Cronjob configured successfully.${NC}"
+printf "%b\n" "${GREEN}Systemd timer configured successfully.${NC}"
 
 if [ ! -f "data/products.json" ] || [ ! -f ".env" ]; then
     printf "%b\n" "\n${YELLOW}Note: Configuration required!${NC}"
