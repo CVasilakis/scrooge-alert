@@ -23,9 +23,40 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Create Draft Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.version_tag }}
           name: "${{ inputs.version_tag }} - ${{ inputs.release_name }}"
           draft: true
           generate_release_notes: true
+          body: |
+            ## 🚀 Release Overview
+            
+            Briefly describe the purpose of this release. What are the major highlights?
+            (e.g., "This release focuses on performance improvements and adds the highly requested Dark Mode feature.")
+            
+            ---
+            
+            ## ✨ New Features
+            * **Feature Name:** Brief description of the feature (#PullRequestNumber)
+            
+            ## 🐛 Bug Fixes
+            * Fixed an issue where [describe issue] (#PullRequestNumber)
+            
+            ## 🛠 Improvements & Refactoring
+            * Improved performance of the data rendering engine (#PullRequestNumber)
+            
+            ## ⚠️ Breaking Changes
+            *(Remove this section if there are no breaking changes)*
+            
+            ---
+            
+            ## 💻 How to Upgrade
+            
+            If you are already using an older version of the project, to update to this version, go to the project's folder, pull the latest code and run the setup script to update any dependencies.
+            Your monitored products and the apprise notification URLs will stay intact.
+            
+            ```sh
+            git pull
+            ./install.sh
+            ```

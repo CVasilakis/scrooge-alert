@@ -51,16 +51,16 @@ The script dynamically detects the locale and currency based on the Skroutz URL.
 
 ## 🚀 Installation
 
-1.  **Clone the repository:**
+1.  **Install needed packages**
+    ```sh
+    sudo apt update
+    sudo apt install git python3-venv
+    ```
+
+2.  **Clone the repository:**
     ```sh
     git clone https://github.com/CVasilakis/skroutz-price-alert
     cd skroutz-price-alert
-    ```
-
-2.  **Install needed packages**
-    ```sh
-    sudo apt update
-    sudo apt install python3-venv
     ```
 
 3.  **Run the installation script:**
@@ -205,6 +205,21 @@ Since the script takes about 25 seconds per product, monitoring too many product
 
 **4. Can I get notified in the XYZ service?**  
 Most likely, yes! The script uses the [Apprise](https://github.com/caronc/apprise) push notification library, which supports almost every major platform available. As long as you can format your target service as an Apprise URL inside the `.env` file, it will work. Check their [Supported Services](https://appriseit.com/services/) page.
+
+**5. How to update the project?**  
+To update to the latest version, navigate to your project directory and pull the latest changes from the repository:
+```sh
+git pull
+./install.sh
+```
+Running `./install.sh` again ensures that any new dependencies are installed and the environment is correctly updated.
+
+**6. How to move the project to a different location in the file system?**  
+Because Python virtual environments cannot be simply moved, you should:
+1. Clone the repository to your new desired location.
+2. Move your `data/products.json` and `.env` files from the old project folder to the new one.
+3. Run `./install.sh` in the new location to set up the environment and update your crontab.
+4. Safely delete the old project folder.
 
 ## 🗺️ Future Updates (Roadmap)
 
