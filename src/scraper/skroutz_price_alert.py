@@ -240,6 +240,12 @@ class SkroutzScraper:
             headers['referer'] = f"https://{domain}/search?keyphrase=witcher"
 
             response = session.get(api_link.strip(), headers=headers)
+            
+            if response.status_code in (403, 429):
+                raise Exception(f"Blocked or rate limited (HTTP {response.status_code})")
+            elif response.status_code != 200:
+                raise Exception(f"HTTP request failed with status code {response.status_code}")
+
             response_data = response.json()
 
             if response_data.get("price_min") is None:
