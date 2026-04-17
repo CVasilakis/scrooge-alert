@@ -372,8 +372,7 @@ def main() -> None:
     env_path = os.path.join(base_dir, '.env')
     env_loaded = load_dotenv(dotenv_path=env_path)
 
-    default_data_dir = os.path.join(base_dir, "data")
-    data_dir = os.environ.get("DATA_DIR", default_data_dir)
+    data_dir = os.path.join(base_dir, "data")
 
     if not os.path.exists(data_dir):
         os.makedirs(data_dir)

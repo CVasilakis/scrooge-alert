@@ -8,8 +8,5 @@ BASE_DIR="$(dirname "$SCRIPT_DIR")"
 # Activate virtual environment
 . "$BASE_DIR/venv/bin/activate"
 
-# Export data directory to be safe
-export DATA_DIR="$BASE_DIR/data"
-
 # Run the python script and pass arguments
 python "$BASE_DIR/src/scraper/skroutz_price_alert.py" "$@"
