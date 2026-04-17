@@ -124,9 +124,9 @@ cp data/products.json.example data/products.json
 There are two ways to execute the script: automatically via the scheduled systemd timer, or manually for testing.
 
 ### Option 1: Automated Run
-Once `install.sh` has run successfully, the script executes automatically via a systemd timer every hour. It uses an execution wrapper (`scripts/run_scraper.sh`) and includes a random up-to-60s startup delay to simulate human timing and avoid exact scheduling footprints.
+Once `install.sh` has run successfully, the script executes automatically via a systemd timer every hour. The systemd timer applies a randomized up-to-60s startup delay (`RandomizedDelaySec=60s`) before launching the execution wrapper (`scripts/run_scraper.sh`) to simulate human timing and avoid exact scheduling footprints.
 
-### Option 2: Manual Run / Debug Mode (CLI Flags)
+### Option 2: Manual Run (CLI Flags)
 You can manually interact with the application using the wrapper script. The wrapper safely loads the virtual environment and passes commands along to the backend application.
 
 ```sh
@@ -136,13 +136,12 @@ You can manually interact with the application using the wrapper script. The wra
 #### Available CLI Flags:
 | Flag | Action |
 | :--- | :--- |
-| `--debug` | Runs the script immediately **without** the randomized 0-60s startup delay. Best used for manual scraping or setup verification. |
 | `--silent` | Suppresses all console output. This is automatically used by the systemd setup to prevent unnecessary log spam. |
 | `--test-notification` | Sends a test payload directly to your configured Apprise URLs, then immediately exits. Helps pinpoint `.env` misconfigurations. |
 
 *Example output checking:*
 ```sh
-./scripts/run_scraper.sh --debug
+./scripts/run_scraper.sh
 ```
 
 ## 🔔 Notifications & Messages
@@ -189,7 +188,7 @@ You might receive the following notification alerts throughout the lifecycle of 
 ## ⚖️ Rate Limiting
 
 The default configuration applies rate limiting to reduce traffic and increase the success rate of the script:
-*   A randomized startup delay (up to 60 seconds) is applied before each background execution to avoid exact scheduling footprints.
+*   A randomized startup delay (up to 60 seconds) is applied by the systemd timer before each background execution to avoid exact scheduling footprints.
 *   Products are checked sequentially, not concurrently.
 *   A base 20s delay, plus randomized jitter (1-5s), is enforced between requests.
 
@@ -201,7 +200,7 @@ The default configuration applies rate limiting to reduce traffic and increase t
 Yes, absolutely. You can safely edit, add, or remove products at any time. The script uses an atomic save mechanism. Changes you make will be safely preserved, and the script will pick up the updated list on its next scheduled execution cycle.
 
 **2. How long does it take for the script to finish if I monitor 10 products?**  
-By default, there is a randomized startup delay of up to `60` seconds. For each product, there's a base delay of `20` seconds plus a jitter of `1-5` seconds. So, for 10 products, the execution will take approximately **4 to 6 minutes** to completely finish.
+When running in the background, the systemd timer introduces a randomized startup delay of up to `60` seconds. For each product, the script applies a base delay of `20` seconds plus a jitter of `1-5` seconds. So, for 10 products, the background execution will take approximately **4 to 6 minutes** to completely finish. Give or take a minute less for manual executions.
 
 **3. With the default hourly configuration, is there an upper limit to the number of products I can monitor?**  
 Since the script takes about 25 seconds per product, monitoring too many products might cause the script execution to exceed the 60-minute window before the next systemd timer starts. The script has process locking to prevent overlaps, but practically, the soft upper limit is around **100 products** per instance while using the default hourly configuration.

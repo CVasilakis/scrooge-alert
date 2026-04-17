@@ -34,9 +34,6 @@ RANDOM_DELAY_MIN: float = 1.0
 # Maximum random time in seconds added to the base delay (jitter)
 RANDOM_DELAY_MAX: float = 5.0
 
-# Maximum possible startup delay in seconds (used only in non-debug mode)
-STARTUP_DELAY_MAX: int = 60
-
 # Timeout in seconds when trying to acquire the file lock (0 means fail immediately if locked)
 LOCK_TIMEOUT: int = 0
 
@@ -365,8 +362,7 @@ class SkroutzScraper:
 # --- Main Execution ---
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='Script with debug flag')
-    parser.add_argument('--debug', action='store_true', help='Skip the initial startup delay')
+    parser = argparse.ArgumentParser(description='Skroutz Price Alert scraper')
     parser.add_argument('--silent', action='store_true', help='Run script with no console output')
     parser.add_argument('--test-notification', action='store_true', help='Send a test notification via Apprise and exit')
     args = parser.parse_args()
@@ -415,14 +411,6 @@ def main() -> None:
         if not args.silent:
             print("Test notification sent. Exiting.")
         return
-
-    # Initial Delay
-    random.seed(time.time())
-    if not args.debug:
-        delay = random.randint(1, STARTUP_DELAY_MAX)
-        if not args.silent:
-            print(f"⏳ Waiting for {delay} seconds before starting. Use the --debug flag to skip this.")
-        time.sleep(delay)
 
     # Initialize ProductsManager
     products_manager = ProductsManager(products_file_path)
