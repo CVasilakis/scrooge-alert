@@ -48,8 +48,13 @@ if ! command -v systemctl > /dev/null 2>&1; then
     exit 1
 fi
 
-# Make the wrapper script executable
-chmod +x "$SCRIPT_DIR/$MAIN_SCRIPT"
+# Make the scripts executable
+if [ -f "$SCRIPT_DIR/$MAIN_SCRIPT" ]; then
+    chmod +x "$SCRIPT_DIR/$MAIN_SCRIPT"
+fi
+if [ -f "$SCRIPT_DIR/uninstall.sh" ]; then
+    chmod +x "$SCRIPT_DIR/uninstall.sh"
+fi
 
 
 # ------------------------------------------------------------------------------
