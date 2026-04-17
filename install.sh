@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+set -eu
 
 # ==============================================================================
 # COLORS
@@ -69,17 +69,14 @@ else
     printf "%b\n" "\n${CYAN}Updating python packages in existing virtual environment...${NC}"
 fi
 
-. "$VENV_DIR/bin/activate"
-
 # Safely upgrade pip and install matching requirements
-pip install -q --upgrade pip
+"$VENV_DIR/bin/python3" -m pip install -q --upgrade pip
 if [ -f "$REQUIREMENTS_FILE" ]; then
-    pip install -q --upgrade -r "$REQUIREMENTS_FILE"
+    "$VENV_DIR/bin/python3" -m pip install -q --upgrade -r "$REQUIREMENTS_FILE"
 else
     printf "%b\n" "${YELLOW}Warning: $REQUIREMENTS_FILE not found, skipping package installation.${NC}"
 fi
 
-deactivate
 printf "%b\n" "${GREEN}Python virtual environment successfully created/updated.${NC}"
 
 # ------------------------------------------------------------------------------
@@ -97,8 +94,8 @@ Description=$SERVICE_DESC
 
 [Service]
 Type=oneshot
-WorkingDirectory=$SCRIPT_DIR
-ExecStart=$SCRIPT_DIR/$MAIN_SCRIPT --silent
+WorkingDirectory="$SCRIPT_DIR"
+ExecStart="$SCRIPT_DIR/$MAIN_SCRIPT" --silent
 EOF
 
 cat > "$SYSTEMD_USER_DIR/$SERVICE_NAME.timer" << EOF
@@ -115,7 +112,7 @@ WantedBy=timers.target
 EOF
 
 systemctl --user daemon-reload
-systemctl --user enable --now "$SERVICE_NAME.timer"
+systemctl --user enable --now "$SERVICE_NAME.timer" >/dev/null 2>&1
 
 if command -v loginctl >/dev/null 2>&1; then
     printf "%b\n" "${CYAN}Enabling user lingering to allow timer to run when logged out...${NC}"
@@ -123,6 +120,10 @@ if command -v loginctl >/dev/null 2>&1; then
 fi
 
 printf "%b\n" "${GREEN}Systemd timer configured successfully.${NC}"
+
+# ------------------------------------------------------------------------------
+# LAST CHECKS
+# ------------------------------------------------------------------------------
 
 if [ ! -f "data/products.json" ] || [ ! -f ".env" ]; then
     printf "%b\n" "\n${YELLOW}Note: Configuration required!${NC}"

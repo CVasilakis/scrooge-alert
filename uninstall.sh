@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+set -eu
 
 # ==============================================================================
 # COLORS
@@ -42,6 +42,7 @@ systemctl --user stop "$SERVICE_NAME.timer" 2>/dev/null || true
 systemctl --user disable "$SERVICE_NAME.timer" 2>/dev/null || true
 systemctl --user stop "$SERVICE_NAME.service" 2>/dev/null || true
 systemctl --user disable "$SERVICE_NAME.service" 2>/dev/null || true
+systemctl --user reset-failed "$SERVICE_NAME.service" "$SERVICE_NAME.timer" 2>/dev/null || true
 
 printf "%b\n" "${CYAN}Removing Systemd configuration files...${NC}"
 
@@ -71,11 +72,9 @@ else
     printf "%b\n" "${YELLOW}Virtual environment not found, skipping.${NC}"
 fi
 
-# ------------------------------------------------------------------------------
-# DATA FOLDER NOTE
-# ------------------------------------------------------------------------------
-printf "%b\n" "\n${YELLOW}Note: Your data folder (products.json) and .env file have NOT been removed.${NC}"
-printf "%b\n" "If you wish to completely remove all data, you can manually delete them:"
-printf "%b\n" "  rm -rf data/ .env"
+printf "%b\n" "\n${YELLOW}Note: User configurations (.env, data/products.json) were NOT removed.${NC}"
+printf "%b\n" "If you want to completely purge everything, you can safely delete this folder."
+
+printf "%b\n" "\n${YELLOW}Note: User lingering (loginctl) was left enabled as other services might rely on it.${NC}"
 
 printf "%b\n" "\n${GREEN}Uninstallation complete!${NC}"
