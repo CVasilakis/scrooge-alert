@@ -94,7 +94,7 @@ Description=$SERVICE_DESC
 
 [Service]
 Type=oneshot
-WorkingDirectory="$SCRIPT_DIR"
+WorkingDirectory=$SCRIPT_DIR
 ExecStart="$SCRIPT_DIR/$MAIN_SCRIPT" --silent
 EOF
 
