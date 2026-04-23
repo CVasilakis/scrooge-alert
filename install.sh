@@ -115,8 +115,10 @@ systemctl --user daemon-reload
 systemctl --user enable --now "$SERVICE_NAME.timer" >/dev/null 2>&1
 
 if command -v loginctl >/dev/null 2>&1; then
-    printf "%b\n" "${CYAN}Enabling user lingering to allow timer to run when logged out...${NC}"
-    loginctl enable-linger "$USER"
+    if [ "$(loginctl show-user "$USER" --property=Linger 2>/dev/null)" != "Linger=yes" ]; then
+        printf "%b\n" "${CYAN}Enabling user lingering to allow timer to run when logged out...${NC}"
+        loginctl enable-linger "$USER"
+    fi
 fi
 
 printf "%b\n" "${GREEN}Systemd timer configured successfully.${NC}"
