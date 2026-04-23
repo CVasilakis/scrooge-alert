@@ -274,9 +274,6 @@ class SkroutzScraper:
         products = products_manager.products_data.get("products", [])
         has_errors = False
 
-        if not self.silent:
-            print(f"Loaded {len(products)} products from products data.")
-
         for index, entry in enumerate(products):
             if self.interrupted:
                 break
@@ -420,6 +417,13 @@ def main() -> None:
     # Initialize ProductsManager
     products_manager = ProductsManager(products_file_path)
     products_data = products_manager.load()
+
+    if not args.silent:
+        num_products = len(products_data.get("products", []))
+        print(f"✅ Loaded {num_products} products from data/products.json.")
+        if env_loaded or os.path.exists(env_path):
+            num_services = sum(1 for u in notification_urls.split(',') if u.strip())
+            print(f"✅ Loaded {num_services} notification services in .env.")
 
     # Locking and Execution
     lock_file_path = os.path.join(data_dir, "skroutz_price_alert_running.lock")
