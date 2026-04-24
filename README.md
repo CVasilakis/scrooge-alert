@@ -5,97 +5,121 @@
 
 <p align="center">Get notified via push notification when a product on Skroutz drops below your target price.</p>
 
+> [!IMPORTANT]
+> Skroutz is a registered trademark of Skroutz S.A. This project is an independent, unofficial tool and is not affiliated with, authorized, maintained, sponsored, or endorsed by Skroutz S.A. in any way.
+
 ## 📑 Table of Contents
+
 1. [Features](#-features)
 2. [Supported Domains](#-supported-domains)
 3. [Prerequisites](#-prerequisites)
 4. [Installation](#-installation)
-5. [Configuration](#️-configuration)
+5. [Configuration](#%EF%B8%8F-configuration)
    - [Notification Settings (.env)](#file-1-notification-settings-env)
    - [Product Tracking (products.json)](#file-2-product-tracking-dataproductsjson)
 6. [Usage](#-usage)
    - [Automated Systemd Run](#option-1-automated-run)
-   - [Manual & Debug Modes (CLI Flags)](#option-2-manual-run--debug-mode-cli-flags)
+   - [Manual Run (CLI Flags)](#option-2-manual-run-cli-flags)
 7. [Notifications & Messages](#-notifications--messages)
-8. [Troubleshooting & Debugging](#-troubleshooting--debugging)
-9. [Rate Limiting](#️-rate-limiting)
-10. [Frequently Asked Questions (FAQ)](#-frequently-asked-questions-faq)
-11. [Future Updates (Roadmap)](#️-future-updates-roadmap)
-12. [Contributing & Issues](#-contributing--issues)
-13. [Support & Donations](#-support--donations)
-14. [Disclaimer](#️-disclaimer)
-15. [License](#-license)
+8. [Uninstallation](#%EF%B8%8F-uninstallation)
+9. [Troubleshooting & Debugging](#-troubleshooting--debugging)
+10. [Rate Limiting](#%EF%B8%8F-rate-limiting)
+11. [Frequently Asked Questions (FAQ)](#-frequently-asked-questions)
+12. [Future Updates (Roadmap)](#%EF%B8%8F-future-updates-roadmap)
+13. [Contributing & Issues](#-contributing--issues)
+14. [Support & Donations](#-support--donations)
+15. [Disclaimer](#%EF%B8%8F-disclaimer)
+16. [License](#-license)
 
 ## ✨ Features
 
-*   **Automated Monitoring:** Set it and forget it. Tracks products silently in the background.
-*   **Custom Target Prices:** Define specific price drop thresholds for every individual item.
-*   **Instant Notifications:** Get instant push notifications (Telegram, Discord, Slack, Email, etc.) for price drops or errors.
-*   **Anti-Bot Evasion:** Safely fetches data using realistic browser fingerprints and randomized delays to avoid blocks.
+* **Automated Monitoring:** Set it and forget it. Tracks products silently in the background.
+* **Instant Notifications:** Get instant push notifications (Telegram, Discord, Slack, Email, etc.) for price drops.
+* **Custom Target Prices:** Define specific price drop thresholds for every individual product.
 
 ## 🌍 Supported Domains
-The script dynamically detects the locale and currency based on the Skroutz URL. It supports all Skroutz platform domains, including:
-*   `.gr` (Greece - €)
-*   `.cy` (Cyprus - €)
-*   `.bg` (Bulgaria - €)
-*   `.de` (Germany - €)
-*   `.ro` (Romania - Lei)
+The script supports all Skroutz domains, dynamically detecting the locale and currency:
+
+* `.gr` (Greece - €)
+* `.cy` (Cyprus - €)
+* `.bg` (Bulgaria - €)
+* `.de` (Germany - €)
+* `.ro` (Romania - Lei)
 
 ## 📋 Prerequisites
 
-*   Linux/Unix environment.
-*   Python 3 installed (`python3`, `python3-venv`).
-*   `systemd` available for scheduling (standard on most distros).
-
-*(Note: Minimum required Python version is Python 3.7).*
+*   Linux/Unix environment (`systemd` available for scheduling).
+*   Python 3.7+ installed (`python3`, `python3-venv`).
 
 ## 🚀 Installation
 
-1.  **Install needed packages**
+1. **Install required system packages:**
+
     ```sh
     sudo apt update
     sudo apt install git python3-venv
     ```
 
-2.  **Clone the repository:**
+2. **Clone the repository:**
+
     ```sh
     git clone https://github.com/CVasilakis/skroutz-price-alert
     cd skroutz-price-alert
     ```
 
-3.  **Run the installation script:**
+3. **Run the installation script:**
+
     ```sh
     chmod +x install.sh
     ./install.sh
     ```
-    The `install.sh` script will automatically:
-    *   Create a Python virtual environment.
-    *   Install required dependencies.
-    *   Set up an hourly systemd user timer pointing to the script wrapper.
+
+    The `install.sh` script will automatically create a Python virtual environment, install the required dependencies, and set up an hourly systemd user timer pointing to the script wrapper.
+
+4. **Configure your settings:**
+
+    ```sh
+    cp .env.example .env
+    nano .env
+
+    cp data/products.json.example data/products.json
+    nano data/products.json
+    ```
+
+    For more information regarding your [Push Notification Settings](#file-1-notification-settings-env) and your [Product Tracking List](#file-2-product-tracking-dataproductsjson) proceed to the [Configuration](#%EF%B8%8F-configuration) section.
+
+> [!NOTE]  
+> If you encounter any issues during installation or setup, please refer to the [Troubleshooting & Debugging](#-troubleshooting--debugging) section. If your problem persists, feel free to [open an issue](https://github.com/CVasilakis/skroutz-price-alert/issues).
 
 ## ⚙️ Configuration
 
 All custom user parameters reside outside the source code logic. Apprise Notification URLs go in the `.env` file, and the Skroutz products you want to monitor go inside the `data/products.json` file.
 
 ### File 1: Notification Settings (`.env`)
+
 The script uses the popular [Apprise library](https://github.com/caronc/apprise) to push notifications to almost any major platform (Discord, Telegram, Slack, Email, etc.). Check the [Apprise Supported Services Documentation](https://appriseit.com/services/) to learn how to format your notification URL. Alternatively, you can use this handy [URL Builder Tool](https://appriseit.com/tools/url-builder/) to generate your string easily.
 
-Start by making a copy of the template:
 ```sh
 cp .env.example .env
+nano .env
 ```
-Then configure the `NOTIFICATION_URLS` variable (you can separate multiple platforms with commas). Here is an example to receive Telegram and Discord notification simultaneously:
+
+Start by making a copy of the provided example template. Then edit the `.env` file to configure the `NOTIFICATION_URLS` variable (you can separate multiple platforms with commas). Here is an example to receive Telegram and Discord notifications simultaneously:
+
 ```env
 NOTIFICATION_URLS = tgram://<bot_token>/<chat_id>/, discord://<webhook_id>/<webhook_token>
 ```
 
 ### File 2: Product Tracking (`data/products.json`)
-The `data/` directory handles all persistent state. Create your tracking file from the template:
+The `data/` directory contains all your product tracking data.
+
 ```sh
 cp data/products.json.example data/products.json
+nano data/products.json
 ```
 
-**Example `data/products.json`:**
+Create your tracking file from the provided template. Then, edit the `data/products.json` file to add the products you wish to monitor:
+
 ```json
 {
   "products": [
@@ -103,6 +127,11 @@ cp data/products.json.example data/products.json
       "productName": "Awesome Monitor",
       "url": "https://www.skroutz.gr/s/xxxxxxxx/product_url.html",
       "targetPrice": 150
+    },
+    {
+      "productName": "Great Game",
+      "url": "https://www.skroutz.cy/s/xxxxxxxx/product_url.html",
+      "targetPrice": 30
     }
   ]
 }
@@ -117,16 +146,19 @@ cp data/products.json.example data/products.json
 | `last_price` | Number | *Internal* | Auto-generated by the script. Do not modify. Stores the latest scraped down price. |
 | `last_successful_check`| String | *Internal* | Auto-generated by the script. Do not modify. Timestamp of the time the product was last successfully verified. |
 
-*(Note: You do not need to manually add the internal fields; the script will generate and maintain them during execution).*
+> [!NOTE]
+> You do not need to manually add the internal fields. The script will generate and maintain them during execution.
 
 ## 💻 Usage
 
 There are two ways to execute the script: automatically via the scheduled systemd timer, or manually for testing.
 
 ### Option 1: Automated Run
-Once `install.sh` has run successfully, the script executes automatically via a systemd timer every hour. The systemd timer applies a randomized up-to-60s startup delay (`RandomizedDelaySec=60s`) before launching the execution wrapper (`scripts/run_scraper.sh`) to simulate human timing and avoid exact scheduling footprints.
+
+Once `install.sh` has run successfully, the script executes automatically via a systemd timer every hour. The systemd timer applies a randomized up-to-60s startup delay before launching the execution wrapper (`scripts/run_scraper.sh`) to simulate human timing and avoid exact scheduling footprints.
 
 ### Option 2: Manual Run (CLI Flags)
+
 You can manually interact with the application using the wrapper script. The wrapper safely loads the virtual environment and passes commands along to the backend application.
 
 ```sh
@@ -134,19 +166,24 @@ You can manually interact with the application using the wrapper script. The wra
 ```
 
 #### Available CLI Flags:
+
 | Flag | Action |
 | :--- | :--- |
 | `--silent` | Suppresses all console output. This is automatically used by the systemd setup to prevent unnecessary log spam. |
 | `--test-notification` | Sends a test payload directly to your configured Apprise URLs, then immediately exits. Helps pinpoint `.env` misconfigurations. |
 
-*Example output checking:*
+If you run the script without any flags, it will execute normally and output its progress logs directly to the terminal. You can safely interrupt the manual execution at any time by pressing `Ctrl+C`.
+
 ```sh
 ./scripts/run_scraper.sh
 ```
 
+> [!TIP]
+> If the script fails to run in the background or you do not receive expected notifications, please consult the [Troubleshooting & Debugging](#-troubleshooting--debugging) section. If your problem persists, feel free to [open an issue](https://github.com/CVasilakis/skroutz-price-alert/issues).
+
 ## 🔔 Notifications & Messages
 
-You might receive the following notification alerts throughout the lifecycle of the script:
+You might receive the following push notification alerts throughout the lifecycle of the script:
 
 | Notification Title | Body / Cause |
 | :--- | :--- |
@@ -155,73 +192,129 @@ You might receive the following notification alerts throughout the lifecycle of 
 | **Skroutz Scraping Errors ❌** | `"Skroutz Price Alert Script encountered errors on some products..."` <br> Sent if the application hits fatal request limits or unhandled exceptions. |
 | **Skroutz Script Crash 💥** | `"Skroutz Price Alert Script failed. Check error log."` <br> Sent if the system completely failed to run. |
 
+## 🗑️ Uninstallation
+
+To completely remove the background service and clean up the python virtual environment, you can run the uninstall script:
+
+```sh
+chmod +x uninstall.sh
+./uninstall.sh
+```
+
+The `uninstall.sh` script will safely:
+* Stop and disable the systemd scheduled timer and service.
+* Remove the systemd configuration files.
+* Delete the Python virtual environment (`venv`).
+
+> [!NOTE]
+> Your user configurations, specifically the `.env` and `data/products.json` files, are purposefully **not** removed by the `uninstall.sh` script in case you are migrating or updating. If you intend to completely purge the application, just delete the `skroutz-price-alert` directory after running the uninstall script.
+
 ## 🔧 Troubleshooting & Debugging
 
-1. **Checking Error Logs:**
-   If the script fails in the background, tracebacks are written directly to the `data/` directory. Look for `error_log.txt`:
-   ```sh
-   cat data/error_log.txt
-   ```
-2. **Verifying Your Systemd Timer:**
-   You can verify that the system securely installed the background scheduler by running:
-   ```sh
-   systemctl --user status skroutz-price-alert.timer
-   ```
-   If you need to view the logs outputted by the background agent, use:
-   ```sh
-   journalctl --user -u skroutz-price-alert.service -e
-   ```
-3. **Missing Notifications:**
-   Run the script with the `--test-notification` flag:
-   ```sh
-   ./scripts/run_scraper.sh --test-notification
-   ```
-   If you don't receive a notification, read again the [Notification Settings](#file-1-notification-settings-env) section and thoroughly verify your Apprise URL syntax in `.env`.
-4. **Failing to Fetch Products:**
-   If the script fails to fetch data for certain products, it could be due to:
-   *   **Incorrect URL / Missing Product:** Check that the product link in `data/products.json` is still valid and active on the platform.
-   *   **Anti-Bot Protection:** If multiple products fail systematically, Skroutz's anti-bot protection might have temporarily blocked the script from fetching data. To resolve this, **decrease the frequency** of the script (edit your systemd timer in `~/.config/systemd/user/skroutz-price-alert.timer`) and **remove uninteresting products** to reduce overall network traffic.
+**1. Failing to Fetch Products:**
 
-> [!TIP]
-> For best results, this script should **not** run behind a VPN, and should ideally be executed from a **Greek/Local IP address**. High traffic from known VPS/VPN platforms will definitively trigger strict anti-bot mechanisms and the script will fail to fetch the product data.
+If the script cannot retrieve data for certain items, first check for broken links. Ensure the URL in your `data/products.json` is correct and the product page is still active on the platform.
+
+If your links are valid but multiple products fail consistently, the website's anti-bot protection has likely blocked your connection temporarily. To resolve this, remove less important products to reduce your network traffic, or decrease how often the script runs by editing your background schedule (`~/.config/systemd/user/skroutz-price-alert.timer`).
+
+> [!TIP]  
+> For the best results, this script should **not** be run behind a VPN and should ideally be executed from a standard Greek residential IP address. High traffic coming from known VPS providers, data centers, or VPNs is very likely to trigger strict anti-bot mechanisms, causing the script to fail.
+
+**2. Not Receiving Notifications:**
+
+You can easily test your notification setup by running the script with a test flag:
+
+```sh
+./scripts/run_scraper.sh --test-notification
+```
+
+If you do not receive a test message, carefully review the [Notification Settings](#file-1-notification-settings-env) section and verify that your Apprise URL inside the `.env` file is formatted correctly.
+
+**3. Finding Crash Reports (Error Logs):**
+
+If the script unexpectedly fails while running in the background, it saves the error details directly to a log file. You can view these tracebacks by running:
+
+```sh
+cat data/error_log.txt
+```
+
+**4. Verifying the Background Service:**
+
+To confirm that the script is properly scheduled and running in the background, check the status of your systemd timer (the scheduler):
+
+```sh
+systemctl --user status skroutz-price-alert.timer
+```
+*(A healthy setup will display `enabled` and `active (waiting)` in green).*
+
+Next, check the status of the service itself:
+
+```sh
+systemctl --user status skroutz-price-alert.service
+```
+*(You should see a green indicator showing `TriggeredBy: ● skroutz-price-alert.timer`).*
+
+If either of these commands reveals an error or a failed status, please [open an issue](https://github.com/CVasilakis/skroutz-price-alert/issues).
 
 ## ⚖️ Rate Limiting
 
 The default configuration applies rate limiting to reduce traffic and increase the success rate of the script:
+
 *   A randomized startup delay (up to 60 seconds) is applied by the systemd timer before each background execution to avoid exact scheduling footprints.
 *   Products are checked sequentially, not concurrently.
 *   A base 20s delay, plus randomized jitter (1-5s), is enforced between requests.
 
-**Good Practice:** Periodically remove items from `products.json` once you purchase them or abandon interest. Please do not aggressively decrease the scraping delays. Over-frequent scraping will trigger strict anti-bot mechanisms and the script will fail to fetch the product data.
+> [!TIP]
+> Periodically remove items from `products.json` once you purchase them or abandon interest. Also avoid decreasing the scraping delays. Over-frequent scraping will trigger strict anti-bot mechanisms and the script will fail to fetch the product data.
 
-## ❓ Frequently Asked Questions (FAQ)
+## ❓ Frequently Asked Questions
 
-**1. Is it safe to modify the `products.json` file while the script is actively running?**  
-Yes, absolutely. You can safely edit, add, or remove products at any time. The script uses an atomic save mechanism. Changes you make will be safely preserved, and the script will pick up the updated list on its next scheduled execution cycle.
+**1. How can I tell if the script is actively running in the background?**
 
-**2. How long does it take for the script to finish if I monitor 10 products?**  
-When running in the background, the systemd timer introduces a randomized startup delay of up to `60` seconds. For each product, the script applies a base delay of `20` seconds plus a jitter of `1-5` seconds. So, for 10 products, the background execution will take approximately **4 to 6 minutes** to completely finish. Give or take a minute less for manual executions.
+The easiest way to verify is to open your `data/products.json` file. The script automatically updates the `last_successful_check` timestamp for each product every time it runs. If those timestamps are recent, the script is doing its job! You can also manually check the background service and logs as described in the [Troubleshooting & Debugging](#-troubleshooting--debugging) section.
 
-**3. With the default hourly configuration, is there an upper limit to the number of products I can monitor?**  
-Since the script takes about 25 seconds per product, monitoring too many products might cause the script execution to exceed the 60-minute window before the next systemd timer starts. The script has process locking to prevent overlaps, but practically, the soft upper limit is around **100 products** per instance while using the default hourly configuration.
+**2. Can I get notifications sent to Discord, Telegram, or other specific services?**
 
-**4. Can I get notified in the XYZ service?**  
-Most likely, yes! The script uses the [Apprise](https://github.com/caronc/apprise) push notification library, which supports almost every major platform available. As long as you can format your target service as an Apprise URL inside the `.env` file, it will work. Check their [Supported Services](https://appriseit.com/services/) page.
+Most likely, yes! The script uses the [Apprise](https://github.com/caronc/apprise) push notification library, which supports almost every major platform available. As long as you can format your target service as an Apprise URL inside your `.env` file, it will work perfectly. Check out their [Supported Services](https://appriseit.com/services/) page for the full list.
 
-**5. How to update the project?**  
-To update to the latest version, navigate to your project directory and pull the latest changes from the repository:
+**3. How do I update the script to the latest version?**
+
+Navigate to the project directory and pull the latest changes using Git. Afterward, run the installation script again to ensure any new dependencies are installed and your environment is properly updated:
+
 ```sh
 git pull
 ./install.sh
 ```
-Running `./install.sh` again ensures that any new dependencies are installed and the environment is correctly updated.
 
-**6. How to move the project to a different location in the file system?**  
-Because Python virtual environments cannot be simply moved, you should:
-1. Clone the repository to your new desired location.
-2. Move your `data/products.json` and `.env` files from the old project folder to the new one.
-3. Run `./install.sh` in the new location to set up the environment and update your systemd configurations.
-4. Safely delete the old project folder.
+**4. Is it safe to edit my product list while the script is running?**
+
+Absolutely. You can safely add, edit, or remove products at any time. The script uses an atomic save mechanism, meaning your changes will be safely preserved and seamlessly picked up during the next scheduled execution cycle without causing any file conflicts.
+
+**5. How many products can I track at once using the default settings?**
+
+Because the script intentionally pauses for about 25 seconds per product to avoid being blocked by the website, monitoring too many items might cause the execution to exceed the 60-minute window before the next cycle starts. While the script has safety locks to prevent overlapping runs, a practical soft limit is around **100 products** per instance when using the default hourly schedule.
+
+**6. How long does a full scrape take to complete?**
+
+To mimic human behavior, the script spaces out its requests. It applies a base delay of 20 seconds per product, plus an unpredictable jitter of 1–5 seconds. If you are tracking 10 products in the background, a full run will take approximately **4 to 6 minutes**. *(Note: Background runs via systemd also have a randomized startup delay of up to 60 seconds, so manual runs will finish slightly faster).*
+
+**7. Why are the timestamps in my product list showing the wrong time?**
+
+The script relies entirely on your system's clock to generate the timestamps saved in `products.json`. If the time looks wrong, your operating system's clock or timezone is likely out of sync. You can usually fix this by updating your server's time settings.
+
+**8. How do I move the project to a different folder?**
+
+Python virtual environments break if you simply drag and drop them to a new location. To safely move the project:
+
+1. Run `./uninstall.sh` in the old folder to clean up the existing background processes.
+2. Clone the repository into your new desired folder using Git.
+3. Move your `data/products.json` and `.env` files from the old folder to the new one.
+4. Run `./install.sh` in the new location to rebuild the environment and background timers.
+5. Safely delete the old project folder.
+
+**9. What is systemd "lingering," and why does the installer enable it?**
+
+By default, Linux kills all background processes associated with a user the moment they log out of their SSH session. Enabling "lingering" (usually via `loginctl enable-linger`) tells the system to keep your user's background services running continuously, even after you disconnect. It is a completely safe, standard Linux feature that allows the scraper to run automatically without requiring root (`sudo`) privileges. The installer simply checks if it's enabled for your user and turns it on if it isn't.
 
 ## 🗺️ Future Updates (Roadmap)
 
@@ -232,14 +325,11 @@ Because Python virtual environments cannot be simply moved, you should:
 ## 🤝 Contributing & Issues
 
 Contributions are always welcome! If you have an idea to make this project better, feel free to fork the repository and submit a pull request.
-
-If you encounter a bug or run into any issues, please open an issue. To help me resolve it quickly, include as much detail as possible, along with a sanitized copy of your `error_log.txt`.
-
-Finally, if you find this project helpful, a ⭐ on the repository is hugely appreciated!
+If you encounter a bug or run into any issues, please [open an issue](https://github.com/CVasilakis/skroutz-price-alert/issues). To help me resolve it quickly, include as much detail as possible.
 
 ## 💝 Support & Donations
 
-If this project helped you snag a great deal or saved you some valuable time, please consider buying me a coffee or leaving a small tip. Thanks for your support!
+Did this project save you time or help you snag a deal? Leaving a ⭐ on the repository means a lot! If you'd like to further support my work, consider buying me a coffee. Thanks!
 
 <p align="left">
   <a href="https://www.paypal.com/donate/?hosted_button_id=EQ4BXMGA2R544">
@@ -248,9 +338,6 @@ If this project helped you snag a great deal or saved you some valuable time, pl
 </p>
 
 ## ⚠️ Disclaimer
-
-> [!IMPORTANT]
-> Skroutz is a registered trademark of Skroutz S.A. This project is an independent, unofficial tool and is not affiliated with, authorized, maintained, sponsored, or endorsed by Skroutz S.A. in any way.
 
 Please use this script responsibly. This script is intended for personal, educational use. Users are solely responsible for how they use the script and must comply with Skroutz's Terms of Service. The author is not responsible for any bans, blocks, or legal issues that may arise from using this software.
 
