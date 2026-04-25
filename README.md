@@ -3,12 +3,16 @@
   Skroutz Price Alert
 </h1>
 
-<p align="center">Get notified via push notification when a product on Skroutz drops below your target price.</p>
+<p align="center">An open-source Skroutz web scraper and price monitor. Receive automated push notifications when products reach your desired price.</p>
+
 
 > [!IMPORTANT]
 > Skroutz is a registered trademark of Skroutz S.A. This project is an independent, unofficial tool and is not affiliated with, authorized, maintained, sponsored, or endorsed by Skroutz S.A. in any way.
 
 ## 📑 Table of Contents
+
+<details>
+  <summary><b>Click to expand</b></summary>
 
 1. [Features](#-features)
 2. [Supported Domains](#-supported-domains)
@@ -16,7 +20,7 @@
 4. [Installation](#-installation)
 5. [Configuration](#%EF%B8%8F-configuration)
    - [Notification Settings (.env)](#file-1-notification-settings-env)
-   - [Product Tracking (products.json)](#file-2-product-tracking-dataproductsjson)
+   - [Product Tracking (data/products.json)](#file-2-product-tracking-dataproductsjson)
 6. [Usage](#-usage)
    - [Automated Systemd Run](#option-1-automated-run)
    - [Manual Run (CLI Flags)](#option-2-manual-run-cli-flags)
@@ -31,6 +35,8 @@
 15. [Disclaimer](#%EF%B8%8F-disclaimer)
 16. [License](#-license)
 
+</details>
+
 ## ✨ Features
 
 * **Automated Monitoring:** Set it and forget it. Tracks products silently in the background.
@@ -38,7 +44,7 @@
 * **Custom Target Prices:** Define specific price drop thresholds for every individual product.
 
 ## 🌍 Supported Domains
-The script supports all Skroutz domains, dynamically detecting the locale and currency:
+The scraper supports all Skroutz domains, dynamically detecting the locale and currency:
 
 * `.gr` (Greece - €)
 * `.cy` (Cyprus - €)
@@ -107,7 +113,7 @@ nano .env
 Start by making a copy of the provided example template. Then edit the `.env` file to configure the `NOTIFICATION_URLS` variable (you can separate multiple platforms with commas). Here is an example to receive Telegram and Discord notifications simultaneously:
 
 ```env
-NOTIFICATION_URLS = tgram://<bot_token>/<chat_id>/, discord://<webhook_id>/<webhook_token>
+NOTIFICATION_URLS = tgram://<token>/<chat_id>, discord://<webhook_id>/<webhook_token>
 ```
 
 ### File 2: Product Tracking (`data/products.json`)
@@ -258,7 +264,7 @@ If either of these commands reveals an error or a failed status, please [open an
 
 ## ⚖️ Rate Limiting
 
-The default configuration applies rate limiting to reduce traffic and increase the success rate of the script:
+The default configuration applies rate limiting to reduce traffic and increase the success rate of the web scraper:
 
 *   A randomized startup delay (up to 60 seconds) is applied by the systemd timer before each background execution to avoid exact scheduling footprints.
 *   Products are checked sequentially, not concurrently.
@@ -314,13 +320,15 @@ Python virtual environments break if you simply drag and drop them to a new loca
 
 **9. What is systemd "lingering," and why does the installer enable it?**
 
-By default, Linux kills all background processes associated with a user the moment they log out of their SSH session. Enabling "lingering" (usually via `loginctl enable-linger`) tells the system to keep your user's background services running continuously, even after you disconnect. It is a completely safe, standard Linux feature that allows the scraper to run automatically without requiring root (`sudo`) privileges. The installer simply checks if it's enabled for your user and turns it on if it isn't.
+By default, Linux kills all background processes associated with a user the moment they log out of their SSH session. Enabling "lingering" (usually via `loginctl enable-linger`) tells the system to keep your user's background services running continuously, even after you disconnect. It is a completely safe, standard Linux feature that allows the scraper to run automatically without requiring root (`sudo`) privileges. The installer simply checks if it's enabled for your user and turns it on if it isn't, and because other services might rely on this system-wide setting, the uninstallation script intentionally leaves it enabled.
 
 ## 🗺️ Future Updates (Roadmap)
 
 - [ ] **Enhanced Evasion:** Rotate TLS sessions and request fingerprints intelligently.
 - [ ] **User Interface:** Introduction of a Web UI for non-CLI management.
 - [ ] **Docker Support:** Add an alternative Dockerized setup via docker-compose configuration.
+
+To see all the undergoing feature requests or to request a new feature, please check the [open issues](https://github.com/CVasilakis/skroutz-price-alert/issues).
 
 ## 🤝 Contributing & Issues
 
