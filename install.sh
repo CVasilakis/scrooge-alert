@@ -39,7 +39,7 @@ if ! command -v python3 > /dev/null 2>&1; then
 fi
 
 if ! python3 -c "import ensurepip" > /dev/null 2>&1; then
-    printf "%b\n" "${RED}Error: python3-venv is not installed. Please install it first.${NC}"
+    printf "%b\n" "${RED}Error: The python venv module is not available. Please install it first.${NC}"
     exit 1
 fi
 

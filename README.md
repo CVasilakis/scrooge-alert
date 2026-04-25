@@ -61,10 +61,33 @@ The scraper supports all Skroutz domains, dynamically detecting the locale and c
 
 1. **Install required system packages:**
 
+    <details open>
+    <summary><b>Debian / Ubuntu / Raspberry Pi OS / Linux Mint</b></summary>
+    <br>
+
     ```sh
     sudo apt update
     sudo apt install git python3-venv
     ```
+    </details>
+
+    <details>
+    <summary><b>Fedora / RHEL / Rocky Linux</b></summary>
+    <br>
+
+    ```sh
+    sudo dnf install git python3
+    ```
+    </details>
+
+    <details>
+    <summary><b>Arch Linux / Manjaro</b></summary>
+    <br>
+
+    ```sh
+    sudo pacman -S git python
+    ```
+    </details>
 
 2. **Clone the repository:**
 
