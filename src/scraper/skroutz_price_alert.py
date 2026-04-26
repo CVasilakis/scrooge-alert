@@ -208,7 +208,7 @@ class SkroutzScraper:
     def signal_handler(self, signum, _frame):
         sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
         if not self.silent:
-            print(f"\nReceived signal {sig_name}. Gracefully shutting down...")
+            print(f"\n\nReceived signal {sig_name}. Gracefully shutting down...")
         self.interrupted = True
 
     def _sleep_with_jitter(self, base_delay: float, attempt: int = 0) -> None:
@@ -216,15 +216,19 @@ class SkroutzScraper:
         jitter = random.uniform(RANDOM_DELAY_MIN, RANDOM_DELAY_MAX)
         total_delay = base_delay + (RETRY_DELAY_MULTIPLIER * attempt) + jitter
 
-        if not self.silent:
-            print(f"⏳ Sleeping for {total_delay:.2f} seconds...")
-
         # Break sleep into smaller chunks to remain responsive to interruptions
         start_time = time.time()
         while time.time() - start_time < total_delay:
             if self.interrupted:
                 break
-            time.sleep(0.5)
+            if not self.silent:
+                remaining = max(0.0, total_delay - (time.time() - start_time))
+                print(f"\r⏳ Sleeping for {remaining:.1f} seconds...   ", end="", flush=True)
+            time.sleep(0.1)
+
+        if not self.silent and not self.interrupted:
+            actual_delay = time.time() - start_time
+            print(f"\r⏳ Slept for {actual_delay:.1f} seconds.       ")
 
     def scrape_product(self, product_url: str, product_name: str) -> Optional[float]:
         """Scrapes the Skroutz product page and returns the minimum price found."""
