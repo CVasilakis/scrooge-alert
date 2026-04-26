@@ -73,11 +73,14 @@ class ErrorHandler:
 class Notifier:
     def __init__(self, notification_urls: str):
         self.app_notif = apprise.Apprise()
+        self.has_services = False
+        placeholders = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
         if notification_urls:
             for url in notification_urls.split(','):
                 url = url.strip()
-                if url:
+                if url and not any(p in url for p in placeholders):
                     self.app_notif.add(url)
+                    self.has_services = True
 
     def notify(self, title: str, body: str) -> None:
         """Sends a notification with the given title and body."""
@@ -97,7 +100,7 @@ class Notifier:
 
     def notify_errors(self) -> None:
         self.notify(
-            title='Skroutz Scraping Errors ❌',
+            title='Skroutz Scraping Errors 🛑',
             body='Skroutz Price Alert Script encountered errors on some products. Check error log.'
         )
 
@@ -327,6 +330,10 @@ class SkroutzScraper:
                         if current_price < target_price:
                             if not self.silent:
                                 print(f"🚨 {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
+                                if notifier.has_services:
+                                    print("    ↳ 📨 Notification sent to configured services.")
+                                else:
+                                    print("    ↳ 🔕 No notification sent (no services configured in .env).")
                             notifier.notify_low_price(product_name, target_price, current_price, url, currency)
                         else:
                             if not self.silent:
@@ -394,13 +401,13 @@ def main() -> None:
     products_file_path = os.path.join(data_dir, "products.json")
 
     if not args.silent:
-        print("Starting Skroutz Price Alert...")
+        print("Starting Skroutz Price Alert...\n")
         if not env_loaded or not os.path.exists(env_path):
             print("⚠️  No .env file found or loaded.")
 
     if not os.path.exists(products_file_path):
         if not args.silent:
-            print(f"❌ The products.json file is missing! Please create it at {products_file_path} or copy from products.json.example.")
+            print(f"🛑 The products.json file is missing! Please create it at {products_file_path} or copy from products.json.example")
         return
 
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
@@ -409,8 +416,6 @@ def main() -> None:
         env_exists = env_loaded or os.path.exists(env_path)
         if not notification_urls and env_exists:
             print("⚠️  No NOTIFICATION_URLS provided in environment.")
-        elif notification_urls and ("<bot_token>" in notification_urls or "<chat_id>" in notification_urls or "<webhook_id>" in notification_urls or "<webhook_token>" in notification_urls):
-            print("⚠️  NOTIFICATION_URLS contains an unconfigured placeholder. Please update it.")
 
     notifier = Notifier(notification_urls)
 
@@ -431,10 +436,15 @@ def main() -> None:
 
     if not args.silent:
         num_products = len(products_data.get("products", []))
-        print(f"✅ Loaded {num_products} products from data/products.json.")
+        print(f"✅ Loaded {num_products} products from data/products.json")
         if env_loaded or os.path.exists(env_path):
-            num_services = sum(1 for u in notification_urls.split(',') if u.strip())
-            print(f"✅ Loaded {num_services} notification services in .env.")
+            placeholders = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
+            valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in placeholders)]
+            num_services = len(valid_urls)
+            print(f"✅ Loaded {num_services} notification service(s) from .env")
+
+            if notification_urls and any(p in notification_urls for p in placeholders):
+                print("    ↳ ⚠️  NOTIFICATION_URLS contains unconfigured placeholder(s). Please update it.")
 
     # Locking and Execution
     lock_file_path = os.path.join(data_dir, "skroutz_price_alert_running.lock")
