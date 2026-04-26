@@ -3,12 +3,14 @@
     {
       "productName": "Samsung SSD 2TB",
       "url": "https://www.skroutz.gr/s/39358691/Samsung-990-PRO-SSD-2TB-M-2-NVMe-PCI-Express-4-0-MZ-V9P2T0BW.html",
-      "targetPrice": 100
+      "targetPrice": 500,
+      "skip": false
     },
     {
       "productName": "Dremel 4250",
       "url": "https://www.skroutz.cy/s/32650272/Dremel-4250-Peristrofiko-Polyergaleio-175W-me-Rythmisi-Tachytitas.html",
-      "targetPrice": 50
+      "targetPrice": 50,
+      "skip": true
     },
     {
       "productName": "Nintendo Switch 2 256GB",
@@ -21,9 +23,9 @@
       "targetPrice": 10
     },
     {
-      "productName": "New Balance 530 Adidasi Albi",
-      "url": "https://www.skroutz.ro/s/65221433/new-balance-530-adidasi-albi-mr530asg.html",
-      "targetPrice": 10
+      "productName": "RAM 16GB DDR4",
+      "url": "https://www.skroutz.ro/s/14338456/G-Skill-Trident-Z-16GB-DDR4-RAM-cu-2-module-2x8GB-si-Viteza-4266-pentru-Desktop-F4-4266C19D-16GTZKW.html",
+      "targetPrice": 700
     }
   ]
 }

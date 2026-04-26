@@ -161,6 +161,9 @@ class ProductsManager:
                     product["last_price"] = updates["last_price"]
                     product["last_successful_check"] = updates["last_successful_check"]
 
+                if "skip" not in product:
+                    product["skip"] = False
+
                 unique_products.append(product)
 
             fresh_data["products"] = unique_products
@@ -176,6 +179,9 @@ class ProductsManager:
     def check_for_old_entries(self, hours: int, notifier: Notifier) -> None:
         """Checks if any products haven't been successfully checked in the specified hours."""
         for row in self.products_data.get("products", []):
+            if row.get('skip', False):
+                continue
+
             url = row.get('url', '')
             product_name = row.get('productName', 'Unknown')
             last_check = row.get('last_successful_check')
@@ -184,7 +190,7 @@ class ProductsManager:
                     timestamp = datetime.datetime.strptime(last_check, "%d-%m-%Y %H:%M:%S")
                     current_time = datetime.datetime.now()
                     if (current_time - timestamp) > datetime.timedelta(hours=hours):
-                        print(f"⚠️ Old entry found for {product_name}: {url} (Last check: {last_check})")
+                        print(f"⚠️  Old entry found for {product_name}: {url} (Last check: {last_check})")
                         notifier.notify_old_entries(hours, url)
                 except ValueError:
                     pass
@@ -194,7 +200,7 @@ class SkroutzScraper:
         self.silent = silent
         self.interrupted = False
 
-    def signal_handler(self, signum, frame):
+    def signal_handler(self, signum, _frame):
         sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
         if not self.silent:
             print(f"\nReceived signal {sig_name}. Gracefully shutting down...")
@@ -240,7 +246,7 @@ class SkroutzScraper:
             headers['referer'] = f"https://{domain}/search?keyphrase=witcher"
 
             response = session.get(api_link.strip(), headers=headers)
-            
+
             if response.status_code in (403, 429):
                 raise Exception(f"Blocked or rate limited (HTTP {response.status_code})")
             elif response.status_code != 200:
@@ -278,6 +284,13 @@ class SkroutzScraper:
             if self.interrupted:
                 break
 
+            product_name = entry.get('productName', 'Unknown')
+
+            if entry.get('skip', False):
+                if not self.silent:
+                    print(f"\n⏭️  {product_name}: Skipped (skip field set to true)")
+                continue
+
             if not self.silent and index >= 0:
                 print()
 
@@ -285,12 +298,10 @@ class SkroutzScraper:
             if self.interrupted:
                 break
 
-            product_name = entry.get('productName', 'Unknown')
-
             url = entry.get('url', '')
             if not url:
                 if not self.silent:
-                    print(f"⚠️ {product_name}: URL is missing, skipping product.")
+                    print(f"⚠️  {product_name}: URL is missing, skipping product.")
                 continue
 
             parsed_url = urlparse(url)
@@ -299,7 +310,7 @@ class SkroutzScraper:
 
             if 'targetPrice' not in entry:
                 if not self.silent:
-                    print(f"⚠️ {product_name}: Target price is missing, defaulting to 0.0.")
+                    print(f"⚠️  {product_name}: Target price is missing, defaulting to 0.0.")
             target_price = float(entry.get('targetPrice', 0.0))
 
             for attempt in range(MAX_RETRIES):
@@ -331,7 +342,7 @@ class SkroutzScraper:
                     else:
                         break # Unavailable or invalid URL, move to next
 
-                except json.JSONDecodeError as e:
+                except json.JSONDecodeError:
                     if not self.silent:
                         print(f"Attempt {attempt + 1} failed: Received empty response for {product_name}.")
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
@@ -385,7 +396,7 @@ def main() -> None:
     if not args.silent:
         print("Starting Skroutz Price Alert...")
         if not env_loaded or not os.path.exists(env_path):
-            print("⚠️ No .env file found or loaded.")
+            print("⚠️  No .env file found or loaded.")
 
     if not os.path.exists(products_file_path):
         if not args.silent:
@@ -397,9 +408,9 @@ def main() -> None:
     if not args.silent:
         env_exists = env_loaded or os.path.exists(env_path)
         if not notification_urls and env_exists:
-            print("⚠️ No NOTIFICATION_URLS provided in environment.")
+            print("⚠️  No NOTIFICATION_URLS provided in environment.")
         elif notification_urls and ("<bot_token>" in notification_urls or "<chat_id>" in notification_urls or "<webhook_id>" in notification_urls or "<webhook_token>" in notification_urls):
-            print("⚠️ NOTIFICATION_URLS contains an unconfigured placeholder. Please update it.")
+            print("⚠️  NOTIFICATION_URLS contains an unconfigured placeholder. Please update it.")
 
     notifier = Notifier(notification_urls)
 
@@ -446,4 +457,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
