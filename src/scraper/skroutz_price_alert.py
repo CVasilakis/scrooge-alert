@@ -75,7 +75,7 @@ DEFAULT_HEADERS_POOL: List[Dict[str, str]] = [
     {
         'authority': 'www.skroutz.gr',
         'accept': 'application/json, text/plain, */*',
-        'accept-language': 'en-GB,en;q=0.9',
+        'accept-language': 'ro-RO,ro;q=0.9,en-US;q=0.8,en;q=0.7',
         'dnt': '1',
         'referer': 'https://www.skroutz.gr/search?keyphrase=fantasy',
         'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
@@ -90,7 +90,7 @@ DEFAULT_HEADERS_POOL: List[Dict[str, str]] = [
     {
         'authority': 'www.skroutz.gr',
         'accept': 'application/json, text/plain, */*',
-        'accept-language': 'en-US,en;q=0.5',
+        'accept-language': 'bg-BG,bg;q=0.9,en-US;q=0.8,en;q=0.7',
         'dnt': '1',
         'referer': 'https://www.skroutz.gr/search?keyphrase=harry+potter',
         'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
@@ -105,7 +105,7 @@ DEFAULT_HEADERS_POOL: List[Dict[str, str]] = [
     {
         'authority': 'www.skroutz.gr',
         'accept': 'application/json, text/plain, */*',
-        'accept-language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'accept-language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
         'dnt': '1',
         'referer': 'https://www.skroutz.gr/c/11/home-garden.html',
         'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
@@ -123,7 +123,7 @@ DEFAULT_HEADERS_POOL: List[Dict[str, str]] = [
 
 class ErrorHandler:
     @staticmethod
-    def save_traceback(data_dir: str, url: Optional[str] = None) -> None:
+    def save_traceback(data_dir: str, url: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> None:
         """Saves the current exception traceback to an error log file."""
         log_path = os.path.join(data_dir, "error_log.txt")
         time_now = datetime.datetime.now().strftime("%Y-%m-%d (%H:%M:%S)")
@@ -131,6 +131,9 @@ class ErrorHandler:
             log_file.write(f"\n\nAn error occurred at {time_now}:\n")
             if url:
                 log_file.write(f"URL: {url}\n")
+            if headers:
+                header_id = f"Platform: {headers.get('sec-ch-ua-platform', 'Unknown')}, Lang: {headers.get('accept-language', 'Unknown')}"
+                log_file.write(f"Header ID: {header_id}\n")
             traceback.print_exc(file=log_file)
             log_file.write(f"\n{'-'*100}")
 
@@ -434,7 +437,7 @@ class SkroutzScraper:
                         print(f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e} --> {product_name} --> {url}")
 
                     if attempt == MAX_RETRIES - 1:
-                        ErrorHandler.save_traceback(data_dir, url=url)
+                        ErrorHandler.save_traceback(data_dir, url=url, headers=self.current_headers)
                         has_errors = True
                         break
 

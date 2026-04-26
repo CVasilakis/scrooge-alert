@@ -348,7 +348,7 @@ By default, Linux kills all background processes associated with a user the mome
 
 ## 🗺️ Future Updates (Roadmap)
 
-- [ ] **Enhanced Evasion:** Rotate TLS sessions and request fingerprints intelligently.
+- [x] **Enhanced Evasion:** Rotate TLS sessions and request fingerprints intelligently.
 - [ ] **User Interface:** Introduction of a Web UI for non-CLI management.
 - [ ] **Docker Support:** Add an alternative Dockerized setup via docker-compose configuration.
 
