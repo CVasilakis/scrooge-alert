@@ -61,12 +61,14 @@ DEFAULT_HEADERS: Dict[str, str] = {
 
 class ErrorHandler:
     @staticmethod
-    def save_traceback(data_dir: str) -> None:
+    def save_traceback(data_dir: str, url: Optional[str] = None) -> None:
         """Saves the current exception traceback to an error log file."""
         log_path = os.path.join(data_dir, "error_log.txt")
         time_now = datetime.datetime.now().strftime("%Y-%m-%d (%H:%M:%S)")
         with open(log_path, "a", newline='') as log_file:
             log_file.write(f"\n\nAn error occurred at {time_now}:\n")
+            if url:
+                log_file.write(f"URL: {url}\n")
             traceback.print_exc(file=log_file)
             log_file.write(f"\n{'-'*100}")
 
@@ -250,7 +252,11 @@ class SkroutzScraper:
 
             response = session.get(api_link.strip(), headers=headers)
 
-            if response.status_code in (403, 429):
+            if response.status_code == 404:
+                if not self.silent:
+                    print(f"⚠️  {product_name}: Not found (HTTP 404) - Skipping")
+                return None
+            elif response.status_code in (403, 429):
                 raise Exception(f"Blocked or rate limited (HTTP {response.status_code})")
             elif response.status_code != 200:
                 raise Exception(f"HTTP request failed with status code {response.status_code}")
@@ -358,7 +364,7 @@ class SkroutzScraper:
                         print(f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e} --> {product_name} --> {url}")
 
                     if attempt == MAX_RETRIES - 1:
-                        ErrorHandler.save_traceback(data_dir)
+                        ErrorHandler.save_traceback(data_dir, url=url)
                         has_errors = True
                         break
 
@@ -366,11 +372,10 @@ class SkroutzScraper:
 
         # Save updates
         if not self.silent:
-            print()
             if self.interrupted:
-                print("Saving products data...")
+                print("Saving products data...\n")
             else:
-                print("Saving products data and checking for old entries...")
+                print("\nSaving products data and checking for old entries...\n")
         products_manager.save_atomically()
 
         if not self.interrupted:
@@ -401,7 +406,7 @@ def main() -> None:
     products_file_path = os.path.join(data_dir, "products.json")
 
     if not args.silent:
-        print("Starting Skroutz Price Alert...\n")
+        print("\nStarting Skroutz Price Alert...\n")
         if not env_loaded or not os.path.exists(env_path):
             print("⚠️  No .env file found or loaded.")
 
