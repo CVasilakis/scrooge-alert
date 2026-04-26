@@ -15,7 +15,7 @@ import json
 import os
 import re
 from urllib.parse import urlparse
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 # --- Script Constants ---
 
@@ -41,21 +41,83 @@ LOCK_TIMEOUT: int = 0
 RETRY_DELAY_MULTIPLIER: int = 3
 
 # Headers impersonating a real browser to avoid being blocked by anti-bot measures
-DEFAULT_HEADERS: Dict[str, str] = {
-    'authority': 'www.skroutz.gr',
-    'accept': 'application/json, text/plain, */*',
-    'accept-language': 'en-US,en;q=0.9',
-    'dnt': '1',
-    'referer': 'https://www.skroutz.gr/search?keyphrase=witcher',
-    'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'sec-fetch-dest': 'empty',
-    'sec-fetch-mode': 'cors',
-    'sec-fetch-site': 'same-origin',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'x-requested-with': 'XMLHttpRequest',
-}
+DEFAULT_HEADERS_POOL: List[Dict[str, str]] = [
+    {
+        'authority': 'www.skroutz.gr',
+        'accept': 'application/json, text/plain, */*',
+        'accept-language': 'en-US,en;q=0.9',
+        'dnt': '1',
+        'referer': 'https://www.skroutz.gr/search?keyphrase=home',
+        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'sec-fetch-dest': 'empty',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-site': 'same-origin',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'x-requested-with': 'XMLHttpRequest',
+    },
+    {
+        'authority': 'www.skroutz.gr',
+        'accept': 'application/json, text/plain, */*',
+        'accept-language': 'el-GR,el;q=0.9,en-US;q=0.8,en;q=0.7',
+        'dnt': '1',
+        'referer': 'https://www.skroutz.gr/search?keyphrase=camera',
+        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'sec-fetch-dest': 'empty',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-site': 'same-origin',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'x-requested-with': 'XMLHttpRequest',
+    },
+    {
+        'authority': 'www.skroutz.gr',
+        'accept': 'application/json, text/plain, */*',
+        'accept-language': 'en-GB,en;q=0.9',
+        'dnt': '1',
+        'referer': 'https://www.skroutz.gr/search?keyphrase=fantasy',
+        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"macOS"',
+        'sec-fetch-dest': 'empty',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-site': 'same-origin',
+        'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'x-requested-with': 'XMLHttpRequest',
+    },
+    {
+        'authority': 'www.skroutz.gr',
+        'accept': 'application/json, text/plain, */*',
+        'accept-language': 'en-US,en;q=0.5',
+        'dnt': '1',
+        'referer': 'https://www.skroutz.gr/search?keyphrase=harry+potter',
+        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"macOS"',
+        'sec-fetch-dest': 'empty',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-site': 'same-origin',
+        'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'x-requested-with': 'XMLHttpRequest',
+    },
+    {
+        'authority': 'www.skroutz.gr',
+        'accept': 'application/json, text/plain, */*',
+        'accept-language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'dnt': '1',
+        'referer': 'https://www.skroutz.gr/c/11/home-garden.html',
+        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'sec-fetch-dest': 'empty',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-site': 'same-origin',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'x-requested-with': 'XMLHttpRequest',
+    }
+]
 
 # --- Classes ---
 
@@ -204,6 +266,7 @@ class SkroutzScraper:
     def __init__(self, silent: bool = False):
         self.silent = silent
         self.interrupted = False
+        self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
 
     def signal_handler(self, signum, _frame):
         sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
@@ -250,9 +313,11 @@ class SkroutzScraper:
         )
 
         try:
-            headers = DEFAULT_HEADERS.copy()
+            headers = self.current_headers.copy()
             headers['authority'] = domain
-            headers['referer'] = f"https://{domain}/search?keyphrase=witcher"
+
+            parsed_referer = urlparse(headers.get('referer', 'https://www.skroutz.gr/'))
+            headers['referer'] = parsed_referer._replace(netloc=domain).geturl()
 
             response = session.get(api_link.strip(), headers=headers)
 
@@ -362,6 +427,7 @@ class SkroutzScraper:
                 except json.JSONDecodeError:
                     if not self.silent:
                         print(f"Attempt {attempt + 1} failed: Received empty response for {product_name}.")
+                    self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
                 except Exception as e:
                     if not self.silent:
@@ -372,6 +438,7 @@ class SkroutzScraper:
                         has_errors = True
                         break
 
+                    self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
 
         # Save updates
