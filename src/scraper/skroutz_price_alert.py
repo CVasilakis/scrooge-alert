@@ -14,6 +14,7 @@ import time
 import json
 import os
 import re
+import sys
 from urllib.parse import urlparse
 from typing import Dict, Any, Optional, List
 
@@ -180,8 +181,13 @@ class ProductsManager:
     def load(self) -> Dict[str, Any]:
         """Loads the products data from the JSON file."""
         if os.path.exists(self.products_path):
-            with open(self.products_path, 'r') as file:
-                self.products_data = json.load(file)
+            try:
+                with open(self.products_path, 'r') as file:
+                    self.products_data = json.load(file)
+            except json.JSONDecodeError as e:
+                print(f"🛑 Failed to load {os.path.basename(self.products_path)}: Invalid JSON format.")
+                print(f"    ↳  {e}\n")
+                sys.exit(1)
         return self.products_data
 
     def _get_clean_url(self, url: str) -> str:
@@ -324,12 +330,17 @@ class SkroutzScraper:
 
             response = session.get(api_link.strip(), headers=headers)
 
-            if response.status_code == 404:
+            if response.status_code is None:
+                raise Exception("Empty response or no status code received from server")
+
+            if response.status_code in (404, 410):
                 if not self.silent:
-                    print(f"⚠️  {product_name}: Not found (HTTP 404) - Skipping")
+                    print(f"⚠️  {product_name}: Product not found or removed (HTTP {response.status_code}) - Skipping.")
                 return None
-            elif response.status_code in (403, 429):
+            elif response.status_code in (401, 403, 429):
                 raise Exception(f"Blocked or rate limited (HTTP {response.status_code})")
+            elif 500 <= response.status_code < 600:
+                raise Exception(f"Skroutz server error (HTTP {response.status_code}), retrying...")
             elif response.status_code != 200:
                 raise Exception(f"HTTP request failed with status code {response.status_code}")
 
@@ -394,7 +405,11 @@ class SkroutzScraper:
                     print(f"⚠️  {product_name}: Target price is missing, defaulting to 0.0.")
 
             try:
-                target_price = float(entry.get('targetPrice', 0.0))
+                target_price_raw = entry.get('targetPrice', 0.0)
+                if isinstance(target_price_raw, str):
+                    # Handle string prices, including comma decimals and literal quotes
+                    target_price_raw = target_price_raw.strip('"').strip("'").replace(',', '.')
+                target_price = float(target_price_raw)
             except (ValueError, TypeError):
                 if not self.silent:
                     print(f"⚠️  {product_name}: Invalid target price '{entry.get('targetPrice')}', skipping product.")
