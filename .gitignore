@@ -212,3 +212,4 @@ __marimo__/
 *.json
 *.pyc
 *.txt
+!requirements*.txt

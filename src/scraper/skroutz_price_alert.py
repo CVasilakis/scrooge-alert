@@ -311,7 +311,7 @@ class SkroutzScraper:
         api_link = f"https://{domain}/s/{product_id}/filter_products.json?"
 
         session = tls_client.Session(
-            client_identifier="chrome120",
+            client_identifier="chrome120",  # type: ignore
             random_tls_extension_order=True
         )
 
@@ -392,7 +392,13 @@ class SkroutzScraper:
             if 'targetPrice' not in entry:
                 if not self.silent:
                     print(f"⚠️  {product_name}: Target price is missing, defaulting to 0.0.")
-            target_price = float(entry.get('targetPrice', 0.0))
+
+            try:
+                target_price = float(entry.get('targetPrice', 0.0))
+            except (ValueError, TypeError):
+                if not self.silent:
+                    print(f"⚠️  {product_name}: Invalid target price '{entry.get('targetPrice')}', skipping product.")
+                continue
 
             for attempt in range(MAX_RETRIES):
                 if self.interrupted:
