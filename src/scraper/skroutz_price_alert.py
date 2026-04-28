@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sys
+import subprocess
 from urllib.parse import urlparse
 from typing import Dict, Any, Optional, List
 
@@ -482,6 +483,29 @@ class SkroutzScraper:
 
 # --- Main Execution ---
 
+def check_for_updates(base_dir: str) -> None:
+    print("⏳ Checking for updates...", end="", flush=True)
+    try:
+        # Get the remote URL
+        remote_url = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], cwd=base_dir, stderr=subprocess.DEVNULL).decode('utf-8').strip()
+
+        # If it's an SSH URL, convert it to HTTPS to avoid passphrase prompts
+        if remote_url.startswith('git@github.com:'):
+            remote_url = remote_url.replace('git@github.com:', 'https://github.com/')
+
+        local_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=base_dir, stderr=subprocess.DEVNULL).decode('utf-8').strip()
+        remote_output = subprocess.check_output(['git', 'ls-remote', remote_url, 'HEAD'], cwd=base_dir, stderr=subprocess.DEVNULL).decode('utf-8').strip()
+        if remote_output:
+            remote_hash = remote_output.split()[0]
+            if local_hash != remote_hash:
+                print("\r✨ A new version is available! Run ./update.sh to update.\n")
+            else:
+                print("\r✅ You are running the latest version.")
+        else:
+            print("\r⚠️  Could not check for updates.")
+    except Exception:
+        print("\r⚠️  Could not check for updates.")
+
 def main() -> None:
     parser = argparse.ArgumentParser(description='Skroutz Price Alert scraper')
     parser.add_argument('--silent', action='store_true', help='Run script with no console output')
@@ -489,6 +513,10 @@ def main() -> None:
     args = parser.parse_args()
 
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    if not args.silent:
+        print("\nStarting Skroutz Price Alert...\n")
+        check_for_updates(base_dir)
 
     env_path = os.path.join(base_dir, '.env')
     env_loaded = load_dotenv(dotenv_path=env_path)
@@ -501,7 +529,6 @@ def main() -> None:
     products_file_path = os.path.join(data_dir, "products.json")
 
     if not args.silent:
-        print("\nStarting Skroutz Price Alert...\n")
         if not env_loaded or not os.path.exists(env_path):
             print("⚠️  No .env file found or loaded.")
 

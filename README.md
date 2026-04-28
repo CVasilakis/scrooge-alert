@@ -309,11 +309,10 @@ Most likely, yes! The script uses the [Apprise](https://github.com/caronc/appris
 
 **3. How do I update the script to the latest version?**
 
-Navigate to the project directory and pull the latest changes using Git. Afterward, run the installation script again to ensure any new dependencies are installed and your environment is properly updated:
+Navigate to the project directory and run the update script. This will pull the latest changes using Git and automatically run the installation script again to ensure any new dependencies are installed and your environment is properly updated:
 
 ```sh
-git pull
-./install.sh
+./update.sh
 ```
 
 **4. Is it safe to edit my product list while the script is running?**

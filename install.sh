@@ -55,6 +55,9 @@ fi
 if [ -f "$SCRIPT_DIR/uninstall.sh" ]; then
     chmod +x "$SCRIPT_DIR/uninstall.sh"
 fi
+if [ -f "$SCRIPT_DIR/update.sh" ]; then
+    chmod +x "$SCRIPT_DIR/update.sh"
+fi
 
 
 # ------------------------------------------------------------------------------
