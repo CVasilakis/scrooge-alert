@@ -67,17 +67,28 @@ fi
 # Initialize or update python virtual environment
 if [ ! -d "$VENV_DIR" ]; then
     printf "%b\n" "\n${CYAN}Creating python virtual environment...${NC}"
-    python3 -m venv "$VENV_DIR"
+    if ! python3 -m venv "$VENV_DIR"; then
+        printf "%b\n" "${RED}Error: Failed to create python virtual environment.${NC}\n"
+        exit 1
+    fi
 else
     printf "%b\n" "\n${CYAN}Updating python packages in existing virtual environment...${NC}"
 fi
 
 # Safely upgrade pip and install matching requirements
-"$VENV_DIR/bin/python3" -m pip install -q --upgrade pip
+if ! "$VENV_DIR/bin/python3" -m pip install -q --upgrade pip; then
+    printf "%b\n" "${RED}Error: Failed to upgrade pip in the virtual environment.${NC}\n"
+    exit 1
+fi
+
 if [ -f "$REQUIREMENTS_FILE" ]; then
-    "$VENV_DIR/bin/python3" -m pip install -q --upgrade -r "$REQUIREMENTS_FILE"
+    if ! "$VENV_DIR/bin/python3" -m pip install -q --upgrade -r "$REQUIREMENTS_FILE"; then
+        printf "%b\n" "${RED}Error: Failed to install packages from $REQUIREMENTS_FILE.${NC}\n"
+        exit 1
+    fi
 else
-    printf "%b\n" "${YELLOW}Warning: $REQUIREMENTS_FILE not found, skipping package installation.${NC}"
+    printf "%b\n" "${RED}Error: $REQUIREMENTS_FILE not found. The script cannot run without its dependencies.${NC}\n"
+    exit 1
 fi
 
 printf "%b\n" "${GREEN}Python virtual environment successfully created/updated.${NC}"
@@ -86,9 +97,14 @@ printf "%b\n" "${GREEN}Python virtual environment successfully created/updated.$
 # SYSTEMD SETUP
 # ------------------------------------------------------------------------------
 
-printf "%b\n" "\n${CYAN}Setting up Systemd Timer...${NC}"
-
 SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+
+if [ -f "$SYSTEMD_USER_DIR/$SERVICE_NAME.service" ] && [ -f "$SYSTEMD_USER_DIR/$SERVICE_NAME.timer" ]; then
+    printf "%b\n" "\n${CYAN}Updating Systemd Timer...${NC}"
+else
+    printf "%b\n" "\n${CYAN}Setting up Systemd Timer...${NC}"
+fi
+
 mkdir -p "$SYSTEMD_USER_DIR"
 
 cat > "$SYSTEMD_USER_DIR/$SERVICE_NAME.service" << EOF
@@ -114,8 +130,13 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
-systemctl --user daemon-reload
-systemctl --user enable --now "$SERVICE_NAME.timer" >/dev/null 2>&1
+if [ -f "$SYSTEMD_USER_DIR/$SERVICE_NAME.service" ] && [ -f "$SYSTEMD_USER_DIR/$SERVICE_NAME.timer" ]; then
+    systemctl --user daemon-reload
+    systemctl --user enable --now "$SERVICE_NAME.timer" >/dev/null 2>&1
+else
+    printf "%b\n" "${RED}Error: Failed to create systemd configuration files.${NC}\n"
+    exit 1
+fi
 
 if command -v loginctl >/dev/null 2>&1; then
     if [ "$(loginctl show-user "$USER" --property=Linger 2>/dev/null)" != "Linger=yes" ]; then
@@ -148,4 +169,6 @@ if [ ! -f "data/products.json" ] || [ ! -f ".env" ]; then
     printf "%b\n" "- Read the README.md file for more information."
 fi
 
-printf "%b\n" "\n${GREEN}Installation complete!${NC}"
+if [ "${1:-}" != "--update" ]; then
+    printf "%b\n" "\n${GREEN}Installation complete!${NC}"
+fi
