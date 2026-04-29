@@ -65,12 +65,14 @@ fi
 # ------------------------------------------------------------------------------
 
 # Initialize or update python virtual environment
+VENV_NEWLY_CREATED=false
 if [ ! -d "$VENV_DIR" ]; then
     printf "%b\n" "\n${CYAN}Creating python virtual environment...${NC}"
     if ! python3 -m venv "$VENV_DIR"; then
         printf "%b\n" "${RED}Error: Failed to create python virtual environment.${NC}\n"
         exit 1
     fi
+    VENV_NEWLY_CREATED=true
 else
     printf "%b\n" "\n${CYAN}Updating python packages in existing virtual environment...${NC}"
 fi
@@ -91,7 +93,11 @@ else
     exit 1
 fi
 
-printf "%b\n" "${GREEN}Python virtual environment successfully created/updated.${NC}"
+if [ "$VENV_NEWLY_CREATED" = true ]; then
+    printf "%b\n" "${GREEN}Python virtual environment successfully created.${NC}"
+else
+    printf "%b\n" "${GREEN}Python virtual environment successfully updated.${NC}"
+fi
 
 # ------------------------------------------------------------------------------
 # SYSTEMD SETUP

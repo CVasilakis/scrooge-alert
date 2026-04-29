@@ -25,7 +25,7 @@ from typing import Dict, Any, Optional, List
 MAX_RETRIES: int = 3
 
 # Number of hours after which a product check is considered old, triggering a warning
-OLD_ENTRY_HOURS: int = 24
+OLD_ENTRY_HOURS: int = 48
 
 # Base delay in seconds between processing each product to avoid rate limits
 MIN_DELAY_SECONDS: int = 20
@@ -157,19 +157,19 @@ class Notifier:
 
     def notify_low_price(self, product_name: str, target_price: float, current_price: float, url: str, currency: str = '€') -> None:
         self.notify(
-            title='Skroutz Price Drop Alert! 📉',
+            title='Skroutz Price Drop Alert!',
             body=f'{product_name} found at a price below {target_price} {currency}.\nCurrent price = {current_price} {currency}.\nLink: {url}'
         )
 
     def notify_old_entries(self, hours: int, url: str) -> None:
         self.notify(
-            title='Skroutz Tracking Stale ⚠️',
+            title='Skroutz Tracking Stale',
             body=f'Link {url} has not been updated for {hours} hours.\nCheck if product page has a problem and error logs.'
         )
 
     def notify_errors(self) -> None:
         self.notify(
-            title='Skroutz Scraping Errors 🛑',
+            title='Skroutz Scraping Errors',
             body='Skroutz Price Alert Script encountered errors on some products. Check error log.'
         )
 
@@ -267,7 +267,7 @@ class ProductsManager:
                     timestamp = datetime.datetime.strptime(last_check, "%d-%m-%Y %H:%M:%S")
                     current_time = datetime.datetime.now()
                     if (current_time - timestamp) > datetime.timedelta(hours=hours):
-                        print(f"⚠️  Old entry found for {product_name}: {url} (Last check: {last_check})")
+                        print(f"❗ Old entry found for {product_name}: {url} (Last check: {last_check})")
                         notifier.notify_old_entries(hours, url)
                 except ValueError:
                     pass
@@ -336,7 +336,7 @@ class SkroutzScraper:
 
             if response.status_code in (404, 410):
                 if not self.silent:
-                    print(f"⚠️  {product_name}: Product not found or removed (HTTP {response.status_code}) - Skipping.")
+                    print(f"❗ {product_name}: Product not found or removed (HTTP {response.status_code}) - Skipping.")
                 return None
             elif response.status_code in (401, 403, 429):
                 raise Exception(f"Blocked or rate limited (HTTP {response.status_code})")
@@ -381,7 +381,7 @@ class SkroutzScraper:
 
             if entry.get('skip', False):
                 if not self.silent:
-                    print(f"\n⏭️  {product_name}: Skipped (skip field set to true)")
+                    print(f"\n💨 {product_name}: Skipped (skip field set to true)")
                 continue
 
             if not self.silent and index >= 0:
@@ -394,7 +394,7 @@ class SkroutzScraper:
             url = entry.get('url', '')
             if not url:
                 if not self.silent:
-                    print(f"⚠️  {product_name}: URL is missing, skipping product.")
+                    print(f"❗ {product_name}: URL is missing, skipping product.")
                 continue
 
             parsed_url = urlparse(url)
@@ -403,7 +403,7 @@ class SkroutzScraper:
 
             if 'targetPrice' not in entry:
                 if not self.silent:
-                    print(f"⚠️  {product_name}: Target price is missing, defaulting to 0.0.")
+                    print(f"❗ {product_name}: Target price is missing, defaulting to 0.0.")
 
             try:
                 target_price_raw = entry.get('targetPrice', 0.0)
@@ -413,7 +413,7 @@ class SkroutzScraper:
                 target_price = float(target_price_raw)
             except (ValueError, TypeError):
                 if not self.silent:
-                    print(f"⚠️  {product_name}: Invalid target price '{entry.get('targetPrice')}', skipping product.")
+                    print(f"❗ {product_name}: Invalid target price '{entry.get('targetPrice')}', skipping product.")
                 continue
 
             for attempt in range(MAX_RETRIES):
@@ -429,7 +429,7 @@ class SkroutzScraper:
                     if current_price is not None:
                         if current_price < target_price:
                             if not self.silent:
-                                print(f"🚨 {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
+                                print(f"🎉 {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
                                 if notifier.has_services:
                                     print("    ↳ 📨 Notification sent to configured services.")
                                 else:
@@ -456,7 +456,7 @@ class SkroutzScraper:
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
                 except Exception as e:
                     if not self.silent:
-                        print(f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e} --> {product_name} --> {url}")
+                        print(f"🛑 {product_name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
 
                     if attempt == MAX_RETRIES - 1:
                         ErrorHandler.save_traceback(data_dir, url=url, headers=self.current_headers)
@@ -502,9 +502,9 @@ def check_for_updates(base_dir: str) -> None:
             else:
                 print("\r✅ You are running the latest version.")
         else:
-            print("\r⚠️  Could not check for updates.")
+            print("\r❗ Could not check for script updates.\n")
     except Exception:
-        print("\r⚠️  Could not check for updates.")
+        print("\r❗ Could not check for script updates.\n")
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='Skroutz Price Alert scraper')
@@ -530,7 +530,7 @@ def main() -> None:
 
     if not args.silent:
         if not env_loaded or not os.path.exists(env_path):
-            print("⚠️  No .env file found or loaded.")
+            print("❗ No .env file found or loaded.")
 
     if not os.path.exists(products_file_path):
         if not args.silent:
@@ -542,7 +542,7 @@ def main() -> None:
     if not args.silent:
         env_exists = env_loaded or os.path.exists(env_path)
         if not notification_urls and env_exists:
-            print("⚠️  No NOTIFICATION_URLS provided in environment.")
+            print("❗ No NOTIFICATION_URLS provided in environment.")
 
     notifier = Notifier(notification_urls)
 
@@ -571,7 +571,7 @@ def main() -> None:
             print(f"✅ Loaded {num_services} notification service(s) from .env")
 
             if notification_urls and any(p in notification_urls for p in placeholders):
-                print("    ↳ ⚠️  NOTIFICATION_URLS contains unconfigured placeholder(s). Please update it.")
+                print("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s). Please update it.")
 
     # Locking and Execution
     lock_file_path = os.path.join(data_dir, "skroutz_price_alert_running.lock")
@@ -588,7 +588,7 @@ def main() -> None:
     except Exception:
         ErrorHandler.save_traceback(data_dir)
         notifier.notify(
-            title='Skroutz Script Crash 💥',
+            title='Skroutz Script Crash',
             body='Skroutz Price Alert Script failed. Check error log.'
         )
 
