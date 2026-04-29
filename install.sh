@@ -176,5 +176,5 @@ if [ ! -f "data/products.json" ] || [ ! -f ".env" ]; then
 fi
 
 if [ "${1:-}" != "--update" ]; then
-    printf "%b\n" "\n${GREEN}Installation complete!${NC}"
+    printf "%b\n" "\n${GREEN}Installation complete!${NC}\n"
 fi

@@ -25,7 +25,7 @@ main() {
 
     printf "%b\n" "\n${CYAN}Updating Skroutz Price Alert...${NC}"
 
-    if ! git pull; then
+    if ! git pull --quiet; then
         printf "%b\n" "\n${RED}Error: Failed to pull latest changes from the repository. Update aborted.${NC}\n"
         exit 1
     fi

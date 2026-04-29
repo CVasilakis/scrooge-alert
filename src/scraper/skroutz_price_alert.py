@@ -584,7 +584,7 @@ def main() -> None:
 
     except Timeout:
         if not args.silent:
-            print('Skroutz Price Alert script did not start! Another instance is currently running.')
+            print('\n🛑 Skroutz Price Alert script did not start! Another instance is currently running.\n')
     except Exception:
         ErrorHandler.save_traceback(data_dir)
         notifier.notify(
