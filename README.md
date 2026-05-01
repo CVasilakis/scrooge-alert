@@ -200,6 +200,7 @@ You can manually interact with the application using the wrapper script. The wra
 | Flag | Action |
 | :--- | :--- |
 | `--silent` | Suppresses all console output. This is automatically used by the systemd setup to prevent unnecessary log spam. |
+| `--status` | Checks if the background service is running properly and displays the last execution time and any errors. |
 | `--test-notification` | Sends a test payload directly to your configured Apprise URLs, then immediately exits. Helps pinpoint `.env` misconfigurations. |
 
 If you run the script without any flags, it will execute normally and output its progress logs directly to the terminal. You can safely interrupt the manual execution at any time by pressing `Ctrl+C`.
@@ -270,21 +271,15 @@ cat data/error_log.txt
 
 **4. Verifying the Background Service:**
 
-To confirm that the script is properly scheduled and running in the background, check the status of your systemd timer (the scheduler):
+To confirm that the script is properly scheduled and running in the background, you can use the status flag:
 
 ```sh
-systemctl --user status skroutz-price-alert.timer
+./scripts/run_scraper.sh --status
 ```
-*(A healthy setup will display `enabled` and `active (waiting)` in green).*
 
-Next, check the status of the service itself:
+This will automatically check systemd and report if your timer is active, when the script was last executed in the background, and if it completed successfully without errors. *(Note: This flag only reports on background scheduled executions, not manual CLI runs).*
 
-```sh
-systemctl --user status skroutz-price-alert.service
-```
-*(You should see a green indicator showing `TriggeredBy: ● skroutz-price-alert.timer`).*
-
-If either of these commands reveals an error or a failed status, please [open an issue](https://github.com/CVasilakis/skroutz-price-alert/issues).
+If the command reveals an error or a failed status, please [open an issue](https://github.com/CVasilakis/skroutz-price-alert/issues).
 
 ## ⚖️ Rate Limiting
 

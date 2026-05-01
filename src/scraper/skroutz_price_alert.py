@@ -509,6 +509,7 @@ def check_for_updates(base_dir: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description='Skroutz Price Alert scraper')
     parser.add_argument('--silent', action='store_true', help='Run script with no console output')
+    parser.add_argument('--status', action='store_true', help='Check the background service status and last execution time')
     parser.add_argument('--test-notification', action='store_true', help='Send a test notification via Apprise and exit')
     args = parser.parse_args()
 
@@ -555,6 +556,103 @@ def main() -> None:
         )
         if not args.silent:
             print("Test notification sent. Exiting.")
+        return
+
+    if args.status:
+        try:
+            print("Fetching systemd status for Skroutz Price Alert...\n")
+            
+            # Fetch Timer Status
+            try:
+                timer_output = subprocess.check_output(
+                    ['systemctl', '--user', 'show', 'skroutz-price-alert.timer', '--property=ActiveState,NextElapseUSecRealtime'], 
+                    stderr=subprocess.DEVNULL
+                ).decode('utf-8').strip()
+            except subprocess.CalledProcessError:
+                timer_output = ""
+
+            # Fetch Linger Status
+            try:
+                user_id = os.environ.get("USER") or os.environ.get("LOGNAME") or "nobody"
+                linger_output = subprocess.check_output(
+                    ['loginctl', 'show-user', user_id, '--property=Linger'], 
+                    stderr=subprocess.DEVNULL
+                ).decode('utf-8').strip()
+            except subprocess.CalledProcessError:
+                linger_output = ""
+                
+            # Fetch Service Status
+            try:
+                service_output = subprocess.check_output(
+                    ['systemctl', '--user', 'show', 'skroutz-price-alert.service', 
+                     '--property=ActiveState,Result,ExecMainStartTimestamp,ExecMainStatus'], 
+                    stderr=subprocess.DEVNULL
+                ).decode('utf-8').strip()
+            except subprocess.CalledProcessError:
+                service_output = ""
+
+            timer_props = {}
+            for line in timer_output.splitlines():
+                if '=' in line:
+                    try:
+                        k, v = line.split('=', 1)
+                        timer_props[k.strip()] = v.strip()
+                    except ValueError:
+                        continue
+                
+            props = {}
+            for line in service_output.splitlines():
+                if '=' in line:
+                    try:
+                        k, v = line.split('=', 1)
+                        props[k.strip()] = v.strip()
+                    except ValueError:
+                        continue
+                        
+            RED = '\033[0;31m'
+            GREEN = '\033[0;32m'
+            NC = '\033[0m'
+
+            timer_active_val = timer_props.get("ActiveState") == "active"
+            timer_active = f"{GREEN}Yes{NC}" if timer_active_val else f"{RED}No{NC}"
+            
+            next_exec = timer_props.get("NextElapseUSecRealtime", "")
+            if not next_exec or next_exec == "n/a" or next_exec == "0":
+                next_exec = "Not Scheduled"
+                
+            linger_enabled_val = "Linger=yes" in linger_output
+            linger_enabled = f"{GREEN}Yes{NC}" if linger_enabled_val else f"{RED}No{NC}"
+            
+            result = props.get("Result", "")
+            exec_status = props.get("ExecMainStatus", "")
+            last_exec_time = props.get("ExecMainStartTimestamp", "")
+            
+            # Check if the service has actually run and recorded statuses
+            if not result and not exec_status and not last_exec_time:
+                 print(f"Timer Active:                {timer_active}")
+                 print(f"Next Scheduled Execution:    {next_exec}")
+                 print(f"Linger Enabled:              {linger_enabled}")
+                 print("Service Status:              Not available or never run")
+                 return
+                 
+            no_errors = (result == "success" and exec_status == "0")
+            
+            if not last_exec_time:
+                last_exec_time = "Never"
+                completed_str = "Not executed yet"
+            else:
+                error_details = "None" if no_errors else f"Result: {result or 'Unknown'}, Exit Code: {exec_status or 'Unknown'}"
+                completed_str = f"{GREEN}Yes{NC} ({error_details})" if no_errors else f"{RED}No{NC} ({error_details})"
+            
+            print(f"Timer Active:                {timer_active}")
+            print(f"Next Scheduled Execution:    {next_exec}")
+            print(f"Linger Enabled:              {linger_enabled}")
+            print(f"Last Execution Time:         {last_exec_time}")
+            print(f"Completed Without Errors:    {completed_str}")
+            
+        except Exception as e:
+            print(f"An error occurred while fetching status: {e}")
+            
         return
 
     # Initialize ProductsManager
