@@ -179,7 +179,7 @@ class ProductsManager:
         self.products_data: Dict[str, Any] = {}
         self.product_updates: Dict[str, Dict[str, Any]] = {}
 
-    def load(self) -> Dict[str, Any]:
+    def load(self, exit_on_error: bool = True) -> Dict[str, Any]:
         """Loads the products data from the JSON file."""
         if os.path.exists(self.products_path):
             try:
@@ -188,7 +188,8 @@ class ProductsManager:
             except json.JSONDecodeError as e:
                 print(f"🛑 Failed to load {os.path.basename(self.products_path)}: Invalid JSON format.")
                 print(f"    ↳  {e}\n")
-                sys.exit(1)
+                if exit_on_error:
+                    sys.exit(1)
         return self.products_data
 
     def _get_clean_url(self, url: str) -> str:
@@ -483,8 +484,7 @@ class SkroutzScraper:
 
 # --- Main Execution ---
 
-def check_for_updates(base_dir: str) -> None:
-    print("⏳ Checking for updates...", end="", flush=True)
+def check_for_updates(base_dir: str) -> int:
     try:
         # Get the remote URL
         remote_url = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], cwd=base_dir, stderr=subprocess.DEVNULL).decode('utf-8').strip()
@@ -498,26 +498,189 @@ def check_for_updates(base_dir: str) -> None:
         if remote_output:
             remote_hash = remote_output.split()[0]
             if local_hash != remote_hash:
-                print("\r✨ A new version is available! Run ./update.sh to update.\n")
+                return 1
             else:
-                print("\r✅ You are running the latest version.")
+                return 0
+        else:
+            return -1
+    except Exception:
+        return -1
+
+def handle_test_notification(silent: bool) -> None:
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    env_path = os.path.join(base_dir, '.env')
+    load_dotenv(dotenv_path=env_path)
+    notification_urls = os.environ.get("NOTIFICATION_URLS", "")
+    notifier = Notifier(notification_urls)
+
+    if not silent:
+        print("Sending test notification...")
+    notifier.notify(
+        title="Skroutz Price Alert Test",
+        body="This is a test notification from Skroutz Price Alert."
+    )
+    if not silent:
+        print("Test notification sent.")
+
+
+def handle_status() -> None:
+    try:
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+        print("\nSkroutz Price Alert Status\n")
+
+        print("⏳ Checking for updates...", end="", flush=True)
+        update_status = check_for_updates(base_dir)
+        if update_status == 1:
+            print("\r✨ A new version is available! Run ./update.sh to update.\n")
+        elif update_status == 0:
+            print("\r✅ You are running the latest version.")
         else:
             print("\r❗ Could not check for script updates.\n")
-    except Exception:
-        print("\r❗ Could not check for script updates.\n")
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description='Skroutz Price Alert scraper')
-    parser.add_argument('--silent', action='store_true', help='Run script with no console output')
-    parser.add_argument('--status', action='store_true', help='Check the background service status and last execution time')
-    parser.add_argument('--test-notification', action='store_true', help='Send a test notification via Apprise and exit')
-    args = parser.parse_args()
+        data_dir = os.path.join(base_dir, "data")
+        products_file_path = os.path.join(data_dir, "products.json")
 
+        if not os.path.exists(products_file_path):
+            print(f"❗ The products.json file is missing! Please create it at {products_file_path} or copy from products.json.example")
+        else:
+            products_manager = ProductsManager(products_file_path)
+            products_data = products_manager.load(exit_on_error=False)
+            if products_data:
+                num_products = len(products_data.get("products", []))
+                print(f"✅ Found {num_products} products in data/products.json")
+
+        env_path = os.path.join(base_dir, '.env')
+        env_loaded = load_dotenv(dotenv_path=env_path)
+
+        if not env_loaded or not os.path.exists(env_path):
+            print("❗ No .env file found or loaded.")
+
+        notification_urls = os.environ.get("NOTIFICATION_URLS", "")
+        env_exists = env_loaded or os.path.exists(env_path)
+        if not notification_urls and env_exists:
+            print("❗ No NOTIFICATION_URLS provided in .env file.")
+        elif env_exists:
+            placeholders = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
+            valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in placeholders)]
+            print(f"✅ Found {len(valid_urls)} notification service(s) in .env")
+
+            if notification_urls and any(p in notification_urls for p in placeholders):
+                print("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
+
+        # Fetch Timer Status
+        try:
+            timer_output = subprocess.check_output(
+                ['systemctl', '--user', 'show', 'skroutz-price-alert.timer', '--property=ActiveState,NextElapseUSecRealtime'],
+                stderr=subprocess.DEVNULL
+            ).decode('utf-8').strip()
+        except subprocess.CalledProcessError:
+            timer_output = ""
+
+        # Fetch Linger Status
+        try:
+            user_id = os.environ.get("USER") or os.environ.get("LOGNAME") or "nobody"
+            linger_output = subprocess.check_output(
+                ['loginctl', 'show-user', user_id, '--property=Linger'],
+                stderr=subprocess.DEVNULL
+            ).decode('utf-8').strip()
+        except subprocess.CalledProcessError:
+            linger_output = ""
+
+        # Fetch Service Status
+        try:
+            service_output = subprocess.check_output(
+                ['systemctl', '--user', 'show', 'skroutz-price-alert.service',
+                 '--property=ActiveState,Result,ExecMainStartTimestamp,ExecMainStatus'],
+                stderr=subprocess.DEVNULL
+            ).decode('utf-8').strip()
+        except subprocess.CalledProcessError:
+            service_output = ""
+
+        timer_props = {}
+        for line in timer_output.splitlines():
+            if '=' in line:
+                try:
+                    k, v = line.split('=', 1)
+                    timer_props[k.strip()] = v.strip()
+                except ValueError:
+                    continue
+
+        service_props = {}
+        for line in service_output.splitlines():
+            if '=' in line:
+                try:
+                    k, v = line.split('=', 1)
+                    service_props[k.strip()] = v.strip()
+                except ValueError:
+                    continue
+
+        RED = '\033[0;31m'
+        GREEN = '\033[0;32m'
+        NC = '\033[0m'
+
+        timer_active_val = timer_props.get("ActiveState") == "active"
+        timer_icon = "✅" if timer_active_val else "❗"
+        timer_active = f"{GREEN}Yes{NC}" if timer_active_val else f"{RED}No{NC}"
+
+        next_exec = timer_props.get("NextElapseUSecRealtime", "")
+        if not next_exec or next_exec == "n/a" or next_exec == "0":
+            next_exec = f"{RED}Not Scheduled{NC}"
+            next_exec_icon = "❗"
+        else:
+            next_exec_icon = "✅"
+
+        linger_enabled_val = "Linger=yes" in linger_output
+        linger_icon = "✅" if linger_enabled_val else "❗"
+        linger_enabled = f"{GREEN}Yes{NC}" if linger_enabled_val else f"{RED}No{NC}"
+
+        result = service_props.get("Result", "")
+        exec_status = service_props.get("ExecMainStatus", "")
+        last_exec_time = service_props.get("ExecMainStartTimestamp", "")
+
+        # Check if the service has actually run and recorded statuses
+        if not result and not exec_status and not last_exec_time:
+             print(f"\n{timer_icon} Systemd Timer Active:        {timer_active}")
+             print(f"{next_exec_icon} Next Scheduled Execution:    {next_exec}")
+             print(f"❗ Service Status:              {RED}Not available or never run{NC}")
+             print(f"{linger_icon} Linger Enabled:              {linger_enabled}\n")
+        else:
+            no_errors = (result == "success" and exec_status == "0")
+
+            if not last_exec_time:
+                last_exec_time = f"{RED}Never{NC}"
+                completed_str = f"{RED}Not executed yet{NC}"
+                last_exec_icon = "❗"
+                completed_icon = "❗"
+            else:
+                last_exec_icon = "✅"
+                error_details = "None" if no_errors else f"Result: {result or 'Unknown'}, Exit Code: {exec_status or 'Unknown'}"
+                completed_icon = "✅" if no_errors else "❗"
+                completed_str = f"{GREEN}Yes{NC} ({error_details})" if no_errors else f"{RED}No{NC} ({error_details})"
+
+            print(f"\n{timer_icon} Systemd Timer Active:        {timer_active}")
+            print(f"{next_exec_icon} Next Scheduled Execution:    {next_exec}")
+            print(f"{last_exec_icon} Last Execution Time:         {last_exec_time}")
+            print(f"{completed_icon} Completed Without Errors:    {completed_str}")
+            print(f"{linger_icon} Linger Enabled:              {linger_enabled}\n")
+
+    except Exception as e:
+        print(f"An error occurred while fetching status: {e}")
+
+
+def run_main_program(silent: bool) -> None:
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-    if not args.silent:
+    if not silent:
         print("\nStarting Skroutz Price Alert...\n")
-        check_for_updates(base_dir)
+        print("⏳ Checking for updates...", end="", flush=True)
+        update_status = check_for_updates(base_dir)
+        if update_status == 1:
+            print("\r✨ A new version is available! Run ./update.sh to update.\n")
+        elif update_status == 0:
+            print("\r✅ You are running the latest version.")
+        else:
+            print("\r❗ Could not check for script updates.\n")
 
     env_path = os.path.join(base_dir, '.env')
     env_loaded = load_dotenv(dotenv_path=env_path)
@@ -529,137 +692,29 @@ def main() -> None:
 
     products_file_path = os.path.join(data_dir, "products.json")
 
-    if not args.silent:
+    if not silent:
         if not env_loaded or not os.path.exists(env_path):
             print("❗ No .env file found or loaded.")
 
     if not os.path.exists(products_file_path):
-        if not args.silent:
+        if not silent:
             print(f"🛑 The products.json file is missing! Please create it at {products_file_path} or copy from products.json.example")
         return
 
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
 
-    if not args.silent:
+    if not silent:
         env_exists = env_loaded or os.path.exists(env_path)
         if not notification_urls and env_exists:
             print("❗ No NOTIFICATION_URLS provided in environment.")
 
     notifier = Notifier(notification_urls)
 
-    if args.test_notification:
-        if not args.silent:
-            print("Sending test notification...")
-        notifier.notify(
-            title="Skroutz Price Alert Test",
-            body="This is a test notification from Skroutz Price Alert."
-        )
-        if not args.silent:
-            print("Test notification sent. Exiting.")
-        return
-
-    if args.status:
-        try:
-            print("Fetching systemd status for Skroutz Price Alert...\n")
-            
-            # Fetch Timer Status
-            try:
-                timer_output = subprocess.check_output(
-                    ['systemctl', '--user', 'show', 'skroutz-price-alert.timer', '--property=ActiveState,NextElapseUSecRealtime'], 
-                    stderr=subprocess.DEVNULL
-                ).decode('utf-8').strip()
-            except subprocess.CalledProcessError:
-                timer_output = ""
-
-            # Fetch Linger Status
-            try:
-                user_id = os.environ.get("USER") or os.environ.get("LOGNAME") or "nobody"
-                linger_output = subprocess.check_output(
-                    ['loginctl', 'show-user', user_id, '--property=Linger'], 
-                    stderr=subprocess.DEVNULL
-                ).decode('utf-8').strip()
-            except subprocess.CalledProcessError:
-                linger_output = ""
-                
-            # Fetch Service Status
-            try:
-                service_output = subprocess.check_output(
-                    ['systemctl', '--user', 'show', 'skroutz-price-alert.service', 
-                     '--property=ActiveState,Result,ExecMainStartTimestamp,ExecMainStatus'], 
-                    stderr=subprocess.DEVNULL
-                ).decode('utf-8').strip()
-            except subprocess.CalledProcessError:
-                service_output = ""
-
-            timer_props = {}
-            for line in timer_output.splitlines():
-                if '=' in line:
-                    try:
-                        k, v = line.split('=', 1)
-                        timer_props[k.strip()] = v.strip()
-                    except ValueError:
-                        continue
-                
-            props = {}
-            for line in service_output.splitlines():
-                if '=' in line:
-                    try:
-                        k, v = line.split('=', 1)
-                        props[k.strip()] = v.strip()
-                    except ValueError:
-                        continue
-                        
-            RED = '\033[0;31m'
-            GREEN = '\033[0;32m'
-            NC = '\033[0m'
-
-            timer_active_val = timer_props.get("ActiveState") == "active"
-            timer_active = f"{GREEN}Yes{NC}" if timer_active_val else f"{RED}No{NC}"
-            
-            next_exec = timer_props.get("NextElapseUSecRealtime", "")
-            if not next_exec or next_exec == "n/a" or next_exec == "0":
-                next_exec = "Not Scheduled"
-                
-            linger_enabled_val = "Linger=yes" in linger_output
-            linger_enabled = f"{GREEN}Yes{NC}" if linger_enabled_val else f"{RED}No{NC}"
-            
-            result = props.get("Result", "")
-            exec_status = props.get("ExecMainStatus", "")
-            last_exec_time = props.get("ExecMainStartTimestamp", "")
-            
-            # Check if the service has actually run and recorded statuses
-            if not result and not exec_status and not last_exec_time:
-                 print(f"Timer Active:                {timer_active}")
-                 print(f"Next Scheduled Execution:    {next_exec}")
-                 print(f"Linger Enabled:              {linger_enabled}")
-                 print("Service Status:              Not available or never run")
-                 return
-                 
-            no_errors = (result == "success" and exec_status == "0")
-            
-            if not last_exec_time:
-                last_exec_time = "Never"
-                completed_str = "Not executed yet"
-            else:
-                error_details = "None" if no_errors else f"Result: {result or 'Unknown'}, Exit Code: {exec_status or 'Unknown'}"
-                completed_str = f"{GREEN}Yes{NC} ({error_details})" if no_errors else f"{RED}No{NC} ({error_details})"
-            
-            print(f"Timer Active:                {timer_active}")
-            print(f"Next Scheduled Execution:    {next_exec}")
-            print(f"Linger Enabled:              {linger_enabled}")
-            print(f"Last Execution Time:         {last_exec_time}")
-            print(f"Completed Without Errors:    {completed_str}")
-            
-        except Exception as e:
-            print(f"An error occurred while fetching status: {e}")
-            
-        return
-
     # Initialize ProductsManager
     products_manager = ProductsManager(products_file_path)
     products_data = products_manager.load()
 
-    if not args.silent:
+    if not silent:
         num_products = len(products_data.get("products", []))
         print(f"✅ Loaded {num_products} products from data/products.json")
         if env_loaded or os.path.exists(env_path):
@@ -669,7 +724,7 @@ def main() -> None:
             print(f"✅ Loaded {num_services} notification service(s) from .env")
 
             if notification_urls and any(p in notification_urls for p in placeholders):
-                print("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s). Please update it.")
+                print("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
 
     # Locking and Execution
     lock_file_path = os.path.join(data_dir, "skroutz_price_alert_running.lock")
@@ -677,11 +732,11 @@ def main() -> None:
 
     try:
         with lock:
-            scraper = SkroutzScraper(silent=args.silent)
+            scraper = SkroutzScraper(silent=silent)
             scraper.process_products(products_manager, notifier, data_dir)
 
     except Timeout:
-        if not args.silent:
+        if not silent:
             print('\n🛑 Skroutz Price Alert script did not start! Another instance is currently running.\n')
     except Exception:
         ErrorHandler.save_traceback(data_dir)
@@ -689,6 +744,23 @@ def main() -> None:
             title='Skroutz Script Crash',
             body='Skroutz Price Alert Script failed. Check error log.'
         )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description='Skroutz Price Alert scraper')
+    parser.add_argument('--silent', action='store_true', help='Run script with no console output')
+    parser.add_argument('--status', action='store_true', help='Perform a health check of the background service and show execution status (skips main scraper)')
+    parser.add_argument('--test-notification', action='store_true', help='Send a test notification via Apprise (skips main scraper)')
+    args = parser.parse_args()
+
+    if args.test_notification:
+        handle_test_notification(args.silent)
+
+    if args.status:
+        handle_status()
+
+    if not args.test_notification and not args.status:
+        run_main_program(args.silent)
 
 if __name__ == "__main__":
     main()
