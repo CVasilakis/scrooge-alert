@@ -200,13 +200,20 @@ You can manually interact with the application using the wrapper script. The wra
 | Flag | Action |
 | :--- | :--- |
 | `--silent` | Suppresses all console output. This is automatically used by the systemd setup to prevent unnecessary log spam. |
-| `--status` | Checks if the background service is running properly and displays the last execution time and any errors. |
+| `--status` | Performs a comprehensive health check. It validates the configuration (`.env` and `data/products.json`), checks for script updates, and verifies the background systemd service and timer status. |
 | `--test-notification` | Sends a test payload directly to your configured Apprise URLs, then immediately exits. Helps pinpoint `.env` misconfigurations. |
 
 If you run the script without any flags, it will execute normally and output its progress logs directly to the terminal. You can safely interrupt the manual execution at any time by pressing `Ctrl+C`.
 
 ```sh
 ./scripts/run_scraper.sh
+```
+
+If you run the script using the `--status` flag, the script checks for available updates, verifies the integrity of your `data/products.json` file, validates your environment variables in `.env` file, and queries systemd for the background execution info.
+If no errors are detected in this output, you can rest assured that the application is successfully configured and actively running in the background.
+
+```sh
+./scripts/run_scraper.sh --status
 ```
 
 > [!TIP]
@@ -228,7 +235,6 @@ You might receive the following push notification alerts throughout the lifecycl
 To completely remove the background service and clean up the python virtual environment, you can run the uninstall script:
 
 ```sh
-chmod +x uninstall.sh
 ./uninstall.sh
 ```
 
@@ -269,17 +275,17 @@ If the script unexpectedly fails while running in the background, it saves the e
 cat data/error_log.txt
 ```
 
-**4. Verifying the Background Service:**
+**4. Verifying the Application Status:**
 
-To confirm that the script is properly scheduled and running in the background, you can use the status flag:
+To confidently confirm that the application is properly configured and running in the background, you can utilize the built-in status check:
 
 ```sh
 ./scripts/run_scraper.sh --status
 ```
 
-This will automatically check systemd and report if your timer is active, when the script was last executed in the background, and if it completed successfully without errors. *(Note: This flag only reports on background scheduled executions, not manual CLI runs).*
+This command acts as a comprehensive diagnostic tool. It will automatically check for pending software updates, verify the integrity of your `products.json` file, validate your `.env` configuration, and report the live state of the systemd background service and timer. Please keep in mind that the systemd execution metrics reported by the `--status` flag only reflect background scheduled executions, not manual CLI runs.
 
-If the command reveals an error or a failed status, please [open an issue](https://github.com/CVasilakis/skroutz-price-alert/issues).
+If the command reveals any warnings, please run `./update.sh` which re-installs the background service and ensures that you are on the latest version. If the issue persists after updating, please [open an issue](https://github.com/CVasilakis/skroutz-price-alert/issues) for further assistance.
 
 ## ⚖️ Rate Limiting
 
@@ -296,7 +302,9 @@ The default configuration applies rate limiting to reduce traffic and increase t
 
 **1. How can I tell if the script is actively running in the background?**
 
-The easiest way to verify is to open your `data/products.json` file. The script automatically updates the `last_successful_check` timestamp for each product every time it runs. If those timestamps are recent, the script is doing its job! You can also manually check the background service and logs as described in the [Troubleshooting & Debugging](#-troubleshooting--debugging) section.
+The most reliable way to verify your installation is to use the built-in status diagnostic command by running `./scripts/run_scraper.sh --status` in your terminal. If this command reports that your systemd timer is active and no errors are detected in your configuration, you can rest assured that the application is perfectly configured and actively working in the background.
+
+As a secondary confirmation, you can always inspect your `data/products.json` file. The script automatically updates the `last_successful_check` timestamp for each item every time it executes a successful scrape.
 
 **2. Can I get notifications sent to Discord, Telegram, or other specific services?**
 
