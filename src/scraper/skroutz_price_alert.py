@@ -382,7 +382,7 @@ class SkroutzScraper:
 
             if entry.get('skip', False):
                 if not self.silent:
-                    print(f"\n💨 {product_name}: Skipped (skip field set to true)")
+                    print(f"\n🔕 {product_name}: Skipped (skip field set to true)")
                 continue
 
             if not self.silent and index >= 0:
@@ -569,11 +569,17 @@ def handle_status() -> None:
                 print("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
 
         def get_systemd_properties(unit: str, properties: str) -> dict:
+            service_file_path = os.path.expanduser(f'~/.config/systemd/user/{unit}')
+            if not os.path.exists(service_file_path) or os.path.getsize(service_file_path) == 0:
+                return {}
+
             try:
                 output = subprocess.check_output(
                     ['systemctl', '--user', 'show', unit, f'--property={properties}'],
                     stderr=subprocess.DEVNULL
                 ).decode('utf-8').strip()
+                if not output:
+                    return {}
                 return dict(line.split('=', 1) for line in output.splitlines() if '=' in line)
             except (subprocess.CalledProcessError, ValueError):
                 return {}

@@ -129,7 +129,7 @@ Description=Run $SERVICE_NAME hourly
 
 [Timer]
 OnCalendar=hourly
-RandomizedDelaySec=60s
+RandomizedDelaySec=300s
 Persistent=true
 
 [Install]
