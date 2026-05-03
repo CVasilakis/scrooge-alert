@@ -568,101 +568,90 @@ def handle_status() -> None:
             if notification_urls and any(p in notification_urls for p in placeholders):
                 print("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
 
-        # Fetch Timer Status
-        try:
-            timer_output = subprocess.check_output(
-                ['systemctl', '--user', 'show', 'skroutz-price-alert.timer', '--property=ActiveState,NextElapseUSecRealtime'],
-                stderr=subprocess.DEVNULL
-            ).decode('utf-8').strip()
-        except subprocess.CalledProcessError:
-            timer_output = ""
+        def get_systemd_properties(unit: str, properties: str) -> dict:
+            try:
+                output = subprocess.check_output(
+                    ['systemctl', '--user', 'show', unit, f'--property={properties}'],
+                    stderr=subprocess.DEVNULL
+                ).decode('utf-8').strip()
+                return dict(line.split('=', 1) for line in output.splitlines() if '=' in line)
+            except (subprocess.CalledProcessError, ValueError):
+                return {}
 
-        # Fetch Linger Status
-        try:
-            user_id = os.environ.get("USER") or os.environ.get("LOGNAME") or "nobody"
-            linger_output = subprocess.check_output(
-                ['loginctl', 'show-user', user_id, '--property=Linger'],
-                stderr=subprocess.DEVNULL
-            ).decode('utf-8').strip()
-        except subprocess.CalledProcessError:
-            linger_output = ""
+        def is_linger_enabled() -> bool:
+            try:
+                user_id = os.environ.get("USER") or os.environ.get("LOGNAME") or "nobody"
+                output = subprocess.check_output(
+                    ['loginctl', 'show-user', user_id, '--property=Linger'],
+                    stderr=subprocess.DEVNULL
+                ).decode('utf-8').strip()
+                return "Linger=yes" in output
+            except subprocess.CalledProcessError:
+                return False
 
-        # Fetch Service Status
-        try:
-            service_output = subprocess.check_output(
-                ['systemctl', '--user', 'show', 'skroutz-price-alert.service',
-                 '--property=ActiveState,Result,ExecMainStartTimestamp,ExecMainStatus'],
-                stderr=subprocess.DEVNULL
-            ).decode('utf-8').strip()
-        except subprocess.CalledProcessError:
-            service_output = ""
+        # --- Data Fetching ---
+        timer_props = get_systemd_properties('skroutz-price-alert.timer', 'ActiveState,NextElapseUSecRealtime')
+        service_props = get_systemd_properties('skroutz-price-alert.service', 'ActiveState,Result,ExecMainStartTimestamp,ExecMainStatus')
+        linger_enabled_val = is_linger_enabled()
 
-        timer_props = {}
-        for line in timer_output.splitlines():
-            if '=' in line:
-                try:
-                    k, v = line.split('=', 1)
-                    timer_props[k.strip()] = v.strip()
-                except ValueError:
-                    continue
-
-        service_props = {}
-        for line in service_output.splitlines():
-            if '=' in line:
-                try:
-                    k, v = line.split('=', 1)
-                    service_props[k.strip()] = v.strip()
-                except ValueError:
-                    continue
-
+        # --- Data Formatting ---
         RED = '\033[0;31m'
         GREEN = '\033[0;32m'
         NC = '\033[0m'
 
+        # Linger Status
+        linger_icon = "✅" if linger_enabled_val else "❗"
+        linger_enabled = f"{GREEN}Yes{NC}" if linger_enabled_val else f"{RED}No{NC}"
+
+        # Timer Status
         timer_active_val = timer_props.get("ActiveState") == "active"
         timer_icon = "✅" if timer_active_val else "❗"
         timer_active = f"{GREEN}Yes{NC}" if timer_active_val else f"{RED}No{NC}"
 
+        # Service / Last Execution Status
+        result = service_props.get("Result", "")
+        exec_status = service_props.get("ExecMainStatus", "")
+        last_exec_time = service_props.get("ExecMainStartTimestamp", "")
+        service_active = service_props.get("ActiveState", "")
+
+        no_errors = (result == "success" and exec_status == "0")
+        is_currently_running = service_active in ("active", "activating")
+        is_pending_first_execution = timer_active_val and not last_exec_time
+
         next_exec = timer_props.get("NextElapseUSecRealtime", "")
-        if not next_exec or next_exec == "n/a" or next_exec == "0":
+        if is_currently_running:
+            next_exec = f"{GREEN}Running Now{NC}"
+            next_exec_icon = "✅"
+        elif not next_exec or next_exec in ("n/a", "0"):
             next_exec = f"{RED}Not Scheduled{NC}"
             next_exec_icon = "❗"
         else:
             next_exec_icon = "✅"
 
-        linger_enabled_val = "Linger=yes" in linger_output
-        linger_icon = "✅" if linger_enabled_val else "❗"
-        linger_enabled = f"{GREEN}Yes{NC}" if linger_enabled_val else f"{RED}No{NC}"
-
-        result = service_props.get("Result", "")
-        exec_status = service_props.get("ExecMainStatus", "")
-        last_exec_time = service_props.get("ExecMainStartTimestamp", "")
-
-        # Check if the service has actually run and recorded statuses
-        if not result and not exec_status and not last_exec_time:
-             print(f"\n{timer_icon} Systemd Timer Active:        {timer_active}")
-             print(f"{next_exec_icon} Next Scheduled Execution:    {next_exec}")
-             print(f"❗ Service Status:              {RED}Not available or never run{NC}")
-             print(f"{linger_icon} Linger Enabled:              {linger_enabled}\n")
+        if not last_exec_time:
+            last_exec_time = f"{RED}Never{NC}"
+            completed_str = f"{RED}Not executed yet{NC}"
+            last_exec_icon = "❗"
+            completed_icon = "❗"
         else:
-            no_errors = (result == "success" and exec_status == "0")
+            last_exec_icon = "✅"
+            error_details = "None" if no_errors else f"Result: {result or 'Unknown'}, Exit Code: {exec_status or 'Unknown'}"
+            completed_icon = "✅" if no_errors else "❗"
+            completed_str = f"{GREEN}Yes{NC} ({error_details})" if no_errors else f"{RED}No{NC} ({error_details})"
 
-            if not last_exec_time:
-                last_exec_time = f"{RED}Never{NC}"
-                completed_str = f"{RED}Not executed yet{NC}"
-                last_exec_icon = "❗"
-                completed_icon = "❗"
-            else:
-                last_exec_icon = "✅"
-                error_details = "None" if no_errors else f"Result: {result or 'Unknown'}, Exit Code: {exec_status or 'Unknown'}"
-                completed_icon = "✅" if no_errors else "❗"
-                completed_str = f"{GREEN}Yes{NC} ({error_details})" if no_errors else f"{RED}No{NC} ({error_details})"
-
-            print(f"\n{timer_icon} Systemd Timer Active:        {timer_active}")
-            print(f"{next_exec_icon} Next Scheduled Execution:    {next_exec}")
+        # --- Terminal Output ---
+        print(f"\n{linger_icon} Linger Enabled:              {linger_enabled}")
+        print(f"{timer_icon} Systemd Timer Active:        {timer_active}")
+        if last_exec_time != f"{RED}Never{NC}":
             print(f"{last_exec_icon} Last Execution Time:         {last_exec_time}")
-            print(f"{completed_icon} Completed Without Errors:    {completed_str}")
-            print(f"{linger_icon} Linger Enabled:              {linger_enabled}\n")
+            print(f"{completed_icon} Last Run Without Errors:     {completed_str}")
+        print(f"{next_exec_icon} Next Scheduled Execution:    {next_exec}")
+
+        if is_currently_running:
+            print("    ↳ Script is currently running in the background. Re-check in a few minutes.")
+        elif is_pending_first_execution:
+            print("    ↳ Timer pending first execution. Waiting for the scheduled time.")
+        print("")
 
     except Exception as e:
         print(f"An error occurred while fetching status: {e}")
