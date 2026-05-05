@@ -158,19 +158,31 @@ class Notifier:
     def notify_low_price(self, product_name: str, target_price: float, current_price: float, url: str, currency: str = '€') -> None:
         self.notify(
             title='Skroutz Price Drop Alert!',
-            body=f'{product_name} found at a price below {target_price} {currency}.\nCurrent price = {current_price} {currency}.\nLink: {url}'
+            body=f'{product_name} is now available for {current_price}{currency}, which is below your target of {target_price}{currency}.\nView it here: {url}'
         )
 
-    def notify_old_entries(self, hours: int, url: str) -> None:
+    def notify_old_entries(self, product_name: str, hours: int, url: str) -> None:
         self.notify(
             title='Skroutz Tracking Stale',
-            body=f'Link {url} has not been updated for {hours} hours.\nCheck if product page has a problem and error logs.'
+            body=f'The scraping for "{product_name}" hasn\'t been successfully completed in over {hours} hours. Please check the error logs or verify if the URL is still valid.\nProduct URL: {url}'
         )
 
     def notify_errors(self) -> None:
         self.notify(
             title='Skroutz Scraping Errors',
-            body='Skroutz Price Alert Script encountered errors on some products. Check error log.'
+            body='The Skroutz Price Alert script encountered errors while checking some of your products. Please review the error logs for more details.'
+        )
+
+    def notify_crash(self) -> None:
+        self.notify(
+            title='Skroutz Script Crash',
+            body='The Skroutz Price Alert script failed unexpectedly. Please review the error logs for more details on the crash.'
+        )
+
+    def notify_test(self) -> None:
+        self.notify(
+            title='Skroutz Test Notification',
+            body='This is a test message to confirm that your Skroutz Price Alert notifications are configured correctly!'
         )
 
 class ProductsManager:
@@ -269,7 +281,7 @@ class ProductsManager:
                     current_time = datetime.datetime.now()
                     if (current_time - timestamp) > datetime.timedelta(hours=hours):
                         print(f"❗ Old entry found for {product_name}: {url} (Last check: {last_check})")
-                        notifier.notify_old_entries(hours, url)
+                        notifier.notify_old_entries(product_name, hours, url)
                 except ValueError:
                     pass
 
@@ -515,10 +527,7 @@ def handle_test_notification(silent: bool) -> None:
 
     if not silent:
         print("Sending test notification...")
-    notifier.notify(
-        title="Skroutz Price Alert Test",
-        body="This is a test notification from Skroutz Price Alert."
-    )
+    notifier.notify_test()
     if not silent:
         print("Test notification sent.")
 
@@ -735,10 +744,7 @@ def run_main_program(silent: bool) -> None:
             print('\n🛑 Skroutz Price Alert script did not start! Another instance is currently running.\n')
     except Exception:
         ErrorHandler.save_traceback(data_dir)
-        notifier.notify(
-            title='Skroutz Script Crash',
-            body='Skroutz Price Alert Script failed. Check error log.'
-        )
+        notifier.notify_crash()
 
 
 def main() -> None:

@@ -225,10 +225,11 @@ You might receive the following push notification alerts throughout the lifecycl
 
 | Notification Title | Body / Cause |
 | :--- | :--- |
-| **Skroutz Price Drop Alert!** | `"{Product} found at a price below {target} {currency}..."` <br> Sent when an item's requested price successfully matches your price limit. |
-| **Skroutz Tracking Stale** | `"Link {url} has not been updated for 48 hours..."` <br> Sent if a specific Skroutz URL continuously fails the scrape. |
-| **Skroutz Scraping Errors** | `"Skroutz Price Alert Script encountered errors on some products..."` <br> Sent if the application hits fatal request limits or unhandled exceptions. |
-| **Skroutz Script Crash** | `"Skroutz Price Alert Script failed. Check error log."` <br> Sent if the system completely failed to run. |
+| **Skroutz Price Drop Alert!** | `"{Product} is now available for ..."` <br> Sent when a product's price falls below your price limit. |
+| **Skroutz Tracking Stale** | `"The scraping for "{Product}" hasn't been successfully completed in over 48 hours..."` <br> Sent if a specific product continuously fails the scrape. |
+| **Skroutz Scraping Errors** | `"The Skroutz Price Alert script encountered errors while checking some of your products..."` <br> Sent if the application hits fatal request limits or unhandled exceptions. |
+| **Skroutz Script Crash** | `"The Skroutz Price Alert script failed unexpectedly. Please review the error logs..."` <br> Sent if the script completely failed to run. |
+| **Skroutz Test Notification** | `"This is a test message to confirm that your Skroutz Price Alert notifications are configured correctly!"` <br> Sent when manually invoking the script with the `--test-notification` flag. |
 
 ## 🗑️ Uninstallation
 
