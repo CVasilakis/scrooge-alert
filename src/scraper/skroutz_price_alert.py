@@ -496,6 +496,62 @@ class SkroutzScraper:
 
 # --- Main Execution ---
 
+def check_env_file(base_dir: str) -> int:
+    """Loads .env and checks if it exists and contains NOTIFICATION_URLS.
+    Returns:
+        0: OK
+        1: No .env file found or unreadable
+        2: No NOTIFICATION_URLS provided
+        3: Only unconfigured placeholders provided
+    """
+    env_path = os.path.join(base_dir, '.env')
+    env_loaded = load_dotenv(dotenv_path=env_path)
+    env_exists = env_loaded or os.path.exists(env_path)
+
+    if not env_exists or not os.access(env_path, os.R_OK):
+        return 1
+
+    notification_urls = os.environ.get("NOTIFICATION_URLS", "").strip()
+    if not notification_urls:
+        return 2
+
+    placeholders = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
+    valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in placeholders)]
+    if not valid_urls:
+        return 3
+
+    return 0
+
+def check_products_file(base_dir: str) -> int:
+    """Checks for products.json file.
+    Returns:
+        0: OK
+        1: File missing or not a file
+        2: Permission denied
+        3: Invalid JSON format or missing 'products' list
+    """
+    data_dir = os.path.join(base_dir, "data")
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
+
+    products_file_path = os.path.join(data_dir, "products.json")
+
+    if not os.path.exists(products_file_path) or not os.path.isfile(products_file_path):
+        return 1
+
+    if not os.access(products_file_path, os.R_OK | os.W_OK):
+        return 2
+
+    try:
+        with open(products_file_path, 'r') as f:
+            data = json.load(f)
+            if not isinstance(data, dict) or not isinstance(data.get("products"), list):
+                return 3
+    except (json.JSONDecodeError, OSError):
+        return 3
+
+    return 0
+
 def check_for_updates(base_dir: str) -> int:
     try:
         # Get the remote URL
@@ -518,195 +574,205 @@ def check_for_updates(base_dir: str) -> int:
     except Exception:
         return -1
 
-def handle_test_notification(silent: bool) -> None:
+def handle_test_notification() -> None:
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    placeholders = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
+
+    print("\nSending Skroutz Price Alert Test Notification...\n")
+
+    env_status = check_env_file(base_dir)
+
+    notification_urls = os.environ.get("NOTIFICATION_URLS", "")
+    if env_status == 1:
+        print("🛑 No .env file found or unreadable!\n")
+        sys.exit(1)
+    elif env_status == 2:
+        print("🛑 No NOTIFICATION_URLS provided in .env file!\n")
+        sys.exit(1)
+    elif env_status == 3:
+        print("🛑 NOTIFICATION_URLS contains only unconfigured placeholders!\n")
+        sys.exit(1)
+    elif env_status == 0:
+        valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in placeholders)]
+        print(f"✅ Found {len(valid_urls)} notification service(s) in .env")
+
+        if notification_urls and any(p in notification_urls for p in placeholders):
+            print("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
+
+    notifier = Notifier(notification_urls)
+
     try:
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-        print("\nSending Skroutz Price Alert Test Notification...\n")
-
-        env_path = os.path.join(base_dir, '.env')
-        env_loaded = load_dotenv(dotenv_path=env_path)
-
-        if not env_loaded or not os.path.exists(env_path):
-            print("❗ No .env file found or loaded.")
-
-        notification_urls = os.environ.get("NOTIFICATION_URLS", "")
-        env_exists = env_loaded or os.path.exists(env_path)
-        if not notification_urls and env_exists:
-            print("❗ No NOTIFICATION_URLS provided in .env file.")
-        elif env_exists:
-            placeholders = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
-            valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in placeholders)]
-            print(f"✅ Found {len(valid_urls)} notification service(s) in .env")
-
-            if notification_urls and any(p in notification_urls for p in placeholders):
-                print("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
-
-        notifier = Notifier(notification_urls)
         notifier.notify_test()
-
-        if not silent:
-            print("\nTest notification sent! Did you receive it?")
-            print("If not, please verify your notification settings in the .env file.\n")
-
+        print("\n📨 Test notification sent!\n")
     except Exception as e:
-        print(f"An error occurred while sending test notification: {e}")
-
+        print(f"An error occurred while sending test notification: {e}\n")
 
 def handle_status() -> None:
-    try:
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    data_dir = os.path.join(base_dir, "data")
+    products_file_path = os.path.join(data_dir, "products.json")
+    placeholders = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
+    NC = '\033[0m'
+    RED = '\033[0;31m'
+    GREEN = '\033[0;32m'
+    YELLOW = '\033[0;33m'
 
-        print("\nChecking Skroutz Price Alert Status...\n")
+    def get_systemd_properties(unit: str, properties: str) -> dict:
+        service_file_path = os.path.expanduser(f'~/.config/systemd/user/{unit}')
+        if not os.path.exists(service_file_path) or os.path.getsize(service_file_path) == 0:
+            return {}
 
-        print("⏳ Checking for updates...", end="", flush=True)
-        update_status = check_for_updates(base_dir)
-        if update_status == 1:
-            print("\r✨ A new version is available! Run ./update.sh to update.\n")
-        elif update_status == 0:
-            print("\r✅ You are running the latest version.")
-        else:
-            print("\r❗ Could not check for script updates.\n")
-
-        data_dir = os.path.join(base_dir, "data")
-        products_file_path = os.path.join(data_dir, "products.json")
-
-        if not os.path.exists(products_file_path):
-            print(f"❗ The products.json file is missing! Please create it at {products_file_path} or copy from products.json.example")
-        else:
-            products_manager = ProductsManager(products_file_path)
-            products_data = products_manager.load(exit_on_error=False)
-            if products_data:
-                num_products = len(products_data.get("products", []))
-                print(f"✅ Found {num_products} products in data/products.json")
-
-        env_path = os.path.join(base_dir, '.env')
-        env_loaded = load_dotenv(dotenv_path=env_path)
-
-        if not env_loaded or not os.path.exists(env_path):
-            print("❗ No .env file found or loaded.")
-
-        notification_urls = os.environ.get("NOTIFICATION_URLS", "")
-        env_exists = env_loaded or os.path.exists(env_path)
-        if not notification_urls and env_exists:
-            print("❗ No NOTIFICATION_URLS provided in .env file.")
-        elif env_exists:
-            placeholders = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
-            valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in placeholders)]
-            print(f"✅ Found {len(valid_urls)} notification service(s) in .env")
-
-            if notification_urls and any(p in notification_urls for p in placeholders):
-                print("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
-
-        def get_systemd_properties(unit: str, properties: str) -> dict:
-            service_file_path = os.path.expanduser(f'~/.config/systemd/user/{unit}')
-            if not os.path.exists(service_file_path) or os.path.getsize(service_file_path) == 0:
+        try:
+            output = subprocess.check_output(
+                ['systemctl', '--user', 'show', unit, f'--property={properties}'],
+                stderr=subprocess.DEVNULL
+            ).decode('utf-8').strip()
+            if not output:
                 return {}
+            return dict(line.split('=', 1) for line in output.splitlines() if '=' in line)
+        except (subprocess.CalledProcessError, ValueError):
+            return {}
 
-            try:
-                output = subprocess.check_output(
-                    ['systemctl', '--user', 'show', unit, f'--property={properties}'],
-                    stderr=subprocess.DEVNULL
-                ).decode('utf-8').strip()
-                if not output:
-                    return {}
-                return dict(line.split('=', 1) for line in output.splitlines() if '=' in line)
-            except (subprocess.CalledProcessError, ValueError):
-                return {}
+    def is_linger_enabled() -> bool:
+        try:
+            user_id = os.environ.get("USER") or os.environ.get("LOGNAME") or "nobody"
+            output = subprocess.check_output(
+                ['loginctl', 'show-user', user_id, '--property=Linger'],
+                stderr=subprocess.DEVNULL
+            ).decode('utf-8').strip()
+            return "Linger=yes" in output
+        except subprocess.CalledProcessError:
+            return False
 
-        def is_linger_enabled() -> bool:
-            try:
-                user_id = os.environ.get("USER") or os.environ.get("LOGNAME") or "nobody"
-                output = subprocess.check_output(
-                    ['loginctl', 'show-user', user_id, '--property=Linger'],
-                    stderr=subprocess.DEVNULL
-                ).decode('utf-8').strip()
-                return "Linger=yes" in output
-            except subprocess.CalledProcessError:
-                return False
+    print("\nChecking Skroutz Price Alert Status...\n")
 
-        # --- Data Fetching ---
-        timer_props = get_systemd_properties('skroutz-price-alert.timer', 'ActiveState,NextElapseUSecRealtime')
-        service_props = get_systemd_properties('skroutz-price-alert.service', 'ActiveState,Result,ExecMainStartTimestamp,ExecMainStatus')
-        linger_enabled_val = is_linger_enabled()
+    prod_status = check_products_file(base_dir)
+    env_status = check_env_file(base_dir)
 
-        # --- Data Formatting ---
-        NC = '\033[0m'
-        RED = '\033[0;31m'
-        GREEN = '\033[0;32m'
-        YELLOW = '\033[0;33m'
+    print("⏳ Checking for updates...", end="", flush=True)
+    update_status = check_for_updates(base_dir)
+    if update_status == 1:
+        print("\r✨ A new version is available! Run ./update.sh to update.\n")
+    elif update_status == 0:
+        print("\r✅ You are running the latest version.")
+    else:
+        print("\r❗ Could not check for script updates.\n")
 
-        # Linger Status
-        linger_icon = "✅" if linger_enabled_val else "❗"
-        linger_enabled = f"{GREEN}Yes{NC}" if linger_enabled_val else f"{RED}No{NC}"
+    if prod_status == 1:
+        print("❗ The data/products.json file is missing or not a file!")
+    elif prod_status == 2:
+        print("❗ The data/products.json file has wrong permissions!")
+    elif prod_status == 3:
+        print("❗ The data/products.json file contains invalid JSON format!")
+    else:
+        products_manager = ProductsManager(products_file_path)
+        products_data = products_manager.load(exit_on_error=False)
+        if products_data:
+            num_products = len(products_data.get("products", []))
+            print(f"✅ Found {num_products} products in data/products.json")
 
-        # Timer Status
-        timer_active_val = timer_props.get("ActiveState") == "active"
-        timer_icon = "✅" if timer_active_val else "❗"
-        timer_active = f"{GREEN}Yes{NC}" if timer_active_val else f"{RED}No{NC}"
+    notification_urls = os.environ.get("NOTIFICATION_URLS", "")
+    if env_status == 1:
+        print("❗ No .env file found or unreadable!")
+    elif env_status == 2:
+        print("❗ No NOTIFICATION_URLS provided in .env file!")
+    elif env_status == 3:
+        print("❗ NOTIFICATION_URLS contains only unconfigured placeholders!")
+    elif env_status == 0:
+        valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in placeholders)]
+        print(f"✅ Found {len(valid_urls)} notification service(s) in .env")
 
-        # Service / Last Execution Status
-        result = service_props.get("Result", "")
-        exec_status = service_props.get("ExecMainStatus", "")
-        last_exec_time = service_props.get("ExecMainStartTimestamp", "")
-        service_active = service_props.get("ActiveState", "")
+        if notification_urls and any(p in notification_urls for p in placeholders):
+            print("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
 
-        no_errors = (result == "success" and exec_status == "0")
-        skipped = (exec_status == "42")
-        is_currently_running = service_active in ("active", "activating")
-        is_pending_first_execution = timer_active_val and not last_exec_time
+    # --- Data Fetching ---
+    timer_props = get_systemd_properties('skroutz-price-alert.timer', 'ActiveState,NextElapseUSecRealtime')
+    service_props = get_systemd_properties('skroutz-price-alert.service', 'ActiveState,Result,ExecMainStartTimestamp,ExecMainStatus')
+    linger_enabled_val = is_linger_enabled()
 
-        next_exec = timer_props.get("NextElapseUSecRealtime", "")
-        if is_currently_running:
-            next_exec = f"{GREEN}Running Now{NC}"
-            next_exec_icon = "✅"
-        elif not next_exec or next_exec in ("n/a", "0"):
-            next_exec = f"{RED}Not Scheduled{NC}"
-            next_exec_icon = "❗"
-        else:
-            next_exec_icon = "✅"
+    # --- Data Formatting ---
 
-        if not last_exec_time:
-            last_exec_time = f"{RED}Never{NC}"
-            completed_str = f"{RED}Not executed yet{NC}"
-            last_exec_icon = "❗"
+    # Linger Status
+    linger_icon = "✅" if linger_enabled_val else "❗"
+    linger_enabled = f"{GREEN}Yes{NC}" if linger_enabled_val else f"{RED}No{NC}"
+
+    # Timer Status
+    timer_active_val = timer_props.get("ActiveState") == "active"
+    timer_icon = "✅" if timer_active_val else "❗"
+    timer_active = f"{GREEN}Yes{NC}" if timer_active_val else f"{RED}No{NC}"
+
+    # Service / Last Execution Status
+    result = service_props.get("Result", "")
+    exec_status = service_props.get("ExecMainStatus", "")
+    last_exec_time = service_props.get("ExecMainStartTimestamp", "")
+    service_active = service_props.get("ActiveState", "")
+
+    no_errors = (result == "success" and exec_status == "0")
+    skipped = (exec_status == "42")
+    products_error = (exec_status == "15")
+    is_currently_running = service_active in ("active", "activating")
+    is_pending_first_execution = timer_active_val and not last_exec_time
+
+    next_exec = timer_props.get("NextElapseUSecRealtime", "")
+    if is_currently_running:
+        next_exec = f"{GREEN}Running Now{NC}"
+        next_exec_icon = "✅"
+    elif not next_exec or next_exec in ("n/a", "0"):
+        next_exec = f"{RED}Not Scheduled{NC}"
+        next_exec_icon = "❗"
+    else:
+        next_exec_icon = "✅"
+
+    if not last_exec_time:
+        last_exec_time = f"{RED}Never{NC}"
+        completed_str = f"{RED}Not executed yet{NC}"
+        last_exec_icon = "❗"
+        completed_icon = "❗"
+    else:
+        last_exec_icon = "✅"
+        error_details = "None" if no_errors else f"Result: {result or 'Unknown'}, Exit Code: {exec_status or 'Unknown'}"
+        if no_errors:
+            completed_icon = "✅"
+            completed_str = f"{GREEN}OK{NC}"
+        elif skipped:
+            completed_icon = "🟡"
+            completed_str = f"{YELLOW}Skipped{NC} (Another instance was running)"
+        elif products_error:
             completed_icon = "❗"
+            completed_str = f"{RED}Failed{NC} (Issue with data/products.json file)"
         else:
-            last_exec_icon = "✅"
-            error_details = "None" if no_errors else f"Result: {result or 'Unknown'}, Exit Code: {exec_status or 'Unknown'}"
-            if no_errors:
-                completed_icon = "✅"
-                completed_str = f"{GREEN}OK{NC}"
-            elif skipped:
-                completed_icon = "🟡"
-                completed_str = f"{YELLOW}Skipped{NC} (Another instance was running)"
-            else:
-                completed_icon = "❗"
-                completed_str = f"{RED}Failed{NC} ({error_details})"
+            completed_icon = "❗"
+            completed_str = f"{RED}Failed{NC} ({error_details})"
 
-        # --- Terminal Output ---
-        print(f"\n{linger_icon} Linger Enabled:              {linger_enabled}")
-        print(f"{timer_icon} Systemd Timer Active:        {timer_active}")
-        if last_exec_time != f"{RED}Never{NC}":
-            print(f"{last_exec_icon} Last Execution Time:         {last_exec_time}")
-            print(f"{completed_icon} Last Execution Status:       {completed_str}")
-        print(f"{next_exec_icon} Next Scheduled Execution:    {next_exec}")
+    # --- Terminal Output ---
+    print(f"\n{linger_icon} Linger Enabled:              {linger_enabled}")
+    print(f"{timer_icon} Systemd Timer Active:        {timer_active}")
+    if last_exec_time != f"{RED}Never{NC}":
+        print(f"{last_exec_icon} Last Execution Time:         {last_exec_time}")
+        print(f"{completed_icon} Last Execution Status:       {completed_str}")
+    print(f"{next_exec_icon} Next Scheduled Execution:    {next_exec}")
 
-        if is_currently_running:
-            print("    ↳ Script is currently running in the background. Re-check in a few minutes.")
-        elif is_pending_first_execution:
-            print("    ↳ Timer pending first execution. Waiting for the scheduled time.")
-        print("")
-
-    except Exception as e:
-        print(f"An error occurred while fetching status: {e}")
+    if is_currently_running:
+        print("    ↳ Script is currently running in the background. Re-check in a few minutes.")
+    elif is_pending_first_execution:
+        print("    ↳ Timer pending first execution. Waiting for the scheduled time.")
+    print("")
 
 
 def run_main_program(silent: bool) -> None:
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    data_dir = os.path.join(base_dir, "data")
+    products_file_path = os.path.join(data_dir, "products.json")
+    lock_file_path = os.path.join(data_dir, "skroutz_price_alert_running.lock")
+    placeholders = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
 
     if not silent:
         print("\nStarting Skroutz Price Alert...\n")
+
+    env_status = check_env_file(base_dir)
+    prod_status = check_products_file(base_dir)
+
+    if not silent:
         print("⏳ Checking for updates...", end="", flush=True)
         update_status = check_for_updates(base_dir)
         if update_status == 1:
@@ -716,52 +782,47 @@ def run_main_program(silent: bool) -> None:
         else:
             print("\r❗ Could not check for script updates.\n")
 
-    env_path = os.path.join(base_dir, '.env')
-    env_loaded = load_dotenv(dotenv_path=env_path)
-
-    data_dir = os.path.join(base_dir, "data")
-
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir)
-
-    products_file_path = os.path.join(data_dir, "products.json")
-
-    if not silent:
-        if not env_loaded or not os.path.exists(env_path):
-            print("❗ No .env file found or loaded.")
-
-    if not os.path.exists(products_file_path):
+    if prod_status == 1:
         if not silent:
-            print(f"🛑 The products.json file is missing! Please create it at {products_file_path} or copy from products.json.example")
-        return
+            print("🛑 The data/products.json file is missing or not a file!\n")
+        sys.exit(15)
+    elif prod_status == 2:
+        if not silent:
+            print("🛑 The data/products.json file has wrong permissions!\n")
+        sys.exit(15)
+    elif prod_status == 3:
+        if not silent:
+            print("🛑 The data/products.json file contains invalid JSON format!\n")
+        sys.exit(15)
+
+    products_manager = ProductsManager(products_file_path)
+    products_data = products_manager.load(exit_on_error=True)
+
+    if not silent and products_data is not None:
+        num_products = len(products_data.get("products", []))
+        print(f"✅ Loaded {num_products} products from data/products.json")
 
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
+    if env_status == 1:
+        if not silent:
+            print("❗ No .env file found or unreadable!")
+    elif env_status == 2:
+        if not silent:
+            print("❗ No NOTIFICATION_URLS provided in .env file!")
+    elif env_status == 3:
+        if not silent:
+            print("❗ NOTIFICATION_URLS contains only unconfigured placeholders!")
 
-    if not silent:
-        env_exists = env_loaded or os.path.exists(env_path)
-        if not notification_urls and env_exists:
-            print("❗ No NOTIFICATION_URLS provided in environment.")
+    if env_status == 0 and not silent:
+        valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in placeholders)]
+        print(f"✅ Loaded {len(valid_urls)} notification service(s) from .env")
+
+        if notification_urls and any(p in notification_urls for p in placeholders):
+            print("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
 
     notifier = Notifier(notification_urls)
 
-    # Initialize ProductsManager
-    products_manager = ProductsManager(products_file_path)
-    products_data = products_manager.load()
-
-    if not silent:
-        num_products = len(products_data.get("products", []))
-        print(f"✅ Loaded {num_products} products from data/products.json")
-        if env_loaded or os.path.exists(env_path):
-            placeholders = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
-            valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in placeholders)]
-            num_services = len(valid_urls)
-            print(f"✅ Loaded {num_services} notification service(s) from .env")
-
-            if notification_urls and any(p in notification_urls for p in placeholders):
-                print("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
-
     # Locking and Execution
-    lock_file_path = os.path.join(data_dir, "skroutz_price_alert_running.lock")
     lock = FileLock(lock_file_path, timeout=LOCK_TIMEOUT)
 
     try:
@@ -786,7 +847,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.test_notification:
-        handle_test_notification(args.silent)
+        handle_test_notification()
 
     if args.status:
         handle_status()
