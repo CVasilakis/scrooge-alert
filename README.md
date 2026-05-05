@@ -213,7 +213,7 @@ This will display the following background execution details:
 - **Linger Enabled:** Checks if user lingering is configured for background execution.
 - **Systemd Timer Active:** Shows whether the timer is currently active.
 - **Last Execution Time:** Displays when the script was last run.
-- **Last Run Without Errors:** Indicates last execution results and if any errors happened.
+- **Last Execution Status:** Indicates last execution results and if any errors happened.
 - **Next Scheduled Execution:** Displays the next scheduled run or if it's currently running.
 
 > [!TIP]

@@ -519,24 +519,45 @@ def check_for_updates(base_dir: str) -> int:
         return -1
 
 def handle_test_notification(silent: bool) -> None:
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    env_path = os.path.join(base_dir, '.env')
-    load_dotenv(dotenv_path=env_path)
-    notification_urls = os.environ.get("NOTIFICATION_URLS", "")
-    notifier = Notifier(notification_urls)
+    try:
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-    if not silent:
-        print("Sending test notification...")
-    notifier.notify_test()
-    if not silent:
-        print("Test notification sent.")
+        print("\nSending Skroutz Price Alert Test Notification...\n")
+
+        env_path = os.path.join(base_dir, '.env')
+        env_loaded = load_dotenv(dotenv_path=env_path)
+
+        if not env_loaded or not os.path.exists(env_path):
+            print("❗ No .env file found or loaded.")
+
+        notification_urls = os.environ.get("NOTIFICATION_URLS", "")
+        env_exists = env_loaded or os.path.exists(env_path)
+        if not notification_urls and env_exists:
+            print("❗ No NOTIFICATION_URLS provided in .env file.")
+        elif env_exists:
+            placeholders = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
+            valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in placeholders)]
+            print(f"✅ Found {len(valid_urls)} notification service(s) in .env")
+
+            if notification_urls and any(p in notification_urls for p in placeholders):
+                print("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
+
+        notifier = Notifier(notification_urls)
+        notifier.notify_test()
+
+        if not silent:
+            print("\nTest notification sent! Did you receive it?")
+            print("If not, please verify your notification settings in the .env file.\n")
+
+    except Exception as e:
+        print(f"An error occurred while sending test notification: {e}")
 
 
 def handle_status() -> None:
     try:
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-        print("\nSkroutz Price Alert Status\n")
+        print("\nChecking Skroutz Price Alert Status...\n")
 
         print("⏳ Checking for updates...", end="", flush=True)
         update_status = check_for_updates(base_dir)
@@ -610,9 +631,10 @@ def handle_status() -> None:
         linger_enabled_val = is_linger_enabled()
 
         # --- Data Formatting ---
+        NC = '\033[0m'
         RED = '\033[0;31m'
         GREEN = '\033[0;32m'
-        NC = '\033[0m'
+        YELLOW = '\033[0;33m'
 
         # Linger Status
         linger_icon = "✅" if linger_enabled_val else "❗"
@@ -630,6 +652,7 @@ def handle_status() -> None:
         service_active = service_props.get("ActiveState", "")
 
         no_errors = (result == "success" and exec_status == "0")
+        skipped = (exec_status == "42")
         is_currently_running = service_active in ("active", "activating")
         is_pending_first_execution = timer_active_val and not last_exec_time
 
@@ -651,15 +674,22 @@ def handle_status() -> None:
         else:
             last_exec_icon = "✅"
             error_details = "None" if no_errors else f"Result: {result or 'Unknown'}, Exit Code: {exec_status or 'Unknown'}"
-            completed_icon = "✅" if no_errors else "❗"
-            completed_str = f"{GREEN}Yes{NC} ({error_details})" if no_errors else f"{RED}No{NC} ({error_details})"
+            if no_errors:
+                completed_icon = "✅"
+                completed_str = f"{GREEN}OK{NC}"
+            elif skipped:
+                completed_icon = "🟡"
+                completed_str = f"{YELLOW}Skipped{NC} (Another instance was running)"
+            else:
+                completed_icon = "❗"
+                completed_str = f"{RED}Failed{NC} ({error_details})"
 
         # --- Terminal Output ---
         print(f"\n{linger_icon} Linger Enabled:              {linger_enabled}")
         print(f"{timer_icon} Systemd Timer Active:        {timer_active}")
         if last_exec_time != f"{RED}Never{NC}":
             print(f"{last_exec_icon} Last Execution Time:         {last_exec_time}")
-            print(f"{completed_icon} Last Run Without Errors:     {completed_str}")
+            print(f"{completed_icon} Last Execution Status:       {completed_str}")
         print(f"{next_exec_icon} Next Scheduled Execution:    {next_exec}")
 
         if is_currently_running:
@@ -742,6 +772,7 @@ def run_main_program(silent: bool) -> None:
     except Timeout:
         if not silent:
             print('\n🛑 Skroutz Price Alert script did not start! Another instance is currently running.\n')
+        sys.exit(42)
     except Exception:
         ErrorHandler.save_traceback(data_dir)
         notifier.notify_crash()
