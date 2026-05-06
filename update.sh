@@ -7,6 +7,7 @@ main() {
     # ==============================================================================
     RED='\033[0;31m'
     GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
     CYAN='\033[0;36m'
     NC='\033[0m' # No Color
 
@@ -23,10 +24,33 @@ main() {
 
     cd "$SCRIPT_DIR"
 
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+    if [ "$CURRENT_BRANCH" != "main" ]; then
+        printf "%b\n" "\n${YELLOW}You are currently on branch '${CURRENT_BRANCH}', not 'main'.${NC}"
+        printf "%b\n" "${YELLOW}This update will switch to 'main' and reset any local changes.${NC}"
+        printf "Do you want to proceed? [y/N]: "
+        read -r response
+        case "$response" in
+            [Yy]* ) ;;
+            * ) printf "%b\n" "\n${RED}Update aborted.${NC}\n"; exit 1 ;;
+        esac
+    fi
+
     printf "%b\n" "\n${CYAN}Updating Skroutz Price Alert...${NC}"
 
-    if ! git pull --quiet; then
-        printf "%b\n" "\n${RED}Error: Failed to pull latest changes from the repository. Update aborted.${NC}\n"
+    if ! git checkout main --quiet; then
+        printf "%b\n" "\n${RED}Error: Failed to checkout 'main' branch. Update aborted.${NC}\n"
+        exit 1
+    fi
+
+    if ! git fetch --all --quiet; then
+        printf "%b\n" "\n${RED}Error: Failed to fetch latest changes from the repository. Update aborted.${NC}\n"
+        exit 1
+    fi
+
+    if ! git reset --hard origin/main --quiet; then
+        printf "%b\n" "\n${RED}Error: Failed to reset to origin/main. Update aborted.${NC}\n"
         exit 1
     fi
 
