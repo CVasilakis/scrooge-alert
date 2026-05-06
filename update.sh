@@ -22,24 +22,28 @@ main() {
     # EXECUTION
     # ==============================================================================
 
+    printf "%b\n" "\n${CYAN}Updating Skroutz Price Alert...${NC}"
+
     cd "$SCRIPT_DIR"
 
     CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    IS_DIRTY=$(git status --porcelain)
 
-    if [ "$CURRENT_BRANCH" != "main" ]; then
-        printf "%b\n" "\n${YELLOW}You are currently on branch '${CURRENT_BRANCH}', not 'main'.${NC}"
-        printf "%b\n" "${YELLOW}This update will switch to 'main' and reset any local changes.${NC}"
-        printf "Do you want to proceed? [y/N]: "
+    if [ -n "$IS_DIRTY" ]; then
+        printf "%b\n" "\n${YELLOW}Uncommitted modifications detected in your working directory.${NC}"
+        printf "%b\n" "${YELLOW}This update will reset to the remote 'main' branch and discard any uncommitted changes${NC}."
+        printf "%b\n" "${YELLOW}Please commit or stash your work before proceeding to avoid data loss.${NC}"
+        printf "Do you want to proceed and discard these changes? [y/N]: "
         read -r response
         case "$response" in
             [Yy]* ) ;;
-            * ) printf "%b\n" "\n${RED}Update aborted.${NC}\n"; exit 1 ;;
+            * ) printf "%b\n" "\n${RED}Update aborted by the user.${NC}\n"; exit 1 ;;
         esac
+    elif [ "$CURRENT_BRANCH" != "main" ]; then
+        printf "%b\n" "\n${YELLOW}Switching from branch '${CURRENT_BRANCH}' to 'main'.${NC}"
     fi
 
-    printf "%b\n" "\n${CYAN}Updating Skroutz Price Alert...${NC}"
-
-    if ! git checkout main --quiet; then
+    if ! git checkout -f main --quiet; then
         printf "%b\n" "\n${RED}Error: Failed to checkout 'main' branch. Update aborted.${NC}\n"
         exit 1
     fi
@@ -57,7 +61,7 @@ main() {
     if [ -f "$SCRIPT_DIR/install.sh" ]; then
         chmod +x "$SCRIPT_DIR/install.sh"
         if ! "$SCRIPT_DIR/install.sh" --update; then
-            printf "%b\n" "\n${RED}Error: Installation failed after update. Please run ./install.sh manually.${NC}\n"
+            printf "%b\n" "\n${RED}Error: Installation failed during update. Please run ./install.sh manually.${NC}\n"
             exit 1
         fi
     fi
