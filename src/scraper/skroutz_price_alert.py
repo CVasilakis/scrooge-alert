@@ -211,12 +211,12 @@ class ProductsManager:
         parsed = urlparse(url)
         return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
 
-    def update_product(self, url: str, last_price: float, last_successful_check: str) -> None:
+    def update_product(self, url: str, last_price: float, last_checked: str) -> None:
         """Caches updates for a product based on its clean URL."""
         clean_url = self._get_clean_url(url)
         self.product_updates[clean_url] = {
             'last_price': last_price,
-            'last_successful_check': last_successful_check
+            'last_checked': last_checked
         }
 
     def save_atomically(self) -> None:
@@ -249,7 +249,7 @@ class ProductsManager:
                 if clean_url in self.product_updates:
                     updates = self.product_updates[clean_url]
                     product["last_price"] = updates["last_price"]
-                    product["last_successful_check"] = updates["last_successful_check"]
+                    product["last_checked"] = updates["last_checked"]
 
                 if "skip" not in product:
                     product["skip"] = False
@@ -273,8 +273,8 @@ class ProductsManager:
                 continue
 
             url = row.get('url', '')
-            product_name = row.get('productName', 'Unknown')
-            last_check = row.get('last_successful_check')
+            product_name = row.get('name', 'Unknown')
+            last_check = row.get('last_checked')
             if last_check:
                 try:
                     timestamp = datetime.datetime.strptime(last_check, "%d-%m-%Y %H:%M:%S")
@@ -390,7 +390,7 @@ class SkroutzScraper:
             if self.interrupted:
                 break
 
-            product_name = entry.get('productName', 'Unknown')
+            product_name = entry.get('name', 'Unknown')
 
             if entry.get('skip', False):
                 if not self.silent:
@@ -414,19 +414,19 @@ class SkroutzScraper:
             domain = parsed_url.netloc
             currency = 'Lei' if domain.endswith('.ro') else '€'
 
-            if 'targetPrice' not in entry:
+            if 'target_price' not in entry:
                 if not self.silent:
                     print(f"❗ {product_name}: Target price is missing, defaulting to 0.0.")
 
             try:
-                target_price_raw = entry.get('targetPrice', 0.0)
+                target_price_raw = entry.get('target_price', 0.0)
                 if isinstance(target_price_raw, str):
                     # Handle string prices, including comma decimals and literal quotes
                     target_price_raw = target_price_raw.strip('"').strip("'").replace(',', '.')
                 target_price = float(target_price_raw)
             except (ValueError, TypeError):
                 if not self.silent:
-                    print(f"❗ {product_name}: Invalid target price '{entry.get('targetPrice')}', skipping product.")
+                    print(f"❗ {product_name}: Invalid target price '{entry.get('target_price')}', skipping product.")
                 continue
 
             for attempt in range(MAX_RETRIES):
@@ -456,7 +456,7 @@ class SkroutzScraper:
                         products_manager.update_product(
                             url=url,
                             last_price=current_price,
-                            last_successful_check=datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+                            last_checked=datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
                         )
                         break # Success, move to the next product
                     else:
