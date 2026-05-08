@@ -190,7 +190,7 @@ You can manually interact with the application using the wrapper script. The wra
 
 | Flag | Action |
 | :--- | :--- |
-| `--silent` | Suppresses all console output. This is used by the systemd setup to prevent unnecessary log spam. |
+| `--quiet` | Suppresses all console output. This is used by the systemd setup to prevent unnecessary log spam. |
 | `--status` | Performs a comprehensive health check. It validates the configuration, and verifies the background systemd service and timer status. |
 | `--ping` | Sends a test notification directly to your configured Apprise URLs, then immediately exits. Helps pinpoint `.env` misconfigurations. |
 

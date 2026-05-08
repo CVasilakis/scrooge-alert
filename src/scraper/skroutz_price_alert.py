@@ -286,14 +286,14 @@ class ProductsManager:
                     pass
 
 class SkroutzScraper:
-    def __init__(self, silent: bool = False):
-        self.silent = silent
+    def __init__(self, quiet: bool = False):
+        self.quiet = quiet
         self.interrupted = False
         self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
 
     def signal_handler(self, signum, _frame):
         sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
-        if not self.silent:
+        if not self.quiet:
             print(f"\n\nReceived signal {sig_name}. Gracefully shutting down...")
         self.interrupted = True
 
@@ -307,12 +307,12 @@ class SkroutzScraper:
         while time.time() - start_time < total_delay:
             if self.interrupted:
                 break
-            if not self.silent:
+            if not self.quiet:
                 remaining = max(0.0, total_delay - (time.time() - start_time))
                 print(f"\r⏳ Sleeping for {remaining:.1f} seconds...   ", end="", flush=True)
             time.sleep(0.1)
 
-        if not self.silent and not self.interrupted:
+        if not self.quiet and not self.interrupted:
             actual_delay = time.time() - start_time
             print(f"\r⏳ Slept for {actual_delay:.1f} seconds.       ")
 
@@ -323,7 +323,7 @@ class SkroutzScraper:
         match = re.search(r'/s/(\d+)', parsed_url.path)
 
         if not match:
-            if not self.silent:
+            if not self.quiet:
                 print(f"{product_name}: Failed to parse product ID from URL: {product_url}")
             return None
 
@@ -348,7 +348,7 @@ class SkroutzScraper:
                 raise Exception("Empty response or no status code received from server")
 
             if response.status_code in (404, 410):
-                if not self.silent:
+                if not self.quiet:
                     print(f"❗ {product_name}: Product not found or removed (HTTP {response.status_code}).")
                 return None
             elif response.status_code in (401, 403, 429):
@@ -361,7 +361,7 @@ class SkroutzScraper:
             response_data = response.json()
 
             if response_data.get("price_min") is None:
-                if not self.silent:
+                if not self.quiet:
                     print(f"{product_name}: Not available")
                 return None
 
@@ -393,11 +393,11 @@ class SkroutzScraper:
             product_name = entry.get('name', 'Unknown')
 
             if entry.get('skip', False):
-                if not self.silent:
+                if not self.quiet:
                     print(f"\n🔕 {product_name}: Skipped (skip field set to true)")
                 continue
 
-            if not self.silent and index >= 0:
+            if not self.quiet and index >= 0:
                 print()
 
             self._sleep_with_jitter(MIN_DELAY_SECONDS)
@@ -406,7 +406,7 @@ class SkroutzScraper:
 
             url = entry.get('url', '')
             if not url:
-                if not self.silent:
+                if not self.quiet:
                     print(f"❗ {product_name}: URL is missing, skipping product.")
                 continue
 
@@ -415,7 +415,7 @@ class SkroutzScraper:
             currency = 'Lei' if domain.endswith('.ro') else '€'
 
             if 'target_price' not in entry:
-                if not self.silent:
+                if not self.quiet:
                     print(f"❗ {product_name}: Target price is missing, defaulting to 0.0.")
 
             try:
@@ -425,7 +425,7 @@ class SkroutzScraper:
                     target_price_raw = target_price_raw.strip('"').strip("'").replace(',', '.')
                 target_price = float(target_price_raw)
             except (ValueError, TypeError):
-                if not self.silent:
+                if not self.quiet:
                     print(f"❗ {product_name}: Invalid target price '{entry.get('target_price')}', skipping product.")
                 continue
 
@@ -441,7 +441,7 @@ class SkroutzScraper:
 
                     if current_price is not None:
                         if current_price < target_price:
-                            if not self.silent:
+                            if not self.quiet:
                                 print(f"🎉 {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
                                 if notifier.has_services:
                                     print("    ↳ 📨 Notification sent to configured services.")
@@ -449,7 +449,7 @@ class SkroutzScraper:
                                     print("    ↳ 🔕 No notification sent (no services configured in .env).")
                             notifier.notify_low_price(product_name, target_price, current_price, url, currency)
                         else:
-                            if not self.silent:
+                            if not self.quiet:
                                 print(f"✅ {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
 
                         # Update the timestamp and last price
@@ -463,12 +463,12 @@ class SkroutzScraper:
                         break # Unavailable or invalid URL, move to next
 
                 except json.JSONDecodeError:
-                    if not self.silent:
+                    if not self.quiet:
                         print(f"Attempt {attempt + 1} failed: Received empty response for {product_name}.")
                     self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
                 except Exception as e:
-                    if not self.silent:
+                    if not self.quiet:
                         print(f"🛑 {product_name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
 
                     if attempt == MAX_RETRIES - 1:
@@ -480,7 +480,7 @@ class SkroutzScraper:
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
 
         # Save updates
-        if not self.silent:
+        if not self.quiet:
             if self.interrupted:
                 print("Saving products data...\n")
             else:
@@ -759,20 +759,20 @@ def handle_status() -> None:
     print("")
 
 
-def run_main_program(silent: bool) -> None:
+def run_main_program(quiet: bool) -> None:
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     data_dir = os.path.join(base_dir, "data")
     products_file_path = os.path.join(data_dir, "products.json")
     lock_file_path = os.path.join(data_dir, "skroutz_price_alert_running.lock")
     placeholders = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
 
-    if not silent:
+    if not quiet:
         print("\nStarting Skroutz Price Alert...\n")
 
     env_status = check_env_file(base_dir)
     prod_status = check_products_file(base_dir)
 
-    if not silent:
+    if not quiet:
         print("⏳ Checking for updates...", end="", flush=True)
         update_status = check_for_updates(base_dir)
         if update_status == 1:
@@ -783,37 +783,37 @@ def run_main_program(silent: bool) -> None:
             print("\r❗ Could not check for script updates.\n")
 
     if prod_status == 1:
-        if not silent:
+        if not quiet:
             print("🛑 The data/products.json file is missing or not a file!\n")
         sys.exit(15)
     elif prod_status == 2:
-        if not silent:
+        if not quiet:
             print("🛑 The data/products.json file has wrong permissions!\n")
         sys.exit(15)
     elif prod_status == 3:
-        if not silent:
+        if not quiet:
             print("🛑 The data/products.json file contains invalid JSON format!\n")
         sys.exit(15)
 
     products_manager = ProductsManager(products_file_path)
     products_data = products_manager.load(exit_on_error=True)
 
-    if not silent and products_data is not None:
+    if not quiet and products_data is not None:
         num_products = len(products_data.get("products", []))
         print(f"✅ Loaded {num_products} products from data/products.json")
 
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
     if env_status == 1:
-        if not silent:
+        if not quiet:
             print("❗ No .env file found or unreadable!")
     elif env_status == 2:
-        if not silent:
+        if not quiet:
             print("❗ No NOTIFICATION_URLS provided in .env file!")
     elif env_status == 3:
-        if not silent:
+        if not quiet:
             print("❗ NOTIFICATION_URLS contains only unconfigured placeholders!")
 
-    if env_status == 0 and not silent:
+    if env_status == 0 and not quiet:
         valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in placeholders)]
         print(f"✅ Loaded {len(valid_urls)} notification service(s) from .env")
 
@@ -827,11 +827,11 @@ def run_main_program(silent: bool) -> None:
 
     try:
         with lock:
-            scraper = SkroutzScraper(silent=silent)
+            scraper = SkroutzScraper(quiet=quiet)
             scraper.process_products(products_manager, notifier, data_dir)
 
     except Timeout:
-        if not silent:
+        if not quiet:
             print('\n🛑 Skroutz Price Alert script did not start! Another instance is currently running.\n')
         sys.exit(42)
     except Exception:
@@ -841,7 +841,7 @@ def run_main_program(silent: bool) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='Skroutz Price Alert scraper')
-    parser.add_argument('--silent', action='store_true', help='Run script with no console output')
+    parser.add_argument('--quiet', action='store_true', help='Run script with no console output')
     parser.add_argument('--status', action='store_true', help='Perform a health check of the background service and show execution status (skips main scraper)')
     parser.add_argument('--ping', action='store_true', help='Send a test notification via Apprise (skips main scraper)')
     args = parser.parse_args()
@@ -853,7 +853,7 @@ def main() -> None:
         handle_status()
 
     if not args.ping and not args.status:
-        run_main_program(args.silent)
+        run_main_program(args.quiet)
 
 if __name__ == "__main__":
     main()

@@ -120,7 +120,7 @@ Description=$SERVICE_DESC
 [Service]
 Type=oneshot
 WorkingDirectory=$SCRIPT_DIR
-ExecStart="$SCRIPT_DIR/$MAIN_SCRIPT" --silent
+ExecStart="$SCRIPT_DIR/$MAIN_SCRIPT" --quiet
 EOF
 
 cat > "$SYSTEMD_USER_DIR/$SERVICE_NAME.timer" << EOF
