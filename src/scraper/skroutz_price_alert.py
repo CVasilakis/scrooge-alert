@@ -349,7 +349,7 @@ class SkroutzScraper:
 
             if response.status_code in (404, 410):
                 if not self.silent:
-                    print(f"❗ {product_name}: Product not found or removed (HTTP {response.status_code}) - Skipping.")
+                    print(f"❗ {product_name}: Product not found or removed (HTTP {response.status_code}).")
                 return None
             elif response.status_code in (401, 403, 429):
                 raise Exception(f"Blocked or rate limited (HTTP {response.status_code})")
@@ -843,16 +843,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description='Skroutz Price Alert scraper')
     parser.add_argument('--silent', action='store_true', help='Run script with no console output')
     parser.add_argument('--status', action='store_true', help='Perform a health check of the background service and show execution status (skips main scraper)')
-    parser.add_argument('--test-notification', action='store_true', help='Send a test notification via Apprise (skips main scraper)')
+    parser.add_argument('--ping', action='store_true', help='Send a test notification via Apprise (skips main scraper)')
     args = parser.parse_args()
 
-    if args.test_notification:
+    if args.ping:
         handle_test_notification()
 
     if args.status:
         handle_status()
 
-    if not args.test_notification and not args.status:
+    if not args.ping and not args.status:
         run_main_program(args.silent)
 
 if __name__ == "__main__":

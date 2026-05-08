@@ -192,7 +192,7 @@ You can manually interact with the application using the wrapper script. The wra
 | :--- | :--- |
 | `--silent` | Suppresses all console output. This is used by the systemd setup to prevent unnecessary log spam. |
 | `--status` | Performs a comprehensive health check. It validates the configuration, and verifies the background systemd service and timer status. |
-| `--test-notification` | Sends a test notification directly to your configured Apprise URLs, then immediately exits. Helps pinpoint `.env` misconfigurations. |
+| `--ping` | Sends a test notification directly to your configured Apprise URLs, then immediately exits. Helps pinpoint `.env` misconfigurations. |
 
 If you run the script without any flags, it will execute normally and output its progress logs directly to the terminal. You can safely interrupt the manual execution at any time by pressing `Ctrl+C`.
 
@@ -229,7 +229,7 @@ You might receive the following push notification alerts throughout the lifecycl
 | **Skroutz Tracking Stale** | `"The scraping for "{Product}" hasn't been successfully completed in over 48 hours..."` <br> Sent if a specific product continuously fails the scrape. |
 | **Skroutz Scraping Errors** | `"The Skroutz Price Alert script encountered errors while checking some of your products..."` <br> Sent if the application hits fatal request limits or unhandled exceptions. |
 | **Skroutz Script Crash** | `"The Skroutz Price Alert script failed unexpectedly. Please review the error logs..."` <br> Sent if the script completely failed to run. |
-| **Skroutz Test Notification** | `"This is a test message to confirm that your Skroutz Price Alert notifications are configured correctly!"` <br> Sent when manually invoking the script with the `--test-notification` flag. |
+| **Skroutz Test Notification** | `"This is a test message to confirm that your Skroutz Price Alert notifications are configured correctly!"` <br> Sent when manually invoking the script with the `--ping` flag. |
 
 ## 🗑️ Uninstallation
 
@@ -262,10 +262,10 @@ If the URLs are correct but failures persist across multiple products, your conn
 **2. Not Receiving Notifications:**
 
 If you do not receive a test message, carefully review the [Notification Settings](#file-1-notification-settings-env) section and verify that your Apprise URLs inside the `.env` file are formatted correctly.
-You can easily test your notification setup using the `--test-notification` flag:
+You can easily test your notification setup using the `--ping` flag:
 
 ```sh
-./scripts/run_scraper.sh --test-notification
+./scripts/run_scraper.sh --ping
 ```
 
 **3. Finding Crash Reports (Error Logs):**
