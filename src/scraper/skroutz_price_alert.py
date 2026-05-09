@@ -21,6 +21,15 @@ from typing import Dict, Any, Optional, List
 
 # --- Script Constants ---
 
+# Base directory paths
+BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DATA_DIR: str = os.path.join(BASE_DIR, "data")
+PRODUCTS_FILE_PATH: str = os.path.join(DATA_DIR, "products.json")
+LOCK_FILE_PATH: str = os.path.join(DATA_DIR, "skroutz_price_alert_running.lock")
+
+# Unconfigured Apprise placeholders to ignore
+APPRISE_PLACEHOLDERS: List[str] = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
+
 # Maximum number of times to retry scraping a product if the request fails
 MAX_RETRIES: int = 3
 
@@ -143,11 +152,10 @@ class Notifier:
     def __init__(self, notification_urls: str):
         self.app_notif = apprise.Apprise()
         self.has_services = False
-        placeholders = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
         if notification_urls:
             for url in notification_urls.split(','):
                 url = url.strip()
-                if url and not any(p in url for p in placeholders):
+                if url and not any(p in url for p in APPRISE_PLACEHOLDERS):
                     self.app_notif.add(url)
                     self.has_services = True
 
@@ -494,9 +502,9 @@ class SkroutzScraper:
             notifier.notify_errors()
 
 
-# --- Main Execution ---
+# --- Shared Helpers ---
 
-def check_env_file(base_dir: str) -> int:
+def check_env_file() -> int:
     """Loads .env and checks if it exists and contains NOTIFICATION_URLS.
     Returns:
         0: OK
@@ -504,7 +512,7 @@ def check_env_file(base_dir: str) -> int:
         2: No NOTIFICATION_URLS provided
         3: Only unconfigured placeholders provided
     """
-    env_path = os.path.join(base_dir, '.env')
+    env_path = os.path.join(BASE_DIR, '.env')
     env_loaded = load_dotenv(dotenv_path=env_path)
     env_exists = env_loaded or os.path.exists(env_path)
 
@@ -515,14 +523,13 @@ def check_env_file(base_dir: str) -> int:
     if not notification_urls:
         return 2
 
-    placeholders = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
-    valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in placeholders)]
+    valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in APPRISE_PLACEHOLDERS)]
     if not valid_urls:
         return 3
 
     return 0
 
-def check_products_file(base_dir: str) -> int:
+def check_products_file() -> int:
     """Checks for products.json file.
     Returns:
         0: OK
@@ -530,20 +537,17 @@ def check_products_file(base_dir: str) -> int:
         2: Permission denied
         3: Invalid JSON format or missing 'products' list
     """
-    data_dir = os.path.join(base_dir, "data")
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir)
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
 
-    products_file_path = os.path.join(data_dir, "products.json")
-
-    if not os.path.exists(products_file_path) or not os.path.isfile(products_file_path):
+    if not os.path.exists(PRODUCTS_FILE_PATH) or not os.path.isfile(PRODUCTS_FILE_PATH):
         return 1
 
-    if not os.access(products_file_path, os.R_OK | os.W_OK):
+    if not os.access(PRODUCTS_FILE_PATH, os.R_OK | os.W_OK):
         return 2
 
     try:
-        with open(products_file_path, 'r') as f:
+        with open(PRODUCTS_FILE_PATH, 'r') as f:
             data = json.load(f)
             if not isinstance(data, dict) or not isinstance(data.get("products"), list):
                 return 3
@@ -552,17 +556,23 @@ def check_products_file(base_dir: str) -> int:
 
     return 0
 
-def check_for_updates(base_dir: str) -> int:
+def check_for_updates() -> int:
+    """Checks the remote git repository to see if a newer version is available.
+    Returns:
+        0: Running the latest version
+        1: A new version is available
+       -1: Could not check for updates
+    """
     try:
         # Get the remote URL
-        remote_url = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], cwd=base_dir, stderr=subprocess.DEVNULL).decode('utf-8').strip()
+        remote_url = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], cwd=BASE_DIR, stderr=subprocess.DEVNULL).decode('utf-8').strip()
 
         # If it's an SSH URL, convert it to HTTPS to avoid passphrase prompts
         if remote_url.startswith('git@github.com:'):
             remote_url = remote_url.replace('git@github.com:', 'https://github.com/')
 
-        local_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=base_dir, stderr=subprocess.DEVNULL).decode('utf-8').strip()
-        remote_output = subprocess.check_output(['git', 'ls-remote', remote_url, 'HEAD'], cwd=base_dir, stderr=subprocess.DEVNULL).decode('utf-8').strip()
+        local_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=BASE_DIR, stderr=subprocess.DEVNULL).decode('utf-8').strip()
+        remote_output = subprocess.check_output(['git', 'ls-remote', remote_url, 'HEAD'], cwd=BASE_DIR, stderr=subprocess.DEVNULL).decode('utf-8').strip()
         if remote_output:
             remote_hash = remote_output.split()[0]
             if local_hash != remote_hash:
@@ -574,31 +584,75 @@ def check_for_updates(base_dir: str) -> int:
     except Exception:
         return -1
 
-def handle_test_notification() -> None:
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    placeholders = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
+def print_update_status(quiet: bool) -> None:
+    if quiet:
+        return
+    print("⏳ Checking for updates...", end="", flush=True)
+    update_status = check_for_updates()
+    if update_status == 1:
+        print("\r✨ A new version is available! Run ./update.sh to update.\n")
+    elif update_status == 0:
+        print("\r✅ You are running the latest version.")
+    else:
+        print("\r❗ Could not check for script updates.\n")
 
-    print("\nSending Skroutz Price Alert Test Notification...\n")
-
-    env_status = check_env_file(base_dir)
-
+def print_env_status(env_status: int, quiet: bool, fatal_on_error: bool = False) -> None:
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
+    icon = "🛑" if fatal_on_error else "❗"
+    suffix = "!\n" if fatal_on_error else "!"
+
     if env_status == 1:
-        print("🛑 No .env file found or unreadable!\n")
-        sys.exit(1)
+        if not quiet:
+            print(f"{icon} No .env file found or unreadable{suffix}")
+        if fatal_on_error:
+            sys.exit(1)
     elif env_status == 2:
-        print("🛑 No NOTIFICATION_URLS provided in .env file!\n")
-        sys.exit(1)
+        if not quiet:
+            print(f"{icon} No NOTIFICATION_URLS provided in .env file{suffix}")
+        if fatal_on_error:
+            sys.exit(1)
     elif env_status == 3:
-        print("🛑 NOTIFICATION_URLS contains only unconfigured placeholders!\n")
-        sys.exit(1)
-    elif env_status == 0:
-        valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in placeholders)]
+        if not quiet:
+            print(f"{icon} NOTIFICATION_URLS contains only unconfigured placeholders{suffix}")
+        if fatal_on_error:
+            sys.exit(1)
+    elif env_status == 0 and not quiet:
+        valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in APPRISE_PLACEHOLDERS)]
         print(f"✅ Found {len(valid_urls)} notification service(s) in .env")
 
-        if notification_urls and any(p in notification_urls for p in placeholders):
+        if notification_urls and any(p in notification_urls for p in APPRISE_PLACEHOLDERS):
             print("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
 
+def print_prod_status(prod_status: int, quiet: bool, fatal_on_error: bool = False) -> None:
+    icon = "🛑" if fatal_on_error else "❗"
+    suffix = "!\n" if fatal_on_error else "!"
+
+    if prod_status == 1:
+        if not quiet:
+            print(f"{icon} The data/products.json file is missing or not a file{suffix}")
+        if fatal_on_error:
+            sys.exit(15)
+    elif prod_status == 2:
+        if not quiet:
+            print(f"{icon} The data/products.json file has wrong permissions{suffix}")
+        if fatal_on_error:
+            sys.exit(15)
+    elif prod_status == 3:
+        if not quiet:
+            print(f"{icon} The data/products.json file contains invalid JSON format{suffix}")
+        if fatal_on_error:
+            sys.exit(15)
+
+
+# --- Main Execution ---
+
+def handle_test_notification() -> None:
+    print("\nSending Skroutz Price Alert Test Notification...\n")
+
+    env_status = check_env_file()
+    print_env_status(env_status, quiet=False, fatal_on_error=True)
+
+    notification_urls = os.environ.get("NOTIFICATION_URLS", "")
     notifier = Notifier(notification_urls)
 
     try:
@@ -608,10 +662,6 @@ def handle_test_notification() -> None:
         print(f"An error occurred while sending test notification: {e}\n")
 
 def handle_status() -> None:
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    data_dir = os.path.join(base_dir, "data")
-    products_file_path = os.path.join(data_dir, "products.json")
-    placeholders = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
     NC = '\033[0m'
     RED = '\033[0;31m'
     GREEN = '\033[0;32m'
@@ -646,44 +696,20 @@ def handle_status() -> None:
 
     print("\nChecking Skroutz Price Alert Status...\n")
 
-    prod_status = check_products_file(base_dir)
-    env_status = check_env_file(base_dir)
+    prod_status = check_products_file()
+    env_status = check_env_file()
 
-    print("⏳ Checking for updates...", end="", flush=True)
-    update_status = check_for_updates(base_dir)
-    if update_status == 1:
-        print("\r✨ A new version is available! Run ./update.sh to update.\n")
-    elif update_status == 0:
-        print("\r✅ You are running the latest version.")
-    else:
-        print("\r❗ Could not check for script updates.\n")
+    print_update_status(quiet=False)
+    print_prod_status(prod_status, quiet=False, fatal_on_error=False)
 
-    if prod_status == 1:
-        print("❗ The data/products.json file is missing or not a file!")
-    elif prod_status == 2:
-        print("❗ The data/products.json file has wrong permissions!")
-    elif prod_status == 3:
-        print("❗ The data/products.json file contains invalid JSON format!")
-    else:
-        products_manager = ProductsManager(products_file_path)
+    if prod_status == 0:
+        products_manager = ProductsManager(PRODUCTS_FILE_PATH)
         products_data = products_manager.load(exit_on_error=False)
         if products_data:
             num_products = len(products_data.get("products", []))
             print(f"✅ Found {num_products} products in data/products.json")
 
-    notification_urls = os.environ.get("NOTIFICATION_URLS", "")
-    if env_status == 1:
-        print("❗ No .env file found or unreadable!")
-    elif env_status == 2:
-        print("❗ No NOTIFICATION_URLS provided in .env file!")
-    elif env_status == 3:
-        print("❗ NOTIFICATION_URLS contains only unconfigured placeholders!")
-    elif env_status == 0:
-        valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in placeholders)]
-        print(f"✅ Found {len(valid_urls)} notification service(s) in .env")
-
-        if notification_urls and any(p in notification_urls for p in placeholders):
-            print("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
+    print_env_status(env_status, quiet=False, fatal_on_error=False)
 
     # --- Data Fetching ---
     timer_props = get_systemd_properties('skroutz-price-alert.timer', 'ActiveState,NextElapseUSecRealtime')
@@ -760,82 +786,41 @@ def handle_status() -> None:
 
 
 def run_main_program(quiet: bool) -> None:
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    data_dir = os.path.join(base_dir, "data")
-    products_file_path = os.path.join(data_dir, "products.json")
-    lock_file_path = os.path.join(data_dir, "skroutz_price_alert_running.lock")
-    placeholders = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
-
     if not quiet:
         print("\nStarting Skroutz Price Alert...\n")
 
-    env_status = check_env_file(base_dir)
-    prod_status = check_products_file(base_dir)
+    env_status = check_env_file()
+    prod_status = check_products_file()
 
-    if not quiet:
-        print("⏳ Checking for updates...", end="", flush=True)
-        update_status = check_for_updates(base_dir)
-        if update_status == 1:
-            print("\r✨ A new version is available! Run ./update.sh to update.\n")
-        elif update_status == 0:
-            print("\r✅ You are running the latest version.")
-        else:
-            print("\r❗ Could not check for script updates.\n")
+    print_update_status(quiet)
+    print_prod_status(prod_status, quiet, fatal_on_error=True)
 
-    if prod_status == 1:
-        if not quiet:
-            print("🛑 The data/products.json file is missing or not a file!\n")
-        sys.exit(15)
-    elif prod_status == 2:
-        if not quiet:
-            print("🛑 The data/products.json file has wrong permissions!\n")
-        sys.exit(15)
-    elif prod_status == 3:
-        if not quiet:
-            print("🛑 The data/products.json file contains invalid JSON format!\n")
-        sys.exit(15)
-
-    products_manager = ProductsManager(products_file_path)
+    products_manager = ProductsManager(PRODUCTS_FILE_PATH)
     products_data = products_manager.load(exit_on_error=True)
 
     if not quiet and products_data is not None:
         num_products = len(products_data.get("products", []))
         print(f"✅ Loaded {num_products} products from data/products.json")
 
+    print_env_status(env_status, quiet, fatal_on_error=False)
+
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
-    if env_status == 1:
-        if not quiet:
-            print("❗ No .env file found or unreadable!")
-    elif env_status == 2:
-        if not quiet:
-            print("❗ No NOTIFICATION_URLS provided in .env file!")
-    elif env_status == 3:
-        if not quiet:
-            print("❗ NOTIFICATION_URLS contains only unconfigured placeholders!")
-
-    if env_status == 0 and not quiet:
-        valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in placeholders)]
-        print(f"✅ Loaded {len(valid_urls)} notification service(s) from .env")
-
-        if notification_urls and any(p in notification_urls for p in placeholders):
-            print("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
-
     notifier = Notifier(notification_urls)
 
     # Locking and Execution
-    lock = FileLock(lock_file_path, timeout=LOCK_TIMEOUT)
+    lock = FileLock(LOCK_FILE_PATH, timeout=LOCK_TIMEOUT)
 
     try:
         with lock:
             scraper = SkroutzScraper(quiet=quiet)
-            scraper.process_products(products_manager, notifier, data_dir)
+            scraper.process_products(products_manager, notifier, DATA_DIR)
 
     except Timeout:
         if not quiet:
             print('\n🛑 Skroutz Price Alert script did not start! Another instance is currently running.\n')
         sys.exit(42)
     except Exception:
-        ErrorHandler.save_traceback(data_dir)
+        ErrorHandler.save_traceback(DATA_DIR)
         notifier.notify_crash()
 
 

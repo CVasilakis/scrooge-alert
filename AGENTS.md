@@ -12,9 +12,13 @@ The application is primarily intended for automated background execution but pro
 - **Installation:** Execute `./install.sh`. This script creates the Python virtual environment, installs dependencies, and configures an hourly systemd user timer.
 - **Automated Execution:** Handled automatically by the systemd service (`skroutz-price-alert.timer`).
 - **Manual Execution:** Execute `./scripts/run.sh` to run the scraper interactively and view output logs in the terminal.
+- **Help Message:** Execute `./scripts/run.sh --help` to print the help message and view all available script arguments.
 - **Testing Notifications:** Run `./scripts/run.sh --ping` to send a test payload and verify that the Apprise URLs in your `.env` file are configured correctly.
 - **Health Checks:** Run `./scripts/run.sh --status` to perform a comprehensive health check. This validates the configuration (products and notification settings), checks for available script updates, and verifies the status of the background systemd service and timer.
 - **Uninstallation:** Execute `./uninstall.sh` to cleanly stop and disable the systemd services and remove the virtual environment (user data is preserved).
+- **Exit Codes:** The script utilizes specific exit codes to indicate failure states when running as a service (these can be easily viewed using the `--status` flag):
+  - **`15`**: Indicates an issue with the `data/products.json` file (e.g., file missing, wrong permissions, or invalid JSON).
+  - **`42`**: Indicates that the script did not start because another instance is already running (file lock timeout).
 
 ## Development Conventions
 - **Scraping Practices & Rate Limiting:** The scraper intentionally paces requests using a base delay (20s) plus randomized jitter (1-5s) between product checks to avoid triggering Skroutz's anti-bot protections. Concurrency is avoided to maintain a low profile.
