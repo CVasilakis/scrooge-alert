@@ -5,6 +5,7 @@ from filelock import FileLock, Timeout
 from dotenv import load_dotenv
 
 # Standard libraries
+import logging
 import signal
 import traceback
 import datetime
@@ -26,6 +27,12 @@ BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 DATA_DIR: str = os.path.join(BASE_DIR, "data")
 PRODUCTS_FILE_PATH: str = os.path.join(DATA_DIR, "products.json")
 LOCK_FILE_PATH: str = os.path.join(DATA_DIR, "skroutz_price_alert_running.lock")
+
+def setup_logging(quiet: bool) -> None:
+    level = logging.WARNING if quiet else logging.INFO
+    logging.basicConfig(level=level, format='%(message)s')
+    logging.getLogger('apprise').setLevel(logging.CRITICAL)
+    logging.getLogger('urllib3').setLevel(logging.CRITICAL)
 
 # Unconfigured Apprise placeholders to ignore
 APPRISE_PLACEHOLDERS: List[str] = ['<token>', '<bot_token>', '<chat_id>', '<webhook_id>', '<webhook_token>']
@@ -136,6 +143,7 @@ class ErrorHandler:
     @staticmethod
     def save_traceback(data_dir: str, url: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> None:
         """Saves the current exception traceback to an error log file."""
+        logging.error("🛑 An error occurred. Check data/error_log.txt for details.")
         log_path = os.path.join(data_dir, "error_log.txt")
         time_now = datetime.datetime.now().strftime("%Y-%m-%d (%H:%M:%S)")
         with open(log_path, "a", newline='') as log_file:
@@ -206,8 +214,8 @@ class ProductsManager:
                 with open(self.products_path, 'r') as file:
                     self.products_data = json.load(file)
             except json.JSONDecodeError as e:
-                print(f"🛑 Failed to load {os.path.basename(self.products_path)}: Invalid JSON format.")
-                print(f"    ↳  {e}\n")
+                logging.warning(f"🛑 Failed to load {os.path.basename(self.products_path)}: Invalid JSON format.")
+                logging.warning(f"    ↳  {e}\n")
                 if exit_on_error:
                     sys.exit(1)
         return self.products_data
@@ -288,21 +296,19 @@ class ProductsManager:
                     timestamp = datetime.datetime.strptime(last_check, "%d-%m-%Y %H:%M:%S")
                     current_time = datetime.datetime.now()
                     if (current_time - timestamp) > datetime.timedelta(hours=hours):
-                        print(f"❗ Old entry found for {product_name}: {url} (Last check: {last_check})")
+                        logging.warning(f"❗ Old entry found for {product_name}: {url} (Last check: {last_check})")
                         notifier.notify_old_entries(product_name, hours, url)
                 except ValueError:
                     pass
 
 class SkroutzScraper:
-    def __init__(self, quiet: bool = False):
-        self.quiet = quiet
+    def __init__(self):
         self.interrupted = False
         self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
 
     def signal_handler(self, signum, _frame):
         sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
-        if not self.quiet:
-            print(f"\n\nReceived signal {sig_name}. Gracefully shutting down...")
+        logging.info(f"\n\n🛑 Received signal {sig_name}. Gracefully shutting down...")
         self.interrupted = True
 
     def _sleep_with_jitter(self, base_delay: float, attempt: int = 0) -> None:
@@ -312,17 +318,20 @@ class SkroutzScraper:
 
         # Break sleep into smaller chunks to remain responsive to interruptions
         start_time = time.time()
+        is_info = logging.getLogger().isEnabledFor(logging.INFO)
         while time.time() - start_time < total_delay:
             if self.interrupted:
                 break
-            if not self.quiet:
+            if is_info:
                 remaining = max(0.0, total_delay - (time.time() - start_time))
                 print(f"\r⏳ Sleeping for {remaining:.1f} seconds...   ", end="", flush=True)
             time.sleep(0.1)
 
-        if not self.quiet and not self.interrupted:
+        if is_info and not self.interrupted:
+            # Clear the carriage return line
+            print("\r" + " " * 40 + "\r", end="", flush=True)
             actual_delay = time.time() - start_time
-            print(f"\r⏳ Slept for {actual_delay:.1f} seconds.       ")
+            logging.info(f"⏳ Slept for {actual_delay:.1f} seconds.")
 
     def scrape_product(self, product_url: str, product_name: str) -> Optional[float]:
         """Scrapes the Skroutz product page and returns the minimum price found."""
@@ -331,8 +340,7 @@ class SkroutzScraper:
         match = re.search(r'/s/(\d+)', parsed_url.path)
 
         if not match:
-            if not self.quiet:
-                print(f"{product_name}: Failed to parse product ID from URL: {product_url}")
+            logging.warning(f"❗️ {product_name}: Failed to parse product ID from URL: {product_url}")
             return None
 
         product_id = match.group(1)
@@ -356,8 +364,7 @@ class SkroutzScraper:
                 raise Exception("Empty response or no status code received from server")
 
             if response.status_code in (404, 410):
-                if not self.quiet:
-                    print(f"❗ {product_name}: Product not found or removed (HTTP {response.status_code}).")
+                logging.warning(f"❗ {product_name}: Product not found or removed (HTTP {response.status_code}).")
                 return None
             elif response.status_code in (401, 403, 429):
                 raise Exception(f"Blocked or rate limited (HTTP {response.status_code})")
@@ -369,8 +376,7 @@ class SkroutzScraper:
             response_data = response.json()
 
             if response_data.get("price_min") is None:
-                if not self.quiet:
-                    print(f"{product_name}: Not available")
+                logging.warning(f"❗️ {product_name}: Not available")
                 return None
 
             price_str = str(response_data["price_min"])
@@ -401,12 +407,11 @@ class SkroutzScraper:
             product_name = entry.get('name', 'Unknown')
 
             if entry.get('skip', False):
-                if not self.quiet:
-                    print(f"\n🔕 {product_name}: Skipped (skip field set to true)")
+                logging.info(f"\n🔕 {product_name}: Skipped (skip field set to true)")
                 continue
 
-            if not self.quiet and index >= 0:
-                print()
+            if index >= 0:
+                logging.info("")
 
             self._sleep_with_jitter(MIN_DELAY_SECONDS)
             if self.interrupted:
@@ -414,8 +419,7 @@ class SkroutzScraper:
 
             url = entry.get('url', '')
             if not url:
-                if not self.quiet:
-                    print(f"❗ {product_name}: URL is missing, skipping product.")
+                logging.warning(f"❗ {product_name}: URL is missing, skipping product.")
                 continue
 
             parsed_url = urlparse(url)
@@ -423,8 +427,7 @@ class SkroutzScraper:
             currency = 'Lei' if domain.endswith('.ro') else '€'
 
             if 'target_price' not in entry:
-                if not self.quiet:
-                    print(f"❗ {product_name}: Target price is missing, defaulting to 0.0.")
+                logging.warning(f"❗ {product_name}: Target price is missing, defaulting to 0.0.")
 
             try:
                 target_price_raw = entry.get('target_price', 0.0)
@@ -433,8 +436,7 @@ class SkroutzScraper:
                     target_price_raw = target_price_raw.strip('"').strip("'").replace(',', '.')
                 target_price = float(target_price_raw)
             except (ValueError, TypeError):
-                if not self.quiet:
-                    print(f"❗ {product_name}: Invalid target price '{entry.get('target_price')}', skipping product.")
+                logging.warning(f"❗ {product_name}: Invalid target price '{entry.get('target_price')}', skipping product.")
                 continue
 
             for attempt in range(MAX_RETRIES):
@@ -449,16 +451,14 @@ class SkroutzScraper:
 
                     if current_price is not None:
                         if current_price < target_price:
-                            if not self.quiet:
-                                print(f"🎉 {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
-                                if notifier.has_services:
-                                    print("    ↳ 📨 Notification sent to configured services.")
-                                else:
-                                    print("    ↳ 🔕 No notification sent (no services configured in .env).")
+                            logging.info(f"🎉 {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
+                            if notifier.has_services:
+                                logging.info("    ↳ 📨 Notification sent to configured services.")
+                            else:
+                                logging.info("    ↳ 🔕 No notification sent (no services configured in .env).")
                             notifier.notify_low_price(product_name, target_price, current_price, url, currency)
                         else:
-                            if not self.quiet:
-                                print(f"✅ {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
+                            logging.info(f"✅ {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
 
                         # Update the timestamp and last price
                         products_manager.update_product(
@@ -471,13 +471,11 @@ class SkroutzScraper:
                         break # Unavailable or invalid URL, move to next
 
                 except json.JSONDecodeError:
-                    if not self.quiet:
-                        print(f"Attempt {attempt + 1} failed: Received empty response for {product_name}.")
+                    logging.warning(f"{product_name}: Attempt {attempt + 1} FAILED (JSONDecodeError: No JSON response).")
                     self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
                 except Exception as e:
-                    if not self.quiet:
-                        print(f"🛑 {product_name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
+                    logging.error(f"{product_name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
 
                     if attempt == MAX_RETRIES - 1:
                         ErrorHandler.save_traceback(data_dir, url=url, headers=self.current_headers)
@@ -488,17 +486,16 @@ class SkroutzScraper:
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
 
         # Save updates
-        if not self.quiet:
-            if self.interrupted:
-                print("Saving products data...\n")
-            else:
-                print("\nSaving products data and checking for old entries...\n")
+        if self.interrupted:
+            logging.info("Saving products data...\n")
+        else:
+            logging.info("\nSaving products data and checking for old entries...\n")
         products_manager.save_atomically()
 
         if not self.interrupted:
             products_manager.check_for_old_entries(OLD_ENTRY_HOURS, notifier)
 
-        if has_errors and not self.interrupted:
+        if not self.interrupted and has_errors:
             notifier.notify_errors()
 
 
@@ -584,62 +581,59 @@ def check_for_updates() -> int:
     except Exception:
         return -1
 
-def print_update_status(quiet: bool) -> None:
-    if quiet:
-        return
-    print("⏳ Checking for updates...", end="", flush=True)
+def print_update_status() -> None:
+    is_info = logging.getLogger().isEnabledFor(logging.INFO)
+    if is_info:
+        print("⏳ Checking for updates...", end="", flush=True)
     update_status = check_for_updates()
-    if update_status == 1:
-        print("\r✨ A new version is available! Run ./update.sh to update.\n")
-    elif update_status == 0:
-        print("\r✅ You are running the latest version.")
-    else:
-        print("\r❗ Could not check for script updates.\n")
+    if is_info:
+        # Clear the carriage return line
+        print("\r" + " " * 30 + "\r", end="", flush=True)
+        if update_status == 1:
+            logging.info("✨ A new version is available! Run ./update.sh to update.\n")
+        elif update_status == 0:
+            logging.info("✅ You are running the latest version.")
+        else:
+            logging.info("❗ Could not check for script updates.\n")
 
-def print_env_status(env_status: int, quiet: bool, fatal_on_error: bool = False) -> None:
+def print_env_status(env_status: int, fatal_on_error: bool = False) -> None:
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
     icon = "🛑" if fatal_on_error else "❗"
     suffix = "!\n" if fatal_on_error else "!"
 
     if env_status == 1:
-        if not quiet:
-            print(f"{icon} No .env file found or unreadable{suffix}")
+        logging.warning(f"{icon} No .env file found or unreadable{suffix}")
         if fatal_on_error:
             sys.exit(1)
     elif env_status == 2:
-        if not quiet:
-            print(f"{icon} No NOTIFICATION_URLS provided in .env file{suffix}")
+        logging.warning(f"{icon} No NOTIFICATION_URLS provided in .env file{suffix}")
         if fatal_on_error:
             sys.exit(1)
     elif env_status == 3:
-        if not quiet:
-            print(f"{icon} NOTIFICATION_URLS contains only unconfigured placeholders{suffix}")
+        logging.warning(f"{icon} NOTIFICATION_URLS contains only unconfigured placeholders{suffix}")
         if fatal_on_error:
             sys.exit(1)
-    elif env_status == 0 and not quiet:
+    elif env_status == 0:
         valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in APPRISE_PLACEHOLDERS)]
-        print(f"✅ Found {len(valid_urls)} notification service(s) in .env")
+        logging.info(f"✅ Found {len(valid_urls)} notification service(s) in .env")
 
         if notification_urls and any(p in notification_urls for p in APPRISE_PLACEHOLDERS):
-            print("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
+            logging.warning("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
 
-def print_prod_status(prod_status: int, quiet: bool, fatal_on_error: bool = False) -> None:
+def print_prod_status(prod_status: int, fatal_on_error: bool = False) -> None:
     icon = "🛑" if fatal_on_error else "❗"
     suffix = "!\n" if fatal_on_error else "!"
 
     if prod_status == 1:
-        if not quiet:
-            print(f"{icon} The data/products.json file is missing or not a file{suffix}")
+        logging.warning(f"{icon} The data/products.json file is missing or not a file{suffix}")
         if fatal_on_error:
             sys.exit(15)
     elif prod_status == 2:
-        if not quiet:
-            print(f"{icon} The data/products.json file has wrong permissions{suffix}")
+        logging.warning(f"{icon} The data/products.json file has wrong permissions{suffix}")
         if fatal_on_error:
             sys.exit(15)
     elif prod_status == 3:
-        if not quiet:
-            print(f"{icon} The data/products.json file contains invalid JSON format{suffix}")
+        logging.warning(f"{icon} The data/products.json file contains invalid JSON format{suffix}")
         if fatal_on_error:
             sys.exit(15)
 
@@ -647,19 +641,19 @@ def print_prod_status(prod_status: int, quiet: bool, fatal_on_error: bool = Fals
 # --- Main Execution ---
 
 def handle_test_notification() -> None:
-    print("\nSending Skroutz Price Alert Test Notification...\n")
+    logging.info("\nSending Skroutz Price Alert Test Notification...\n")
 
     env_status = check_env_file()
-    print_env_status(env_status, quiet=False, fatal_on_error=True)
+    print_env_status(env_status, fatal_on_error=True)
 
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
     notifier = Notifier(notification_urls)
 
     try:
         notifier.notify_test()
-        print("\n📨 Test notification sent!\n")
+        logging.info("\n📨 Test notification sent!\n")
     except Exception as e:
-        print(f"An error occurred while sending test notification: {e}\n")
+        logging.error(f"🛑 An error occurred while sending test notification: {e}\n")
 
 def handle_status() -> None:
     NC = '\033[0m'
@@ -699,8 +693,8 @@ def handle_status() -> None:
     prod_status = check_products_file()
     env_status = check_env_file()
 
-    print_update_status(quiet=False)
-    print_prod_status(prod_status, quiet=False, fatal_on_error=False)
+    print_update_status()
+    print_prod_status(prod_status, fatal_on_error=False)
 
     if prod_status == 0:
         products_manager = ProductsManager(PRODUCTS_FILE_PATH)
@@ -709,7 +703,7 @@ def handle_status() -> None:
             num_products = len(products_data.get("products", []))
             print(f"✅ Found {num_products} products in data/products.json")
 
-    print_env_status(env_status, quiet=False, fatal_on_error=False)
+    print_env_status(env_status, fatal_on_error=False)
 
     # --- Data Fetching ---
     timer_props = get_systemd_properties('skroutz-price-alert.timer', 'ActiveState,NextElapseUSecRealtime')
@@ -785,24 +779,23 @@ def handle_status() -> None:
     print("")
 
 
-def run_main_program(quiet: bool) -> None:
-    if not quiet:
-        print("\nStarting Skroutz Price Alert...\n")
+def run_main_program() -> None:
+    logging.info("\nStarting Skroutz Price Alert...\n")
 
     env_status = check_env_file()
     prod_status = check_products_file()
 
-    print_update_status(quiet)
-    print_prod_status(prod_status, quiet, fatal_on_error=True)
+    print_update_status()
+    print_prod_status(prod_status, fatal_on_error=True)
 
     products_manager = ProductsManager(PRODUCTS_FILE_PATH)
     products_data = products_manager.load(exit_on_error=True)
 
-    if not quiet and products_data is not None:
+    if products_data is not None:
         num_products = len(products_data.get("products", []))
-        print(f"✅ Loaded {num_products} products from data/products.json")
+        logging.info(f"✅ Loaded {num_products} products from data/products.json")
 
-    print_env_status(env_status, quiet, fatal_on_error=False)
+    print_env_status(env_status, fatal_on_error=False)
 
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
     notifier = Notifier(notification_urls)
@@ -812,15 +805,15 @@ def run_main_program(quiet: bool) -> None:
 
     try:
         with lock:
-            scraper = SkroutzScraper(quiet=quiet)
+            scraper = SkroutzScraper()
             scraper.process_products(products_manager, notifier, DATA_DIR)
 
     except Timeout:
-        if not quiet:
-            print('\n🛑 Skroutz Price Alert script did not start! Another instance is currently running.\n')
+        logging.error('\n🛑 Skroutz Price Alert script did not start! Another instance is currently running.\n')
         sys.exit(42)
     except Exception:
         ErrorHandler.save_traceback(DATA_DIR)
+        logging.info("")
         notifier.notify_crash()
 
 
@@ -832,13 +825,16 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.ping:
+        setup_logging(args.quiet)
         handle_test_notification()
 
     if args.status:
+        setup_logging(False)
         handle_status()
 
     if not args.ping and not args.status:
-        run_main_program(args.quiet)
+        setup_logging(args.quiet)
+        run_main_program()
 
 if __name__ == "__main__":
     main()
