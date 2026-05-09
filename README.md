@@ -176,14 +176,14 @@ There are two ways to execute the script: automatically via the scheduled system
 
 ### Option 1: Automated Run
 
-Once `install.sh` has run successfully, the script executes automatically via a systemd timer every hour. The systemd timer applies a randomized up-to-5m startup delay before launching the execution wrapper (`scripts/run_scraper.sh`) to simulate human timing and avoid exact scheduling footprints.
+Once `install.sh` has run successfully, the script executes automatically via a systemd timer every hour. The systemd timer applies a randomized up-to-5m startup delay before launching the execution wrapper (`scripts/run.sh`) to simulate human timing and avoid exact scheduling footprints.
 
 ### Option 2: Manual Run (CLI Flags)
 
 You can manually interact with the application using the wrapper script. The wrapper safely loads the virtual environment and passes commands along to the backend application.
 
 ```sh
-./scripts/run_scraper.sh [FLAGS]
+./scripts/run.sh [FLAGS]
 ```
 
 #### Available CLI Flags:
@@ -197,7 +197,7 @@ You can manually interact with the application using the wrapper script. The wra
 If you run the script without any flags, it will execute normally and output its progress logs directly to the terminal. You can safely interrupt the manual execution at any time by pressing `Ctrl+C`.
 
 ```sh
-./scripts/run_scraper.sh
+./scripts/run.sh
 ```
 
 > [!NOTE]
@@ -206,7 +206,7 @@ If you run the script without any flags, it will execute normally and output its
 If you run the script using the `--status` flag, the script verifies the integrity of your `data/products.json` file, validates your environment variables in `.env` file, and queries systemd for the background execution info.
 
 ```sh
-./scripts/run_scraper.sh --status
+./scripts/run.sh --status
 ```
 
 This will display the following background execution details:
@@ -265,7 +265,7 @@ If you do not receive a test message, carefully review the [Notification Setting
 You can easily test your notification setup using the `--ping` flag:
 
 ```sh
-./scripts/run_scraper.sh --ping
+./scripts/run.sh --ping
 ```
 
 **3. Finding Crash Reports (Error Logs):**
@@ -292,7 +292,7 @@ The default configuration applies rate limiting to reduce traffic and increase t
 To confirm the script is running in the background, use the `--status` flag. If the script reports no errors, you can be sure it is configured correctly and running in the background:
 
 ```sh
-./scripts/run_scraper.sh --status
+./scripts/run.sh --status
 ```
 
 The systemd execution metrics reported by the `--status` flag only reflect background scheduled executions, not manual runs.

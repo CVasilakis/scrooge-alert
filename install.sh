@@ -20,7 +20,7 @@ SCRIPT_DIR="$( cd "$( dirname "$0" )" >/dev/null 2>&1 && pwd )"
 # Environment and File Configurations
 VENV_DIR="venv"
 REQUIREMENTS_FILE="requirements.txt"
-MAIN_SCRIPT="scripts/run_scraper.sh"
+MAIN_SCRIPT="scripts/run.sh"
 
 # Systemd Configurations
 SERVICE_NAME="skroutz-price-alert"
