@@ -22,6 +22,14 @@ from typing import Dict, Any, Optional, List
 
 # --- Script Constants ---
 
+# Exit Codes
+EXIT_CODE_SUCCESS: int = 0
+EXIT_CODE_ERROR: int = 1
+EXIT_CODE_PRODUCTS_ERROR: int = 15
+EXIT_CODE_ENV_ERROR: int = 16
+EXIT_CODE_RATE_LIMIT_ERROR: int = 17
+EXIT_CODE_SKIPPED: int = 42
+
 # Base directory paths
 BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR: str = os.path.join(BASE_DIR, "data")
@@ -242,12 +250,12 @@ class ProductsManager:
             logging.warning(f"🛑 Failed to load {os.path.basename(self.products_path)}")
             logging.warning(f"    ↳  {e}\n")
             if exit_on_error:
-                sys.exit(1)
+                sys.exit(EXIT_CODE_PRODUCTS_ERROR)
         except json.JSONDecodeError as e:
             logging.warning(f"🛑 Failed to load {os.path.basename(self.products_path)}: Invalid JSON format.")
             logging.warning(f"    ↳  {e}\n")
             if exit_on_error:
-                sys.exit(1)
+                sys.exit(EXIT_CODE_PRODUCTS_ERROR)
         return self.products_data
 
     def _get_clean_url(self, url: str) -> str:
@@ -555,6 +563,9 @@ class SkroutzScraper:
         if not self.interrupted and has_errors:
             notifier.notify_errors()
 
+        if abort_scraping:
+            sys.exit(EXIT_CODE_RATE_LIMIT_ERROR)
+
 
 # --- Shared Helpers ---
 
@@ -656,7 +667,7 @@ def print_env_status(fatal_on_error: bool = False) -> None:
         suffix = "!\n" if fatal_on_error else "!"
         logging.warning(f"{icon} {e}{suffix}")
         if fatal_on_error:
-            sys.exit(1)
+            sys.exit(EXIT_CODE_ENV_ERROR)
 
 def print_prod_status(fatal_on_error: bool = False) -> None:
     try:
@@ -666,7 +677,7 @@ def print_prod_status(fatal_on_error: bool = False) -> None:
         suffix = "!\n" if fatal_on_error else "!"
         logging.warning(f"{icon} {e}{suffix}")
         if fatal_on_error:
-            sys.exit(15)
+            sys.exit(EXIT_CODE_PRODUCTS_ERROR)
 
 
 # --- Main Execution ---
@@ -757,9 +768,11 @@ def handle_status() -> None:
     last_exec_time = service_props.get("ExecMainStartTimestamp", "")
     service_active = service_props.get("ActiveState", "")
 
-    no_errors = (result == "success" and exec_status == "0")
-    skipped = (exec_status == "42")
-    products_error = (exec_status == "15")
+    no_errors = (result == "success" and exec_status == str(EXIT_CODE_SUCCESS))
+    skipped = (exec_status == str(EXIT_CODE_SKIPPED))
+    products_error = (exec_status == str(EXIT_CODE_PRODUCTS_ERROR))
+    env_error = (exec_status == str(EXIT_CODE_ENV_ERROR))
+    rate_limit_error = (exec_status == str(EXIT_CODE_RATE_LIMIT_ERROR))
     is_currently_running = service_active in ("active", "activating")
     is_pending_first_execution = timer_active_val and not last_exec_time
 
@@ -790,6 +803,12 @@ def handle_status() -> None:
         elif products_error:
             completed_icon = "❗"
             completed_str = f"{RED}Failed{NC} (Issue with data/products.json file)"
+        elif env_error:
+            completed_icon = "❗"
+            completed_str = f"{RED}Failed{NC} (Issue with .env file)"
+        elif rate_limit_error:
+            completed_icon = "❗"
+            completed_str = f"{RED}Failed{NC} (Server blocked requests due to rate limits)"
         else:
             completed_icon = "❗"
             completed_str = f"{RED}Failed{NC} ({error_details})"
@@ -837,7 +856,7 @@ def run_main_program() -> None:
 
     except Timeout:
         logging.error('\n🛑 Skroutz Price Alert script did not start! Another instance is currently running.\n')
-        sys.exit(42)
+        sys.exit(EXIT_CODE_SKIPPED)
     except Exception:
         ErrorHandler.save_traceback(DATA_DIR)
         logging.info("")
