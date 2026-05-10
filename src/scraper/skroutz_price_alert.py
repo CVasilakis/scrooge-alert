@@ -28,6 +28,32 @@ DATA_DIR: str = os.path.join(BASE_DIR, "data")
 PRODUCTS_FILE_PATH: str = os.path.join(DATA_DIR, "products.json")
 LOCK_FILE_PATH: str = os.path.join(DATA_DIR, "skroutz_price_alert_running.lock")
 
+# --- Custom Exceptions ---
+
+class ScraperError(Exception):
+    """Base exception for scraping related errors."""
+    pass
+
+class RateLimitError(ScraperError):
+    """Raised when the scraper is rate limited or blocked."""
+    pass
+
+class ServerError(ScraperError):
+    """Raised when the server returns a 5xx error."""
+    pass
+
+class EnvFileError(Exception):
+    """Raised when there is an issue with the environment configuration."""
+    pass
+
+class ProductFileError(Exception):
+    """Raised when there is an issue with the products data file."""
+    pass
+
+class UpdateCheckError(Exception):
+    """Raised when there is an issue checking for script updates."""
+    pass
+
 def setup_logging(quiet: bool) -> None:
     level = logging.WARNING if quiet else logging.INFO
     logging.basicConfig(level=level, format='%(message)s')
@@ -209,15 +235,19 @@ class ProductsManager:
 
     def load(self, exit_on_error: bool = True) -> Dict[str, Any]:
         """Loads the products data from the JSON file."""
-        if os.path.exists(self.products_path):
-            try:
-                with open(self.products_path, 'r') as file:
-                    self.products_data = json.load(file)
-            except json.JSONDecodeError as e:
-                logging.warning(f"🛑 Failed to load {os.path.basename(self.products_path)}: Invalid JSON format.")
-                logging.warning(f"    ↳  {e}\n")
-                if exit_on_error:
-                    sys.exit(1)
+        try:
+            with open(self.products_path, 'r') as file:
+                self.products_data = json.load(file)
+        except (FileNotFoundError, PermissionError) as e:
+            logging.warning(f"🛑 Failed to load {os.path.basename(self.products_path)}")
+            logging.warning(f"    ↳  {e}\n")
+            if exit_on_error:
+                sys.exit(1)
+        except json.JSONDecodeError as e:
+            logging.warning(f"🛑 Failed to load {os.path.basename(self.products_path)}: Invalid JSON format.")
+            logging.warning(f"    ↳  {e}\n")
+            if exit_on_error:
+                sys.exit(1)
         return self.products_data
 
     def _get_clean_url(self, url: str) -> str:
@@ -278,12 +308,18 @@ class ProductsManager:
         self.products_data = fresh_data
 
         temp_file_path = self.products_path + ".tmp"
-        with open(temp_file_path, mode='w') as file:
-            json.dump(self.products_data, file, indent=2)
-        os.replace(temp_file_path, self.products_path)
+        try:
+            with open(temp_file_path, mode='w') as file:
+                json.dump(self.products_data, file, indent=2)
+            os.replace(temp_file_path, self.products_path)
+            logging.info("\n✅ Successfully updated data/products.json file\n")
+        except OSError as e:
+            logging.error("\n🛑 Failed to update data/products.json file!")
+            logging.error(f"    ↳  {e}\n")
 
     def check_for_old_entries(self, hours: int, notifier: Notifier) -> None:
         """Checks if any products haven't been successfully checked in the specified hours."""
+        needs_save = False
         for row in self.products_data.get("products", []):
             if row.get('skip', False):
                 continue
@@ -299,7 +335,16 @@ class ProductsManager:
                         logging.warning(f"❗ Old entry found for {product_name}: {url} (Last check: {last_check})")
                         notifier.notify_old_entries(product_name, hours, url)
                 except ValueError:
-                    pass
+                    logging.warning(f"❗ Invalid timestamp format found for {product_name}: {last_check}. Resetting clock.")
+                    self.update_product(
+                        url=url,
+                        last_price=row.get('last_price', 0.0),
+                        last_checked=datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+                    )
+                    needs_save = True
+
+        if needs_save:
+            self.save_atomically()
 
 class SkroutzScraper:
     def __init__(self):
@@ -361,17 +406,17 @@ class SkroutzScraper:
             response = session.get(api_link.strip(), headers=headers)
 
             if response.status_code is None:
-                raise Exception("Empty response or no status code received from server")
+                raise ScraperError("Empty response or no status code received from server")
 
             if response.status_code in (404, 410):
                 logging.warning(f"❗ {product_name}: Product not found or removed (HTTP {response.status_code}).")
                 return None
             elif response.status_code in (401, 403, 429):
-                raise Exception(f"Blocked or rate limited (HTTP {response.status_code})")
+                raise RateLimitError(f"Blocked or rate limited (HTTP {response.status_code})")
             elif 500 <= response.status_code < 600:
-                raise Exception(f"Skroutz server error (HTTP {response.status_code}), retrying...")
+                raise ServerError(f"Skroutz server error (HTTP {response.status_code}), retrying...")
             elif response.status_code != 200:
-                raise Exception(f"HTTP request failed with status code {response.status_code}")
+                raise ScraperError(f"HTTP request failed with status code {response.status_code}")
 
             response_data = response.json()
 
@@ -399,8 +444,11 @@ class SkroutzScraper:
 
         products = products_manager.products_data.get("products", [])
         has_errors = False
+        abort_scraping = False
 
         for index, entry in enumerate(products):
+            if abort_scraping:
+                break
             if self.interrupted:
                 break
 
@@ -474,22 +522,31 @@ class SkroutzScraper:
                     logging.warning(f"{product_name}: Attempt {attempt + 1} FAILED (JSONDecodeError: No JSON response).")
                     self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
+                except RateLimitError as e:
+                    logging.warning(f"{product_name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
+                    if attempt == MAX_RETRIES - 1:
+                        logging.error("🛑 RateLimitError: Max retries reached. Aborting scraping.")
+                        ErrorHandler.save_traceback(data_dir, url=url, headers=self.current_headers)
+                        has_errors = True
+                        abort_scraping = True
+                        break
+                    self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
+                    self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
+                except ServerError as e:
+                    logging.warning(f"{product_name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
+                    if attempt == MAX_RETRIES - 1:
+                        break
+                    self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
                 except Exception as e:
                     logging.error(f"{product_name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
-
                     if attempt == MAX_RETRIES - 1:
                         ErrorHandler.save_traceback(data_dir, url=url, headers=self.current_headers)
                         has_errors = True
                         break
-
                     self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
 
-        # Save updates
-        if self.interrupted:
-            logging.info("Saving products data...\n")
-        else:
-            logging.info("\nSaving products data and checking for old entries...\n")
+        # Save fetched updates
         products_manager.save_atomically()
 
         if not self.interrupted:
@@ -501,64 +558,52 @@ class SkroutzScraper:
 
 # --- Shared Helpers ---
 
-def check_env_file() -> int:
+def check_env_file() -> None:
     """Loads .env and checks if it exists and contains NOTIFICATION_URLS.
-    Returns:
-        0: OK
-        1: No .env file found or unreadable
-        2: No NOTIFICATION_URLS provided
-        3: Only unconfigured placeholders provided
+    Raises EnvFileError if checks fail.
     """
     env_path = os.path.join(BASE_DIR, '.env')
     env_loaded = load_dotenv(dotenv_path=env_path)
     env_exists = env_loaded or os.path.exists(env_path)
 
     if not env_exists or not os.access(env_path, os.R_OK):
-        return 1
+        raise EnvFileError("No .env file found or unreadable")
 
     notification_urls = os.environ.get("NOTIFICATION_URLS", "").strip()
     if not notification_urls:
-        return 2
+        raise EnvFileError("No NOTIFICATION_URLS provided in .env file")
 
     valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in APPRISE_PLACEHOLDERS)]
     if not valid_urls:
-        return 3
+        raise EnvFileError("NOTIFICATION_URLS contains only unconfigured placeholders")
 
-    return 0
-
-def check_products_file() -> int:
+def check_products_file() -> None:
     """Checks for products.json file.
-    Returns:
-        0: OK
-        1: File missing or not a file
-        2: Permission denied
-        3: Invalid JSON format or missing 'products' list
+    Raises ProductFileError if checks fail.
     """
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
 
     if not os.path.exists(PRODUCTS_FILE_PATH) or not os.path.isfile(PRODUCTS_FILE_PATH):
-        return 1
+        raise ProductFileError("The data/products.json file is missing or not a file")
 
     if not os.access(PRODUCTS_FILE_PATH, os.R_OK | os.W_OK):
-        return 2
+        raise ProductFileError("The data/products.json file has wrong permissions")
 
     try:
         with open(PRODUCTS_FILE_PATH, 'r') as f:
             data = json.load(f)
             if not isinstance(data, dict) or not isinstance(data.get("products"), list):
-                return 3
+                raise ProductFileError("The data/products.json file contains invalid JSON format")
     except (json.JSONDecodeError, OSError):
-        return 3
+        raise ProductFileError("The data/products.json file contains invalid JSON format")
 
-    return 0
-
-def check_for_updates() -> int:
+def check_for_updates() -> bool:
     """Checks the remote git repository to see if a newer version is available.
     Returns:
-        0: Running the latest version
-        1: A new version is available
-       -1: Could not check for updates
+        True if a new version is available, False otherwise.
+    Raises:
+        UpdateCheckError if the check fails.
     """
     try:
         # Get the remote URL
@@ -572,68 +617,54 @@ def check_for_updates() -> int:
         remote_output = subprocess.check_output(['git', 'ls-remote', remote_url, 'HEAD'], cwd=BASE_DIR, stderr=subprocess.DEVNULL).decode('utf-8').strip()
         if remote_output:
             remote_hash = remote_output.split()[0]
-            if local_hash != remote_hash:
-                return 1
-            else:
-                return 0
+            return local_hash != remote_hash
         else:
-            return -1
-    except Exception:
-        return -1
+            raise UpdateCheckError("No remote output received")
+    except Exception as e:
+        raise UpdateCheckError(f"Could not check for updates: {e}")
 
 def print_update_status() -> None:
     is_info = logging.getLogger().isEnabledFor(logging.INFO)
-    if is_info:
-        print("⏳ Checking for updates...", end="", flush=True)
-    update_status = check_for_updates()
-    if is_info:
+    if not is_info:
+        return
+
+    print("⏳ Checking for updates...", end="", flush=True)
+
+    try:
+        has_update = check_for_updates()
         # Clear the carriage return line
         print("\r" + " " * 30 + "\r", end="", flush=True)
-        if update_status == 1:
+        if has_update:
             logging.info("✨ A new version is available! Run ./update.sh to update.\n")
-        elif update_status == 0:
-            logging.info("✅ You are running the latest version.")
         else:
-            logging.info("❗ Could not check for script updates.\n")
+            logging.info("✅ You are running the latest version.")
+    except UpdateCheckError:
+        print("\r" + " " * 30 + "\r", end="", flush=True)
+        logging.info("❗ Could not check for script updates.\n")
 
-def print_env_status(env_status: int, fatal_on_error: bool = False) -> None:
-    notification_urls = os.environ.get("NOTIFICATION_URLS", "")
-    icon = "🛑" if fatal_on_error else "❗"
-    suffix = "!\n" if fatal_on_error else "!"
-
-    if env_status == 1:
-        logging.warning(f"{icon} No .env file found or unreadable{suffix}")
-        if fatal_on_error:
-            sys.exit(1)
-    elif env_status == 2:
-        logging.warning(f"{icon} No NOTIFICATION_URLS provided in .env file{suffix}")
-        if fatal_on_error:
-            sys.exit(1)
-    elif env_status == 3:
-        logging.warning(f"{icon} NOTIFICATION_URLS contains only unconfigured placeholders{suffix}")
-        if fatal_on_error:
-            sys.exit(1)
-    elif env_status == 0:
+def print_env_status(fatal_on_error: bool = False) -> None:
+    try:
+        check_env_file()
+        notification_urls = os.environ.get("NOTIFICATION_URLS", "")
         valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in APPRISE_PLACEHOLDERS)]
         logging.info(f"✅ Found {len(valid_urls)} notification service(s) in .env")
 
         if notification_urls and any(p in notification_urls for p in APPRISE_PLACEHOLDERS):
             logging.warning("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
-
-def print_prod_status(prod_status: int, fatal_on_error: bool = False) -> None:
-    icon = "🛑" if fatal_on_error else "❗"
-    suffix = "!\n" if fatal_on_error else "!"
-
-    if prod_status == 1:
-        logging.warning(f"{icon} The data/products.json file is missing or not a file{suffix}")
+    except EnvFileError as e:
+        icon = "🛑" if fatal_on_error else "❗"
+        suffix = "!\n" if fatal_on_error else "!"
+        logging.warning(f"{icon} {e}{suffix}")
         if fatal_on_error:
-            sys.exit(15)
-    elif prod_status == 2:
-        logging.warning(f"{icon} The data/products.json file has wrong permissions{suffix}")
-        if fatal_on_error:
-            sys.exit(15)
-    elif prod_status == 3:
-        logging.warning(f"{icon} The data/products.json file contains invalid JSON format{suffix}")
+            sys.exit(1)
+
+def print_prod_status(fatal_on_error: bool = False) -> None:
+    try:
+        check_products_file()
+    except ProductFileError as e:
+        icon = "🛑" if fatal_on_error else "❗"
+        suffix = "!\n" if fatal_on_error else "!"
+        logging.warning(f"{icon} {e}{suffix}")
         if fatal_on_error:
             sys.exit(15)
 
@@ -643,8 +674,7 @@ def print_prod_status(prod_status: int, fatal_on_error: bool = False) -> None:
 def handle_test_notification() -> None:
     logging.info("\nSending Skroutz Price Alert Test Notification...\n")
 
-    env_status = check_env_file()
-    print_env_status(env_status, fatal_on_error=True)
+    print_env_status(fatal_on_error=True)
 
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
     notifier = Notifier(notification_urls)
@@ -690,20 +720,20 @@ def handle_status() -> None:
 
     print("\nChecking Skroutz Price Alert Status...\n")
 
-    prod_status = check_products_file()
-    env_status = check_env_file()
-
     print_update_status()
-    print_prod_status(prod_status, fatal_on_error=False)
+    print_prod_status(fatal_on_error=False)
 
-    if prod_status == 0:
+    try:
+        check_products_file()
         products_manager = ProductsManager(PRODUCTS_FILE_PATH)
         products_data = products_manager.load(exit_on_error=False)
         if products_data:
             num_products = len(products_data.get("products", []))
             print(f"✅ Found {num_products} products in data/products.json")
+    except ProductFileError:
+        pass
 
-    print_env_status(env_status, fatal_on_error=False)
+    print_env_status(fatal_on_error=False)
 
     # --- Data Fetching ---
     timer_props = get_systemd_properties('skroutz-price-alert.timer', 'ActiveState,NextElapseUSecRealtime')
@@ -782,11 +812,8 @@ def handle_status() -> None:
 def run_main_program() -> None:
     logging.info("\nStarting Skroutz Price Alert...\n")
 
-    env_status = check_env_file()
-    prod_status = check_products_file()
-
     print_update_status()
-    print_prod_status(prod_status, fatal_on_error=True)
+    print_prod_status(fatal_on_error=True)
 
     products_manager = ProductsManager(PRODUCTS_FILE_PATH)
     products_data = products_manager.load(exit_on_error=True)
@@ -795,7 +822,7 @@ def run_main_program() -> None:
         num_products = len(products_data.get("products", []))
         logging.info(f"✅ Loaded {num_products} products from data/products.json")
 
-    print_env_status(env_status, fatal_on_error=False)
+    print_env_status(fatal_on_error=False)
 
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
     notifier = Notifier(notification_urls)
