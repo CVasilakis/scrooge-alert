@@ -188,11 +188,13 @@ You can manually interact with the application using the wrapper script. The wra
 
 #### Available CLI Flags:
 
-| Flag | Action |
+| Flag&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Action |
 | :--- | :--- |
-| `--quiet` | Suppresses all console output. This is used by the systemd setup to prevent unnecessary log spam. |
+| `--quiet` | Suppresses all console output. This is used by the systemd setup to prevent log spam. |
 | `--status` | Performs a comprehensive health check. It validates the configuration, and verifies the background systemd service and timer status. |
 | `--ping` | Sends a test notification directly to your configured Apprise URLs, then immediately exits. Helps pinpoint `.env` misconfigurations. |
+
+#### Normal Execution:
 
 If you run the script without any flags, it will execute normally and output its progress logs directly to the terminal. You can safely interrupt the manual execution at any time by pressing `Ctrl+C`.
 
@@ -203,18 +205,29 @@ If you run the script without any flags, it will execute normally and output its
 > [!NOTE]
 > Only one instance of the script is allowed to run at a time to avoid triggering anti-bot protections. If a background execution is currently in progress, your manual run will be blocked until it completes. If you need to forcefully stop the active background execution to run the script manually, you can safely use the command `systemctl --user stop skroutz-price-alert.service`. This stops the current background run but will not break any future scheduled executions.
 
-If you run the script using the `--status` flag, the script verifies the integrity of your `data/products.json` file, validates your environment variables in `.env` file, and queries systemd for the background execution info.
+#### Status Check:
+
+If you run the script using the `--status` flag, the script verifies the integrity of your `data/products.json` file, validates your environment variables in `.env` file, and queries systemd to display the following background execution details:
 
 ```sh
 ./scripts/run.sh --status
 ```
 
-This will display the following background execution details:
 - **Linger Enabled:** Checks if user lingering is configured for background execution.
 - **Systemd Timer Active:** Shows whether the timer is currently active.
 - **Last Execution Time:** Displays when the script was last run.
 - **Last Execution Status:** Indicates last execution results and if any errors happened.
 - **Next Scheduled Execution:** Displays the next scheduled run or if it's currently running.
+
+#### Test Notifications:
+
+If you want to test whether your `.env` notification URLs are configured correctly without waiting for a scheduled run or a real price drop, you can use the `--ping` flag.
+
+```sh
+./scripts/run.sh --ping
+```
+
+This will send a test message to each configured service. It will output a report of successes and failures, helping you quickly identify and debug any misconfigured notification endpoints.
 
 > [!TIP]
 > If the script fails to run in the background or you do not receive expected notifications, please consult the [Troubleshooting & Debugging](#-troubleshooting--debugging) section. If your problem persists, feel free to [open an issue](https://github.com/CVasilakis/skroutz-price-alert/issues).

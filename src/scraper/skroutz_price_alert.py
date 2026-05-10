@@ -229,11 +229,25 @@ class Notifier:
             body='The Skroutz Price Alert script failed unexpectedly. Please review the error logs for more details on the crash.'
         )
 
-    def notify_test(self) -> None:
-        self.notify(
-            title='Skroutz Test Notification',
-            body='This is a test message to confirm that your Skroutz Price Alert notifications are configured correctly!'
-        )
+    def notify_test(self) -> list:
+        title = 'Skroutz Test Notification'
+        body = 'This is a test message to confirm that your Skroutz Price Alert notifications are configured correctly!'
+
+        results = []
+        for server in self.app_notif.servers:
+            identifier = server.url(privacy=True)
+            schema_end = identifier.find('://')
+            if schema_end != -1:
+                first_slash = identifier.find('/', schema_end + 3)
+                if first_slash != -1:
+                    identifier = identifier[:first_slash] + '/...'
+
+            try:
+                success = server.notify(title=title, body=body)
+                results.append((identifier, success))
+            except Exception:
+                results.append((identifier, False))
+        return results
 
 class ProductsManager:
     def __init__(self, products_path: str):
@@ -682,7 +696,7 @@ def print_prod_status(fatal_on_error: bool = False) -> None:
 
 # --- Main Execution ---
 
-def handle_test_notification() -> None:
+def handle_ping() -> None:
     logging.info("\nSending Skroutz Price Alert Test Notification...\n")
 
     print_env_status(fatal_on_error=True)
@@ -691,8 +705,27 @@ def handle_test_notification() -> None:
     notifier = Notifier(notification_urls)
 
     try:
-        notifier.notify_test()
-        logging.info("\n📨 Test notification sent!\n")
+        results = notifier.notify_test()
+
+        if not results:
+            logging.info("\n🛑 No valid notification services found.\n")
+            return
+
+        success_count = 0
+        for i, (identifier, success) in enumerate(results, 1):
+            if success:
+                logging.info(f"    ↳ ✅ Success: Service #{i} ({identifier})")
+                success_count += 1
+            else:
+                logging.info(f"    ↳ ❗️ Failed:  Service #{i} ({identifier})")
+
+        if success_count == len(results):
+            status_icon = "✅"
+        elif success_count == 0:
+            status_icon = "🛑"
+        else:
+            status_icon = "🟡"
+        logging.info(f"\n{status_icon} Test notification completed ({success_count}/{len(results)} succeeded)!\n")
     except Exception as e:
         logging.error(f"🛑 An error occurred while sending test notification: {e}\n")
 
@@ -861,6 +894,7 @@ def run_main_program() -> None:
         ErrorHandler.save_traceback(DATA_DIR)
         logging.info("")
         notifier.notify_crash()
+        sys.exit(EXIT_CODE_ERROR)
 
 
 def main() -> None:
@@ -872,7 +906,7 @@ def main() -> None:
 
     if args.ping:
         setup_logging(args.quiet)
-        handle_test_notification()
+        handle_ping()
 
     if args.status:
         setup_logging(False)
