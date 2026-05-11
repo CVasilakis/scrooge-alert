@@ -198,8 +198,8 @@ class Notifier:
             for url in notification_urls.split(','):
                 url = url.strip()
                 if url and not any(p in url for p in APPRISE_PLACEHOLDERS):
-                    self.app_notif.add(url)
-                    self.has_services = True
+                    if self.app_notif.add(url):
+                        self.has_services = True
 
     def notify(self, title: str, body: str) -> None:
         """Sends a notification with the given title and body."""
@@ -598,9 +598,11 @@ def check_env_file() -> None:
     if not notification_urls:
         raise EnvFileError("No NOTIFICATION_URLS provided in .env file")
 
-    valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in APPRISE_PLACEHOLDERS)]
+    urls = [u.strip() for u in notification_urls.split(',') if u.strip()]
+
+    valid_urls = [u for u in urls if not any(p in u for p in APPRISE_PLACEHOLDERS) and apprise.Apprise.instantiate(u)]
     if not valid_urls:
-        raise EnvFileError("NOTIFICATION_URLS contains only unconfigured placeholders")
+        raise EnvFileError("NOTIFICATION_URLS contains no valid notification services")
 
 def check_products_file() -> None:
     """Checks for products.json file.
@@ -667,15 +669,30 @@ def print_update_status() -> None:
         print("\r" + " " * 30 + "\r", end="", flush=True)
         logging.info("❗ Could not check for script updates.\n")
 
-def print_env_status(fatal_on_error: bool = False) -> None:
+def print_env_status(fatal_on_error: bool = False, show_invalid_details: bool = False) -> None:
     try:
         check_env_file()
         notification_urls = os.environ.get("NOTIFICATION_URLS", "")
-        valid_urls = [u for u in notification_urls.split(',') if u.strip() and not any(p in u for p in APPRISE_PLACEHOLDERS)]
-        logging.info(f"✅ Found {len(valid_urls)} notification service(s) in .env")
+        valid_urls = []
+        invalid_urls = []
+        for u in notification_urls.split(','):
+            u = u.strip()
+            if u:
+                if not any(p in u for p in APPRISE_PLACEHOLDERS) and apprise.Apprise.instantiate(u):
+                    valid_urls.append(u)
+                else:
+                    invalid_urls.append(u)
 
-        if notification_urls and any(p in notification_urls for p in APPRISE_PLACEHOLDERS):
-            logging.warning("    ↳ ❗ NOTIFICATION_URLS contains unconfigured placeholder(s).")
+        if show_invalid_details and invalid_urls:
+            logging.warning(f"❗ Found {len(invalid_urls)} invalid notification URL(s) in .env")
+            for iu in invalid_urls:
+                logging.warning(f"    ↳ 🔕 {iu}")
+            logging.info("")
+            logging.info(f"✅ Found {len(valid_urls)} valid notification URL(s) in .env")
+        else:
+            logging.info(f"✅ Found {len(valid_urls)} valid notification URL(s) in .env")
+            if invalid_urls:
+                logging.warning(f"    ↳ ❗ Also found {len(invalid_urls)} invalid notification URL(s) in .env")
     except EnvFileError as e:
         icon = "🛑" if fatal_on_error else "❗"
         suffix = "!\n" if fatal_on_error else "!"
@@ -699,7 +716,7 @@ def print_prod_status(fatal_on_error: bool = False) -> None:
 def handle_ping() -> None:
     logging.info("\nSending Skroutz Price Alert Test Notification...\n")
 
-    print_env_status(fatal_on_error=True)
+    print_env_status(fatal_on_error=True, show_invalid_details=True)
 
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
     notifier = Notifier(notification_urls)
@@ -714,18 +731,19 @@ def handle_ping() -> None:
         success_count = 0
         for i, (identifier, success) in enumerate(results, 1):
             if success:
-                logging.info(f"    ↳ ✅ Success: Service #{i} ({identifier})")
+                logging.info(f"    ↳ 📨 Success: Service #{i} ({identifier})")
                 success_count += 1
             else:
-                logging.info(f"    ↳ ❗️ Failed:  Service #{i} ({identifier})")
+                logging.info(f"    ↳ 🔕 Failed:  Service #{i} ({identifier})")
 
-        if success_count == len(results):
+        total_urls = len([u for u in notification_urls.split(',') if u.strip()])
+        if success_count == total_urls:
             status_icon = "✅"
         elif success_count == 0:
             status_icon = "🛑"
         else:
             status_icon = "🟡"
-        logging.info(f"\n{status_icon} Test notification completed ({success_count}/{len(results)} succeeded)!\n")
+        logging.info(f"\n{status_icon} Test notification completed ({success_count} of {total_urls} service(s) succeeded)!\n")
     except Exception as e:
         logging.error(f"🛑 An error occurred while sending test notification: {e}\n")
 
@@ -826,7 +844,7 @@ def handle_status() -> None:
         completed_icon = "❗"
     else:
         last_exec_icon = "✅"
-        error_details = "None" if no_errors else f"Result: {result or 'Unknown'}, Exit Code: {exec_status or 'Unknown'}"
+        error_details = "None" if no_errors else f"Reason: {result or 'Unknown'}, Exit Code: {exec_status or 'Unknown'}"
         if no_errors:
             completed_icon = "✅"
             completed_str = f"{GREEN}OK{NC}"
