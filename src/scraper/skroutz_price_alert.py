@@ -201,30 +201,30 @@ class Notifier:
                     if self.app_notif.add(url):
                         self.has_services = True
 
-    def notify(self, title: str, body: str) -> None:
+    def notify(self, title: str, body: str) -> bool:
         """Sends a notification with the given title and body."""
-        self.app_notif.notify(title=title, body=body)
+        return bool(self.app_notif.notify(title=title, body=body))
 
-    def notify_low_price(self, product_name: str, target_price: float, current_price: float, url: str, currency: str = '€') -> None:
-        self.notify(
+    def notify_low_price(self, product_name: str, target_price: float, current_price: float, url: str, currency: str = '€') -> bool:
+        return self.notify(
             title='Skroutz Price Drop Alert!',
             body=f'{product_name} is now available for {current_price}{currency}, which is below your target of {target_price}{currency}.\nView it here: {url}'
         )
 
-    def notify_old_entries(self, product_name: str, hours: int, url: str) -> None:
-        self.notify(
+    def notify_old_entries(self, product_name: str, hours: int, url: str) -> bool:
+        return self.notify(
             title='Skroutz Tracking Stale',
             body=f'The scraping for "{product_name}" hasn\'t been successfully completed in over {hours} hours. Please check the error logs or verify if the URL is still valid.\nProduct URL: {url}'
         )
 
-    def notify_errors(self) -> None:
-        self.notify(
+    def notify_errors(self) -> bool:
+        return self.notify(
             title='Skroutz Scraping Errors',
             body='The Skroutz Price Alert script encountered errors while checking some of your products. Please review the error logs for more details.'
         )
 
-    def notify_crash(self) -> None:
-        self.notify(
+    def notify_crash(self) -> bool:
+        return self.notify(
             title='Skroutz Script Crash',
             body='The Skroutz Price Alert script failed unexpectedly. Please review the error logs for more details on the crash.'
         )
@@ -523,10 +523,12 @@ class SkroutzScraper:
                         if current_price < target_price:
                             logging.info(f"🎉 {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
                             if notifier.has_services:
-                                logging.info("    ↳ 📨 Notification sent to configured URL(s).")
+                                if notifier.notify_low_price(product_name, target_price, current_price, url, currency):
+                                    logging.info("    ↳ 📨 Notification sent to configured URL(s).")
+                                else:
+                                    logging.error("    ↳ 🔕 Notification failed to send to one or more configured URL(s).")
                             else:
                                 logging.info("    ↳ 🔕 No notification sent (no URL(s) configured in .env).")
-                            notifier.notify_low_price(product_name, target_price, current_price, url, currency)
                         else:
                             logging.info(f"✅ {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
 
@@ -693,28 +695,28 @@ def print_env_status(fatal_on_error: bool = False, show_invalid_details: bool = 
                 else:
                     scheme = ""
                     rest = iu
-                    
+
                 first_slash = rest.find('/')
-                
+
                 if first_slash != -1:
                     token = rest[:first_slash]
                     path = '/...'
                 else:
                     token = rest
                     path = ''
-                    
+
                 if len(token) > 2:
                     obfuscated_token = f"{token[0]}...{token[-1]}"
                 elif len(token) > 0:
                     obfuscated_token = f"{token[0]}..."
                 else:
                     obfuscated_token = ""
-                    
+
                 if not scheme and not obfuscated_token:
                     obfuscated_iu = "***"
                 else:
                     obfuscated_iu = f"{scheme}{obfuscated_token}{path}"
-                    
+
                 logging.warning(f"    ↳ 🔕 {obfuscated_iu}")
             logging.info("")
             logging.info(f"✅ Found {len(valid_urls)} valid notification URL(s) in .env")
@@ -902,7 +904,7 @@ def handle_status() -> None:
     print(f"{next_exec_icon} Next Scheduled Execution:    {next_exec}")
 
     if is_currently_running:
-        print("    ↳ Script is currently running in the background. Re-check in a few minutes.")
+        print("    ↳ Script is currently running in the background. Check again in a few minutes.")
     elif is_pending_first_execution:
         print("    ↳ Timer pending first execution. Waiting for the scheduled time.")
     print("")
