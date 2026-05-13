@@ -523,9 +523,9 @@ class SkroutzScraper:
                         if current_price < target_price:
                             logging.info(f"🎉 {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
                             if notifier.has_services:
-                                logging.info("    ↳ 📨 Notification sent to configured services.")
+                                logging.info("    ↳ 📨 Notification sent to configured URL(s).")
                             else:
-                                logging.info("    ↳ 🔕 No notification sent (no services configured in .env).")
+                                logging.info("    ↳ 🔕 No notification sent (no URL(s) configured in .env).")
                             notifier.notify_low_price(product_name, target_price, current_price, url, currency)
                         else:
                             logging.info(f"✅ {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
@@ -602,7 +602,7 @@ def check_env_file() -> None:
 
     valid_urls = [u for u in urls if not any(p in u for p in APPRISE_PLACEHOLDERS) and apprise.Apprise.instantiate(u)]
     if not valid_urls:
-        raise EnvFileError("NOTIFICATION_URLS contains no valid notification services")
+        raise EnvFileError("NOTIFICATION_URLS contains no valid notification URL(s)")
 
 def check_products_file() -> None:
     """Checks for products.json file.
@@ -686,7 +686,36 @@ def print_env_status(fatal_on_error: bool = False, show_invalid_details: bool = 
         if show_invalid_details and invalid_urls:
             logging.warning(f"❗ Found {len(invalid_urls)} invalid notification URL(s) in .env")
             for iu in invalid_urls:
-                logging.warning(f"    ↳ 🔕 {iu}")
+                schema_end = iu.find('://')
+                if schema_end != -1:
+                    scheme = iu[:schema_end + 3]
+                    rest = iu[schema_end + 3:]
+                else:
+                    scheme = ""
+                    rest = iu
+                    
+                first_slash = rest.find('/')
+                
+                if first_slash != -1:
+                    token = rest[:first_slash]
+                    path = '/...'
+                else:
+                    token = rest
+                    path = ''
+                    
+                if len(token) > 2:
+                    obfuscated_token = f"{token[0]}...{token[-1]}"
+                elif len(token) > 0:
+                    obfuscated_token = f"{token[0]}..."
+                else:
+                    obfuscated_token = ""
+                    
+                if not scheme and not obfuscated_token:
+                    obfuscated_iu = "***"
+                else:
+                    obfuscated_iu = f"{scheme}{obfuscated_token}{path}"
+                    
+                logging.warning(f"    ↳ 🔕 {obfuscated_iu}")
             logging.info("")
             logging.info(f"✅ Found {len(valid_urls)} valid notification URL(s) in .env")
         else:
@@ -725,16 +754,16 @@ def handle_ping() -> None:
         results = notifier.notify_test()
 
         if not results:
-            logging.info("\n🛑 No valid notification services found.\n")
+            logging.info("\n🛑 No valid notification URL(s) found.\n")
             return
 
         success_count = 0
         for i, (identifier, success) in enumerate(results, 1):
             if success:
-                logging.info(f"    ↳ 📨 Success: Service #{i} ({identifier})")
+                logging.info(f"    ↳ 📨 Success: URL #{i} ({identifier})")
                 success_count += 1
             else:
-                logging.info(f"    ↳ 🔕 Failed:  Service #{i} ({identifier})")
+                logging.info(f"    ↳ 🔕 Failed:  URL #{i} ({identifier})")
 
         total_urls = len([u for u in notification_urls.split(',') if u.strip()])
         if success_count == total_urls:
@@ -743,7 +772,7 @@ def handle_ping() -> None:
             status_icon = "🛑"
         else:
             status_icon = "🟡"
-        logging.info(f"\n{status_icon} Test notification completed ({success_count} of {total_urls} service(s) succeeded)!\n")
+        logging.info(f"\n{status_icon} Test notification completed ({success_count} of {total_urls} URL(s) succeeded)!\n")
     except Exception as e:
         logging.error(f"🛑 An error occurred while sending test notification: {e}\n")
 

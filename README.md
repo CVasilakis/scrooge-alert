@@ -227,7 +227,7 @@ If you want to test whether your `.env` notification URLs are configured correct
 ./scripts/run.sh --ping
 ```
 
-This will send a test message to each configured service. It will output a report of successes and failures, helping you quickly identify and debug any misconfigured notification endpoints.
+This will send a test message to each configured Apprise URL(s). It will output a report of successes and failures, helping you quickly identify and debug any misconfigured notification endpoints.
 
 > [!TIP]
 > If the script fails to run in the background or you do not receive expected notifications, please consult the [Troubleshooting & Debugging](#-troubleshooting--debugging) section. If your problem persists, feel free to [open an issue](https://github.com/CVasilakis/skroutz-price-alert/issues).
@@ -316,7 +316,7 @@ If the command reveals any warnings, please run `./update.sh` which re-installs 
 <summary><b>2. Can I get notifications sent to Discord, Telegram, or other specific services?</b></summary>
 <br>
 
-Most likely, yes! The script uses the [Apprise](https://github.com/caronc/apprise) push notification library, which supports almost every major platform available. As long as you can format your target service as an Apprise URL inside your `.env` file, it will work perfectly. Check out their [Supported Services](https://appriseit.com/services/) page for the full list.
+Most likely, yes! The script uses the [Apprise](https://github.com/caronc/apprise) push notification library, which supports almost every major platform available. As long as you can configure your target URL(s) inside your `.env` file, it will work perfectly. Check out their [Supported Services](https://appriseit.com/services/) page for the full list.
 </details>
 
 <details>
