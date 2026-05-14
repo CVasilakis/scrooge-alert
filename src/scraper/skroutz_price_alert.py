@@ -254,12 +254,19 @@ class ProductsManager:
         self.products_path = products_path
         self.products_data: Dict[str, Any] = {}
         self.product_updates: Dict[str, Dict[str, Any]] = {}
+        self.faulty_count = 0
 
     def load(self, exit_on_error: bool = True) -> Dict[str, Any]:
         """Loads the products data from the JSON file."""
         try:
             with open(self.products_path, 'r') as file:
                 self.products_data = json.load(file)
+
+            self.faulty_count = 0
+            for product in self.products_data.get("products", []):
+                if not all(k in product for k in ("name", "url", "target_price")):
+                    self.faulty_count += 1
+
         except (FileNotFoundError, PermissionError) as e:
             logging.warning(f"🛑 Failed to load {os.path.basename(self.products_path)}")
             logging.warning(f"    ↳  {e}\n")
@@ -823,6 +830,8 @@ def handle_status() -> None:
         if products_data:
             num_products = len(products_data.get("products", []))
             print(f"✅ Found {num_products} products in data/products.json")
+            if products_manager.faulty_count > 0:
+                print(f"    ↳ ❗ Detected {products_manager.faulty_count} misconfigured product(s) in data/products.json")
     except ProductFileError:
         pass
 
@@ -922,6 +931,8 @@ def run_main_program() -> None:
     if products_data is not None:
         num_products = len(products_data.get("products", []))
         logging.info(f"✅ Loaded {num_products} products from data/products.json")
+        if products_manager.faulty_count > 0:
+            logging.warning(f"    ↳ ❗ Detected {products_manager.faulty_count} misconfigured product(s) in data/products.json")
 
     print_env_status(fatal_on_error=False)
 
