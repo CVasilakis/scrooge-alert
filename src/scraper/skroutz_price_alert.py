@@ -171,7 +171,8 @@ DEFAULT_HEADERS_POOL: List[Dict[str, str]] = [
     }
 ]
 
-# --- Classes ---
+
+# --- Utility / Helper Classes ---
 
 class ErrorHandler:
     @staticmethod
@@ -248,6 +249,175 @@ class Notifier:
             except Exception:
                 results.append((identifier, False))
         return results
+
+
+# --- Configuration & Health Layer ---
+
+class ConfigValidator:
+    @staticmethod
+    def check_env_file() -> None:
+        """Loads .env and checks if it exists and contains NOTIFICATION_URLS.
+        Raises EnvFileError if checks fail.
+        """
+        env_path = os.path.join(BASE_DIR, '.env')
+        env_loaded = load_dotenv(dotenv_path=env_path)
+        env_exists = env_loaded or os.path.exists(env_path)
+
+        if not env_exists or not os.access(env_path, os.R_OK):
+            raise EnvFileError("No .env file found or unreadable")
+
+        notification_urls = os.environ.get("NOTIFICATION_URLS", "").strip()
+        if not notification_urls:
+            raise EnvFileError("No NOTIFICATION_URLS provided in .env file")
+
+        urls = [u.strip() for u in notification_urls.split(',') if u.strip()]
+
+        valid_urls = [u for u in urls if not any(p in u for p in APPRISE_PLACEHOLDERS) and apprise.Apprise.instantiate(u)]
+        if not valid_urls:
+            raise EnvFileError("NOTIFICATION_URLS contains no valid notification URL(s)")
+
+    @staticmethod
+    def check_products_file() -> None:
+        """Checks for products.json file.
+        Raises ProductFileError if checks fail.
+        """
+        if not os.path.exists(DATA_DIR):
+            os.makedirs(DATA_DIR)
+
+        if not os.path.exists(PRODUCTS_FILE_PATH) or not os.path.isfile(PRODUCTS_FILE_PATH):
+            raise ProductFileError("The data/products.json file is missing or not a file")
+
+        if not os.access(PRODUCTS_FILE_PATH, os.R_OK | os.W_OK):
+            raise ProductFileError("The data/products.json file has wrong permissions")
+
+        try:
+            with open(PRODUCTS_FILE_PATH, 'r') as f:
+                data = json.load(f)
+                if not isinstance(data, dict) or not isinstance(data.get("products"), list):
+                    raise ProductFileError("The data/products.json file contains invalid JSON format")
+        except (json.JSONDecodeError, OSError):
+            raise ProductFileError("The data/products.json file contains invalid JSON format")
+
+    @staticmethod
+    def check_for_updates() -> bool:
+        """Checks the remote git repository to see if a newer version is available.
+        Returns:
+            True if a new version is available, False otherwise.
+        Raises:
+            UpdateCheckError if the check fails.
+        """
+        try:
+            # Get the remote URL
+            remote_url = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], cwd=BASE_DIR, stderr=subprocess.DEVNULL).decode('utf-8').strip()
+
+            # If it's an SSH URL, convert it to HTTPS to avoid passphrase prompts
+            if remote_url.startswith('git@github.com:'):
+                remote_url = remote_url.replace('git@github.com:', 'https://github.com/')
+
+            local_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=BASE_DIR, stderr=subprocess.DEVNULL).decode('utf-8').strip()
+            remote_output = subprocess.check_output(['git', 'ls-remote', remote_url, 'HEAD'], cwd=BASE_DIR, stderr=subprocess.DEVNULL).decode('utf-8').strip()
+            if remote_output:
+                remote_hash = remote_output.split()[0]
+                return local_hash != remote_hash
+            else:
+                raise UpdateCheckError("No remote output received")
+        except Exception as e:
+            raise UpdateCheckError(f"Could not check for updates: {e}")
+
+    @staticmethod
+    def print_update_status() -> None:
+        is_info = logging.getLogger().isEnabledFor(logging.INFO)
+        if not is_info:
+            return
+
+        print("⏳ Checking for updates...", end="", flush=True)
+
+        try:
+            has_update = ConfigValidator.check_for_updates()
+            # Clear the carriage return line
+            print("\r" + " " * 30 + "\r", end="", flush=True)
+            if has_update:
+                logging.info("✨ A new version is available! Run ./update.sh to update.\n")
+            else:
+                logging.info("✅ You are running the latest version.")
+        except UpdateCheckError:
+            print("\r" + " " * 30 + "\r", end="", flush=True)
+            logging.info("❗ Could not check for script updates.\n")
+
+    @staticmethod
+    def print_env_status(fatal_on_error: bool = False, show_invalid_details: bool = False) -> None:
+        try:
+            ConfigValidator.check_env_file()
+            notification_urls = os.environ.get("NOTIFICATION_URLS", "")
+            valid_urls = []
+            invalid_urls = []
+            for u in notification_urls.split(','):
+                u = u.strip()
+                if u:
+                    if not any(p in u for p in APPRISE_PLACEHOLDERS) and apprise.Apprise.instantiate(u):
+                        valid_urls.append(u)
+                    else:
+                        invalid_urls.append(u)
+
+            if show_invalid_details and invalid_urls:
+                logging.warning(f"❗ Found {len(invalid_urls)} invalid notification URL(s) in .env")
+                for iu in invalid_urls:
+                    schema_end = iu.find('://')
+                    if schema_end != -1:
+                        scheme = iu[:schema_end + 3]
+                        rest = iu[schema_end + 3:]
+                    else:
+                        scheme = ""
+                        rest = iu
+
+                    first_slash = rest.find('/')
+
+                    if first_slash != -1:
+                        token = rest[:first_slash]
+                        path = '/...'
+                    else:
+                        token = rest
+                        path = ''
+
+                    if len(token) > 2:
+                        obfuscated_token = f"{token[0]}...{token[-1]}"
+                    elif len(token) > 0:
+                        obfuscated_token = f"{token[0]}..."
+                    else:
+                        obfuscated_token = ""
+
+                    if not scheme and not obfuscated_token:
+                        obfuscated_iu = "***"
+                    else:
+                        obfuscated_iu = f"{scheme}{obfuscated_token}{path}"
+
+                    logging.warning(f"    ↳ 🔕 {obfuscated_iu}")
+                logging.info("")
+                logging.info(f"✅ Loaded {len(valid_urls)} valid notification URL(s) from .env")
+            else:
+                logging.info(f"✅ Loaded {len(valid_urls)} valid notification URL(s) from .env")
+                if invalid_urls:
+                    logging.warning(f"    ↳ ❗ Also found {len(invalid_urls)} invalid notification URL(s) in .env")
+        except EnvFileError as e:
+            icon = "🛑" if fatal_on_error else "❗"
+            suffix = "!\n" if fatal_on_error else "!"
+            logging.warning(f"{icon} {e}{suffix}")
+            if fatal_on_error:
+                sys.exit(EXIT_CODE_ENV_ERROR)
+
+    @staticmethod
+    def print_prod_status(fatal_on_error: bool = False) -> None:
+        try:
+            ConfigValidator.check_products_file()
+        except ProductFileError as e:
+            icon = "🛑" if fatal_on_error else "❗"
+            suffix = "!\n" if fatal_on_error else "!"
+            logging.warning(f"{icon} {e}{suffix}")
+            if fatal_on_error:
+                sys.exit(EXIT_CODE_PRODUCTS_ERROR)
+
+
+# --- Data Access Layer ---
 
 class ProductsManager:
     def __init__(self, products_path: str):
@@ -346,66 +516,18 @@ class ProductsManager:
             logging.error("\n🛑 Failed to update data/products.json file!")
             logging.error(f"    ↳  {e}\n")
 
-    def check_for_old_entries(self, hours: int, notifier: Notifier) -> None:
-        """Checks if any products haven't been successfully checked in the specified hours."""
-        needs_save = False
-        for row in self.products_data.get("products", []):
-            if row.get('skip', False):
-                continue
 
-            url = row.get('url', '')
-            product_name = row.get('name', 'Unknown')
-            last_check = row.get('last_checked')
-            if last_check:
-                try:
-                    timestamp = datetime.datetime.strptime(last_check, "%d-%m-%Y %H:%M:%S")
-                    current_time = datetime.datetime.now()
-                    if (current_time - timestamp) > datetime.timedelta(hours=hours):
-                        logging.warning(f"❗ Old entry found for {product_name}: {url} (Last check: {last_check})")
-                        notifier.notify_old_entries(product_name, hours, url)
-                except ValueError:
-                    logging.warning(f"❗ Invalid timestamp format found for {product_name}: {last_check}. Resetting clock.")
-                    self.update_product(
-                        url=url,
-                        last_price=row.get('last_price', 0.0),
-                        last_checked=datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-                    )
-                    needs_save = True
+# --- Network Layer ---
 
-        if needs_save:
-            self.save_atomically()
-
-class SkroutzScraper:
+class SkroutzClient:
     def __init__(self):
-        self.interrupted = False
         self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
 
-    def signal_handler(self, signum, _frame):
-        sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
-        logging.info(f"\n\n🛑 Received signal {sig_name}. Gracefully shutting down...")
-        self.interrupted = True
+    def get_current_headers(self) -> Dict[str, str]:
+        return self.current_headers
 
-    def _sleep_with_jitter(self, base_delay: float, attempt: int = 0) -> None:
-        """Sleeps for a base time plus some jitter based on the current attempt."""
-        jitter = random.uniform(RANDOM_DELAY_MIN, RANDOM_DELAY_MAX)
-        total_delay = base_delay + (RETRY_DELAY_MULTIPLIER * attempt) + jitter
-
-        # Break sleep into smaller chunks to remain responsive to interruptions
-        start_time = time.time()
-        is_info = logging.getLogger().isEnabledFor(logging.INFO)
-        while time.time() - start_time < total_delay:
-            if self.interrupted:
-                break
-            if is_info:
-                remaining = max(0.0, total_delay - (time.time() - start_time))
-                print(f"\r⏳ Sleeping for {remaining:.1f} seconds...   ", end="", flush=True)
-            time.sleep(0.1)
-
-        if is_info and not self.interrupted:
-            # Clear the carriage return line
-            print("\r" + " " * 40 + "\r", end="", flush=True)
-            actual_delay = time.time() - start_time
-            logging.info(f"⏳ Slept for {actual_delay:.1f} seconds.")
+    def cycle_headers(self) -> None:
+        self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
 
     def scrape_product(self, product_url: str, product_name: str) -> Optional[float]:
         """Scrapes the Skroutz product page and returns the minimum price found."""
@@ -465,13 +587,80 @@ class SkroutzScraper:
         finally:
             session.close()
 
-    def process_products(self, products_manager: ProductsManager, notifier: Notifier, data_dir: str) -> None:
+
+# --- Application / Orchestration Layer ---
+
+class ScrapingOrchestrator:
+    def __init__(self, products_manager: ProductsManager, scraper: SkroutzClient, notifier: Notifier, data_dir: str):
+        self.products_manager = products_manager
+        self.scraper = scraper
+        self.notifier = notifier
+        self.data_dir = data_dir
+        self.interrupted = False
+
+    def signal_handler(self, signum, _frame):
+        sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
+        logging.info(f"\n\n🛑 Received signal {sig_name}. Gracefully shutting down...")
+        self.interrupted = True
+
+    def _sleep_with_jitter(self, base_delay: float, attempt: int = 0) -> None:
+        """Sleeps for a base time plus some jitter based on the current attempt."""
+        jitter = random.uniform(RANDOM_DELAY_MIN, RANDOM_DELAY_MAX)
+        total_delay = base_delay + (RETRY_DELAY_MULTIPLIER * attempt) + jitter
+
+        # Break sleep into smaller chunks to remain responsive to interruptions
+        start_time = time.time()
+        is_info = logging.getLogger().isEnabledFor(logging.INFO)
+        while time.time() - start_time < total_delay:
+            if self.interrupted:
+                break
+            if is_info:
+                remaining = max(0.0, total_delay - (time.time() - start_time))
+                print(f"\r⏳ Sleeping for {remaining:.1f} seconds...   ", end="", flush=True)
+            time.sleep(0.1)
+
+        if is_info and not self.interrupted:
+            # Clear the carriage return line
+            print("\r" + " " * 40 + "\r", end="", flush=True)
+            actual_delay = time.time() - start_time
+            logging.info(f"⏳ Slept for {actual_delay:.1f} seconds.")
+
+    def check_for_old_entries(self, hours: int) -> None:
+        """Checks if any products haven't been successfully checked in the specified hours."""
+        needs_save = False
+        for row in self.products_manager.products_data.get("products", []):
+            if row.get('skip', False):
+                continue
+
+            url = row.get('url', '')
+            product_name = row.get('name', 'Unknown')
+            last_check = row.get('last_checked')
+            if last_check:
+                try:
+                    timestamp = datetime.datetime.strptime(last_check, "%d-%m-%Y %H:%M:%S")
+                    current_time = datetime.datetime.now()
+                    if (current_time - timestamp) > datetime.timedelta(hours=hours):
+                        logging.warning(f"❗ Old entry found for {product_name}: {url} (Last check: {last_check})")
+                        self.notifier.notify_old_entries(product_name, hours, url)
+                except ValueError:
+                    logging.warning(f"❗ Invalid timestamp format found for {product_name}: {last_check}. Resetting clock.")
+                    self.products_manager.update_product(
+                        url=url,
+                        last_price=row.get('last_price', 0.0),
+                        last_checked=datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+                    )
+                    needs_save = True
+
+        if needs_save:
+            self.products_manager.save_atomically()
+
+    def run(self) -> None:
         """Orchestrates the scraping of all products in the products data."""
         # Register signal handlers
         signal.signal(signal.SIGINT, self.signal_handler)
         signal.signal(signal.SIGTERM, self.signal_handler)
 
-        products = products_manager.products_data.get("products", [])
+        products = self.products_manager.products_data.get("products", [])
         has_errors = False
         abort_scraping = False
 
@@ -521,7 +710,7 @@ class SkroutzScraper:
                     break
 
                 try:
-                    current_price = self.scrape_product(url, product_name)
+                    current_price = self.scraper.scrape_product(url, product_name)
 
                     if self.interrupted:
                         break
@@ -529,18 +718,18 @@ class SkroutzScraper:
                     if current_price is not None:
                         if current_price < target_price:
                             logging.info(f"🎉 {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
-                            if notifier.has_services:
-                                if notifier.notify_low_price(product_name, target_price, current_price, url, currency):
+                            if self.notifier.has_services:
+                                if self.notifier.notify_low_price(product_name, target_price, current_price, url, currency):
                                     logging.info("    ↳ 📨 Notification sent to configured URL(s).")
                                 else:
-                                    logging.error("    ↳ 🔕 Notification failed to send to one or more configured URL(s).")
+                                    logging.warning("    ↳ 🔕 Notification failed to send to one or more configured URL(s).")
                             else:
                                 logging.info("    ↳ 🔕 No notification sent (no URL(s) configured in .env).")
                         else:
                             logging.info(f"✅ {product_name}: {current_price} {currency} (Target: {target_price} {currency})")
 
                         # Update the timestamp and last price
-                        products_manager.update_product(
+                        self.products_manager.update_product(
                             url=url,
                             last_price=current_price,
                             last_checked=datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
@@ -551,17 +740,17 @@ class SkroutzScraper:
 
                 except json.JSONDecodeError:
                     logging.warning(f"{product_name}: Attempt {attempt + 1} FAILED (JSONDecodeError: No JSON response).")
-                    self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
+                    self.scraper.cycle_headers()
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
                 except RateLimitError as e:
                     logging.warning(f"{product_name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
                     if attempt == MAX_RETRIES - 1:
                         logging.error("🛑 RateLimitError: Max retries reached. Aborting scraping.")
-                        ErrorHandler.save_traceback(data_dir, url=url, headers=self.current_headers)
+                        ErrorHandler.save_traceback(self.data_dir, url=url, headers=self.scraper.get_current_headers())
                         has_errors = True
                         abort_scraping = True
                         break
-                    self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
+                    self.scraper.cycle_headers()
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
                 except ServerError as e:
                     logging.warning(f"{product_name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
@@ -571,226 +760,29 @@ class SkroutzScraper:
                 except Exception as e:
                     logging.error(f"{product_name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
                     if attempt == MAX_RETRIES - 1:
-                        ErrorHandler.save_traceback(data_dir, url=url, headers=self.current_headers)
+                        ErrorHandler.save_traceback(self.data_dir, url=url, headers=self.scraper.get_current_headers())
                         has_errors = True
                         break
-                    self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
+                    self.scraper.cycle_headers()
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
 
         # Save fetched updates
-        products_manager.save_atomically()
+        self.products_manager.save_atomically()
 
         if not self.interrupted:
-            products_manager.check_for_old_entries(OLD_ENTRY_HOURS, notifier)
+            self.check_for_old_entries(OLD_ENTRY_HOURS)
 
         if not self.interrupted and has_errors:
-            notifier.notify_errors()
+            self.notifier.notify_errors()
 
         if abort_scraping:
             sys.exit(EXIT_CODE_RATE_LIMIT_ERROR)
 
 
-# --- Shared Helpers ---
+# --- Systemd Helper ---
 
-def check_env_file() -> None:
-    """Loads .env and checks if it exists and contains NOTIFICATION_URLS.
-    Raises EnvFileError if checks fail.
-    """
-    env_path = os.path.join(BASE_DIR, '.env')
-    env_loaded = load_dotenv(dotenv_path=env_path)
-    env_exists = env_loaded or os.path.exists(env_path)
-
-    if not env_exists or not os.access(env_path, os.R_OK):
-        raise EnvFileError("No .env file found or unreadable")
-
-    notification_urls = os.environ.get("NOTIFICATION_URLS", "").strip()
-    if not notification_urls:
-        raise EnvFileError("No NOTIFICATION_URLS provided in .env file")
-
-    urls = [u.strip() for u in notification_urls.split(',') if u.strip()]
-
-    valid_urls = [u for u in urls if not any(p in u for p in APPRISE_PLACEHOLDERS) and apprise.Apprise.instantiate(u)]
-    if not valid_urls:
-        raise EnvFileError("NOTIFICATION_URLS contains no valid notification URL(s)")
-
-def check_products_file() -> None:
-    """Checks for products.json file.
-    Raises ProductFileError if checks fail.
-    """
-    if not os.path.exists(DATA_DIR):
-        os.makedirs(DATA_DIR)
-
-    if not os.path.exists(PRODUCTS_FILE_PATH) or not os.path.isfile(PRODUCTS_FILE_PATH):
-        raise ProductFileError("The data/products.json file is missing or not a file")
-
-    if not os.access(PRODUCTS_FILE_PATH, os.R_OK | os.W_OK):
-        raise ProductFileError("The data/products.json file has wrong permissions")
-
-    try:
-        with open(PRODUCTS_FILE_PATH, 'r') as f:
-            data = json.load(f)
-            if not isinstance(data, dict) or not isinstance(data.get("products"), list):
-                raise ProductFileError("The data/products.json file contains invalid JSON format")
-    except (json.JSONDecodeError, OSError):
-        raise ProductFileError("The data/products.json file contains invalid JSON format")
-
-def check_for_updates() -> bool:
-    """Checks the remote git repository to see if a newer version is available.
-    Returns:
-        True if a new version is available, False otherwise.
-    Raises:
-        UpdateCheckError if the check fails.
-    """
-    try:
-        # Get the remote URL
-        remote_url = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], cwd=BASE_DIR, stderr=subprocess.DEVNULL).decode('utf-8').strip()
-
-        # If it's an SSH URL, convert it to HTTPS to avoid passphrase prompts
-        if remote_url.startswith('git@github.com:'):
-            remote_url = remote_url.replace('git@github.com:', 'https://github.com/')
-
-        local_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=BASE_DIR, stderr=subprocess.DEVNULL).decode('utf-8').strip()
-        remote_output = subprocess.check_output(['git', 'ls-remote', remote_url, 'HEAD'], cwd=BASE_DIR, stderr=subprocess.DEVNULL).decode('utf-8').strip()
-        if remote_output:
-            remote_hash = remote_output.split()[0]
-            return local_hash != remote_hash
-        else:
-            raise UpdateCheckError("No remote output received")
-    except Exception as e:
-        raise UpdateCheckError(f"Could not check for updates: {e}")
-
-def print_update_status() -> None:
-    is_info = logging.getLogger().isEnabledFor(logging.INFO)
-    if not is_info:
-        return
-
-    print("⏳ Checking for updates...", end="", flush=True)
-
-    try:
-        has_update = check_for_updates()
-        # Clear the carriage return line
-        print("\r" + " " * 30 + "\r", end="", flush=True)
-        if has_update:
-            logging.info("✨ A new version is available! Run ./update.sh to update.\n")
-        else:
-            logging.info("✅ You are running the latest version.")
-    except UpdateCheckError:
-        print("\r" + " " * 30 + "\r", end="", flush=True)
-        logging.info("❗ Could not check for script updates.\n")
-
-def print_env_status(fatal_on_error: bool = False, show_invalid_details: bool = False) -> None:
-    try:
-        check_env_file()
-        notification_urls = os.environ.get("NOTIFICATION_URLS", "")
-        valid_urls = []
-        invalid_urls = []
-        for u in notification_urls.split(','):
-            u = u.strip()
-            if u:
-                if not any(p in u for p in APPRISE_PLACEHOLDERS) and apprise.Apprise.instantiate(u):
-                    valid_urls.append(u)
-                else:
-                    invalid_urls.append(u)
-
-        if show_invalid_details and invalid_urls:
-            logging.warning(f"❗ Found {len(invalid_urls)} invalid notification URL(s) in .env")
-            for iu in invalid_urls:
-                schema_end = iu.find('://')
-                if schema_end != -1:
-                    scheme = iu[:schema_end + 3]
-                    rest = iu[schema_end + 3:]
-                else:
-                    scheme = ""
-                    rest = iu
-
-                first_slash = rest.find('/')
-
-                if first_slash != -1:
-                    token = rest[:first_slash]
-                    path = '/...'
-                else:
-                    token = rest
-                    path = ''
-
-                if len(token) > 2:
-                    obfuscated_token = f"{token[0]}...{token[-1]}"
-                elif len(token) > 0:
-                    obfuscated_token = f"{token[0]}..."
-                else:
-                    obfuscated_token = ""
-
-                if not scheme and not obfuscated_token:
-                    obfuscated_iu = "***"
-                else:
-                    obfuscated_iu = f"{scheme}{obfuscated_token}{path}"
-
-                logging.warning(f"    ↳ 🔕 {obfuscated_iu}")
-            logging.info("")
-            logging.info(f"✅ Found {len(valid_urls)} valid notification URL(s) in .env")
-        else:
-            logging.info(f"✅ Found {len(valid_urls)} valid notification URL(s) in .env")
-            if invalid_urls:
-                logging.warning(f"    ↳ ❗ Also found {len(invalid_urls)} invalid notification URL(s) in .env")
-    except EnvFileError as e:
-        icon = "🛑" if fatal_on_error else "❗"
-        suffix = "!\n" if fatal_on_error else "!"
-        logging.warning(f"{icon} {e}{suffix}")
-        if fatal_on_error:
-            sys.exit(EXIT_CODE_ENV_ERROR)
-
-def print_prod_status(fatal_on_error: bool = False) -> None:
-    try:
-        check_products_file()
-    except ProductFileError as e:
-        icon = "🛑" if fatal_on_error else "❗"
-        suffix = "!\n" if fatal_on_error else "!"
-        logging.warning(f"{icon} {e}{suffix}")
-        if fatal_on_error:
-            sys.exit(EXIT_CODE_PRODUCTS_ERROR)
-
-
-# --- Main Execution ---
-
-def handle_ping() -> None:
-    logging.info("\nSending Skroutz Price Alert Test Notification...\n")
-
-    print_env_status(fatal_on_error=True, show_invalid_details=True)
-
-    notification_urls = os.environ.get("NOTIFICATION_URLS", "")
-    notifier = Notifier(notification_urls)
-
-    try:
-        results = notifier.notify_test()
-
-        if not results:
-            logging.info("\n🛑 No valid notification URL(s) found.\n")
-            return
-
-        success_count = 0
-        for i, (identifier, success) in enumerate(results, 1):
-            if success:
-                logging.info(f"    ↳ 📨 Success: URL #{i} ({identifier})")
-                success_count += 1
-            else:
-                logging.info(f"    ↳ 🔕 Failed:  URL #{i} ({identifier})")
-
-        total_urls = len([u for u in notification_urls.split(',') if u.strip()])
-        if success_count == total_urls:
-            status_icon = "✅"
-        elif success_count == 0:
-            status_icon = "🛑"
-        else:
-            status_icon = "🟡"
-        logging.info(f"\n{status_icon} Test notification completed ({success_count} of {total_urls} URL(s) succeeded)!\n")
-    except Exception as e:
-        logging.error(f"🛑 An error occurred while sending test notification: {e}\n")
-
-def handle_status() -> None:
-    NC = '\033[0m'
-    RED = '\033[0;31m'
-    GREEN = '\033[0;32m'
-    YELLOW = '\033[0;33m'
-
+class SystemdHelper:
+    @staticmethod
     def get_systemd_properties(unit: str, properties: str) -> dict:
         service_file_path = os.path.expanduser(f'~/.config/systemd/user/{unit}')
         if not os.path.exists(service_file_path) or os.path.getsize(service_file_path) == 0:
@@ -807,6 +799,7 @@ def handle_status() -> None:
         except (subprocess.CalledProcessError, ValueError):
             return {}
 
+    @staticmethod
     def is_linger_enabled() -> bool:
         try:
             user_id = os.environ.get("USER") or os.environ.get("LOGNAME") or "nobody"
@@ -818,143 +811,190 @@ def handle_status() -> None:
         except subprocess.CalledProcessError:
             return False
 
-    print("\nChecking Skroutz Price Alert Status...\n")
 
-    print_update_status()
-    print_prod_status(fatal_on_error=False)
+# --- CLI / Entrypoint Layer ---
 
-    try:
-        check_products_file()
-        products_manager = ProductsManager(PRODUCTS_FILE_PATH)
-        products_data = products_manager.load(exit_on_error=False)
-        if products_data:
-            num_products = len(products_data.get("products", []))
-            print(f"✅ Found {num_products} products in data/products.json")
-            if products_manager.faulty_count > 0:
-                print(f"    ↳ ❗ Detected {products_manager.faulty_count} misconfigured product(s) in data/products.json")
-    except ProductFileError:
-        pass
+class CLIHandler:
+    @staticmethod
+    def handle_ping() -> None:
+        logging.info("\nSending Skroutz Price Alert Test Notification...\n")
 
-    print_env_status(fatal_on_error=False)
+        ConfigValidator.print_env_status(fatal_on_error=True, show_invalid_details=True)
 
-    # --- Data Fetching ---
-    timer_props = get_systemd_properties('skroutz-price-alert.timer', 'ActiveState,NextElapseUSecRealtime')
-    service_props = get_systemd_properties('skroutz-price-alert.service', 'ActiveState,Result,ExecMainStartTimestamp,ExecMainStatus')
-    linger_enabled_val = is_linger_enabled()
+        notification_urls = os.environ.get("NOTIFICATION_URLS", "")
+        notifier = Notifier(notification_urls)
 
-    # --- Data Formatting ---
+        try:
+            results = notifier.notify_test()
 
-    # Linger Status
-    linger_icon = "✅" if linger_enabled_val else "❗"
-    linger_enabled = f"{GREEN}Yes{NC}" if linger_enabled_val else f"{RED}No{NC}"
+            if not results:
+                logging.info("\n🛑 No valid notification URL(s) found.\n")
+                return
 
-    # Timer Status
-    timer_active_val = timer_props.get("ActiveState") == "active"
-    timer_icon = "✅" if timer_active_val else "❗"
-    timer_active = f"{GREEN}Yes{NC}" if timer_active_val else f"{RED}No{NC}"
+            success_count = 0
+            for i, (identifier, success) in enumerate(results, 1):
+                if success:
+                    logging.info(f"    ↳ 📨 Success: URL #{i} ({identifier})")
+                    success_count += 1
+                else:
+                    logging.info(f"    ↳ 🔕 Failed:  URL #{i} ({identifier})")
 
-    # Service / Last Execution Status
-    result = service_props.get("Result", "")
-    exec_status = service_props.get("ExecMainStatus", "")
-    last_exec_time = service_props.get("ExecMainStartTimestamp", "")
-    service_active = service_props.get("ActiveState", "")
+            total_urls = len([u for u in notification_urls.split(',') if u.strip()])
+            if success_count == total_urls:
+                status_icon = "✅"
+            elif success_count == 0:
+                status_icon = "🛑"
+            else:
+                status_icon = "🟡"
+            logging.info(f"\n{status_icon} Test notification completed ({success_count} of {total_urls} URL(s) succeeded)!\n")
+        except Exception as e:
+            logging.error(f"🛑 An error occurred while sending test notification: {e}\n")
 
-    no_errors = (result == "success" and exec_status == str(EXIT_CODE_SUCCESS))
-    skipped = (exec_status == str(EXIT_CODE_SKIPPED))
-    products_error = (exec_status == str(EXIT_CODE_PRODUCTS_ERROR))
-    env_error = (exec_status == str(EXIT_CODE_ENV_ERROR))
-    rate_limit_error = (exec_status == str(EXIT_CODE_RATE_LIMIT_ERROR))
-    is_currently_running = service_active in ("active", "activating")
-    is_pending_first_execution = timer_active_val and not last_exec_time
+    @staticmethod
+    def handle_status() -> None:
+        NC = '\033[0m'
+        RED = '\033[0;31m'
+        GREEN = '\033[0;32m'
+        YELLOW = '\033[0;33m'
 
-    next_exec = timer_props.get("NextElapseUSecRealtime", "")
-    if is_currently_running:
-        next_exec = f"{GREEN}Running Now{NC}"
-        next_exec_icon = "✅"
-    elif not next_exec or next_exec in ("n/a", "0"):
-        next_exec = f"{RED}Not Scheduled{NC}"
-        next_exec_icon = "❗"
-    else:
-        next_exec_icon = "✅"
+        print("\nChecking Skroutz Price Alert Status...\n")
 
-    if not last_exec_time:
-        last_exec_time = f"{RED}Never{NC}"
-        completed_str = f"{RED}Not executed yet{NC}"
-        last_exec_icon = "❗"
-        completed_icon = "❗"
-    else:
-        last_exec_icon = "✅"
-        error_details = "None" if no_errors else f"Reason: {result or 'Unknown'}, Exit Code: {exec_status or 'Unknown'}"
-        if no_errors:
-            completed_icon = "✅"
-            completed_str = f"{GREEN}OK{NC}"
-        elif skipped:
-            completed_icon = "🟡"
-            completed_str = f"{YELLOW}Skipped{NC} (Another instance was running)"
-        elif products_error:
-            completed_icon = "❗"
-            completed_str = f"{RED}Failed{NC} (Issue with data/products.json file)"
-        elif env_error:
-            completed_icon = "❗"
-            completed_str = f"{RED}Failed{NC} (Issue with .env file)"
-        elif rate_limit_error:
-            completed_icon = "❗"
-            completed_str = f"{RED}Failed{NC} (Server blocked requests due to rate limits)"
+        ConfigValidator.print_update_status()
+        ConfigValidator.print_prod_status(fatal_on_error=False)
+
+        try:
+            ConfigValidator.check_products_file()
+            products_manager = ProductsManager(PRODUCTS_FILE_PATH)
+            products_data = products_manager.load(exit_on_error=False)
+            if products_data:
+                num_products = len(products_data.get("products", []))
+                print(f"✅ Loaded {num_products} products from data/products.json")
+                if products_manager.faulty_count > 0:
+                    print(f"    ↳ ❗ Detected {products_manager.faulty_count} misconfigured product(s) in data/products.json")
+        except ProductFileError:
+            pass
+
+        ConfigValidator.print_env_status(fatal_on_error=False)
+
+        # --- Data Fetching ---
+        timer_props = SystemdHelper.get_systemd_properties('skroutz-price-alert.timer', 'ActiveState,NextElapseUSecRealtime')
+        service_props = SystemdHelper.get_systemd_properties('skroutz-price-alert.service', 'ActiveState,Result,ExecMainStartTimestamp,ExecMainStatus')
+        linger_enabled_val = SystemdHelper.is_linger_enabled()
+
+        # --- Data Formatting ---
+
+        # Linger Status
+        linger_icon = "✅" if linger_enabled_val else "❗"
+        linger_enabled = f"{GREEN}Yes{NC}" if linger_enabled_val else f"{RED}No{NC}"
+
+        # Timer Status
+        timer_active_val = timer_props.get("ActiveState") == "active"
+        timer_icon = "✅" if timer_active_val else "❗"
+        timer_active = f"{GREEN}Yes{NC}" if timer_active_val else f"{RED}No{NC}"
+
+        # Service / Last Execution Status
+        result = service_props.get("Result", "")
+        exec_status = service_props.get("ExecMainStatus", "")
+        last_exec_time = service_props.get("ExecMainStartTimestamp", "")
+        service_active = service_props.get("ActiveState", "")
+
+        no_errors = (result == "success" and exec_status == str(EXIT_CODE_SUCCESS))
+        skipped = (exec_status == str(EXIT_CODE_SKIPPED))
+        products_error = (exec_status == str(EXIT_CODE_PRODUCTS_ERROR))
+        env_error = (exec_status == str(EXIT_CODE_ENV_ERROR))
+        rate_limit_error = (exec_status == str(EXIT_CODE_RATE_LIMIT_ERROR))
+        is_currently_running = service_active in ("active", "activating")
+        is_pending_first_execution = timer_active_val and not last_exec_time
+
+        next_exec = timer_props.get("NextElapseUSecRealtime", "")
+        if is_currently_running:
+            next_exec = f"{GREEN}Running Now{NC}"
+            next_exec_icon = "✅"
+        elif not next_exec or next_exec in ("n/a", "0"):
+            next_exec = f"{RED}Not Scheduled{NC}"
+            next_exec_icon = "❗"
         else:
+            next_exec_icon = "✅"
+
+        if not last_exec_time:
+            last_exec_time = f"{RED}Never{NC}"
+            completed_str = f"{RED}Not executed yet{NC}"
+            last_exec_icon = "❗"
             completed_icon = "❗"
-            completed_str = f"{RED}Failed{NC} ({error_details})"
+        else:
+            last_exec_icon = "✅"
+            error_details = "None" if no_errors else f"Reason: {result or 'Unknown'}, Exit Code: {exec_status or 'Unknown'}"
+            if no_errors:
+                completed_icon = "✅"
+                completed_str = f"{GREEN}OK{NC}"
+            elif skipped:
+                completed_icon = "🟡"
+                completed_str = f"{YELLOW}Skipped{NC} (Another instance was running)"
+            elif products_error:
+                completed_icon = "❗"
+                completed_str = f"{RED}Failed{NC} (Issue with data/products.json file)"
+            elif env_error:
+                completed_icon = "❗"
+                completed_str = f"{RED}Failed{NC} (Issue with .env file)"
+            elif rate_limit_error:
+                completed_icon = "❗"
+                completed_str = f"{RED}Failed{NC} (Server blocked requests due to rate limits)"
+            else:
+                completed_icon = "❗"
+                completed_str = f"{RED}Failed{NC} ({error_details})"
 
-    # --- Terminal Output ---
-    print(f"\n{linger_icon} Linger Enabled:              {linger_enabled}")
-    print(f"{timer_icon} Systemd Timer Active:        {timer_active}")
-    if last_exec_time != f"{RED}Never{NC}":
-        print(f"{last_exec_icon} Last Execution Time:         {last_exec_time}")
-        print(f"{completed_icon} Last Execution Status:       {completed_str}")
-    print(f"{next_exec_icon} Next Scheduled Execution:    {next_exec}")
+        # --- Terminal Output ---
+        print(f"\n{linger_icon} Linger Enabled:              {linger_enabled}")
+        print(f"{timer_icon} Systemd Timer Active:        {timer_active}")
+        if last_exec_time != f"{RED}Never{NC}":
+            print(f"{last_exec_icon} Last Execution Time:         {last_exec_time}")
+            print(f"{completed_icon} Last Execution Status:       {completed_str}")
+        print(f"{next_exec_icon} Next Scheduled Execution:    {next_exec}")
 
-    if is_currently_running:
-        print("    ↳ Script is currently running in the background. Check again in a few minutes.")
-    elif is_pending_first_execution:
-        print("    ↳ Timer pending first execution. Waiting for the scheduled time.")
-    print("")
+        if is_currently_running:
+            print("    ↳ Script is currently running in the background. Check again in a few minutes.")
+        elif is_pending_first_execution:
+            print("    ↳ Timer pending first execution. Waiting for the scheduled time.")
+        print("")
 
+    @staticmethod
+    def run_main_program() -> None:
+        logging.info("\nStarting Skroutz Price Alert...\n")
 
-def run_main_program() -> None:
-    logging.info("\nStarting Skroutz Price Alert...\n")
+        ConfigValidator.print_update_status()
+        ConfigValidator.print_prod_status(fatal_on_error=True)
 
-    print_update_status()
-    print_prod_status(fatal_on_error=True)
+        products_manager = ProductsManager(PRODUCTS_FILE_PATH)
+        products_data = products_manager.load(exit_on_error=True)
 
-    products_manager = ProductsManager(PRODUCTS_FILE_PATH)
-    products_data = products_manager.load(exit_on_error=True)
+        if products_data is not None:
+            num_products = len(products_data.get("products", []))
+            logging.info(f"✅ Loaded {num_products} products from data/products.json")
+            if products_manager.faulty_count > 0:
+                logging.warning(f"    ↳ ❗ Detected {products_manager.faulty_count} misconfigured product(s) in data/products.json")
 
-    if products_data is not None:
-        num_products = len(products_data.get("products", []))
-        logging.info(f"✅ Loaded {num_products} products from data/products.json")
-        if products_manager.faulty_count > 0:
-            logging.warning(f"    ↳ ❗ Detected {products_manager.faulty_count} misconfigured product(s) in data/products.json")
+        ConfigValidator.print_env_status(fatal_on_error=False)
 
-    print_env_status(fatal_on_error=False)
+        notification_urls = os.environ.get("NOTIFICATION_URLS", "")
+        notifier = Notifier(notification_urls)
 
-    notification_urls = os.environ.get("NOTIFICATION_URLS", "")
-    notifier = Notifier(notification_urls)
+        # Locking and Execution
+        lock = FileLock(LOCK_FILE_PATH, timeout=LOCK_TIMEOUT)
 
-    # Locking and Execution
-    lock = FileLock(LOCK_FILE_PATH, timeout=LOCK_TIMEOUT)
+        try:
+            with lock:
+                scraper = SkroutzClient()
+                orchestrator = ScrapingOrchestrator(products_manager, scraper, notifier, DATA_DIR)
+                orchestrator.run()
 
-    try:
-        with lock:
-            scraper = SkroutzScraper()
-            scraper.process_products(products_manager, notifier, DATA_DIR)
-
-    except Timeout:
-        logging.error('\n🛑 Skroutz Price Alert script did not start! Another instance is currently running.\n')
-        sys.exit(EXIT_CODE_SKIPPED)
-    except Exception:
-        ErrorHandler.save_traceback(DATA_DIR)
-        logging.info("")
-        notifier.notify_crash()
-        sys.exit(EXIT_CODE_ERROR)
+        except Timeout:
+            logging.error('\n🛑 Skroutz Price Alert script did not start! Another instance is currently running.\n')
+            sys.exit(EXIT_CODE_SKIPPED)
+        except Exception:
+            ErrorHandler.save_traceback(DATA_DIR)
+            logging.info("")
+            notifier.notify_crash()
+            sys.exit(EXIT_CODE_ERROR)
 
 
 def main() -> None:
@@ -966,15 +1006,15 @@ def main() -> None:
 
     if args.ping:
         setup_logging(args.quiet)
-        handle_ping()
+        CLIHandler.handle_ping()
 
     if args.status:
         setup_logging(False)
-        handle_status()
+        CLIHandler.handle_status()
 
     if not args.ping and not args.status:
         setup_logging(args.quiet)
-        run_main_program()
+        CLIHandler.run_main_program()
 
 if __name__ == "__main__":
     main()
