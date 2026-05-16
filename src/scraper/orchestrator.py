@@ -71,6 +71,95 @@ class ScrapingOrchestrator:
         if needs_save:
             self.products_manager.save_atomically()
 
+    def _handle_successful_scrape(self, product: Product, result) -> None:
+        if result.price < product.target_price:
+            logging.info(f"🎉 {product.name}: {result.price} {result.currency} (Target: {product.target_price} {result.currency})")
+            if self.notifier.has_services:
+                if self.notifier.notify_low_price(product.name, product.target_price, result.price, product.url, result.currency):
+                    logging.info("    ↳ 📨 Notification sent to configured URL(s).")
+                else:
+                    logging.warning("    ↳ 🔕 Notification failed to send to one or more configured URL(s).")
+            else:
+                logging.info("    ↳ 🔕 No notification sent (no URL(s) configured in .env).")
+        else:
+            logging.info(f"✅ {product.name}: {result.price} {result.currency} (Target: {product.target_price} {result.currency})")
+
+        self.products_manager.update_product(
+            url=product.url,
+            last_price=result.price,
+            last_checked=datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+        )
+
+    def _process_product(self, row: dict, index: int) -> tuple[bool, bool]:
+        product = Product.from_dict(row)
+
+        if product.skip:
+            logging.info(f"\n🔕 {product.name}: Skipped (skip field set to true)")
+            return False, False
+
+        if index >= 0:
+            logging.info("")
+
+        self._sleep_with_jitter(MIN_DELAY_SECONDS)
+        if self.interrupted:
+            return False, False
+
+        if not product.url:
+            logging.warning(f"❗ {product.name}: URL is missing, skipping product.")
+            return False, False
+
+        if product.target_price < 0:
+            logging.warning(f"❗ {product.name}: Invalid target price '{row.get('target_price')}', skipping product.")
+            return False, False
+
+        if 'target_price' not in row:
+            logging.warning(f"❗ {product.name}: Target price is missing, defaulting to 0.0.")
+
+        scraper = self.scraper_factory.get_scraper(product.url)
+
+        for attempt in range(MAX_RETRIES):
+            if self.interrupted:
+                break
+
+            try:
+                result = scraper.scrape_product(product.url, product.name)
+
+                if self.interrupted:
+                    break
+
+                if result is not None:
+                    self._handle_successful_scrape(product, result)
+                    break
+                else:
+                    break
+
+            except ScraperParseError as e:
+                logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__}: {e}).")
+                scraper.refresh_identity()
+                self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
+            except RateLimitError as e:
+                logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
+                if attempt == MAX_RETRIES - 1:
+                    logging.error("🛑 RateLimitError: Max retries reached. Aborting scraping.")
+                    ErrorHandler.save_traceback(self.data_dir, url=product.url, headers=scraper.get_current_headers())
+                    return True, True
+                scraper.refresh_identity()
+                self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
+            except ServerError as e:
+                logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
+                if attempt == MAX_RETRIES - 1:
+                    break
+                self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
+            except Exception as e:
+                logging.error(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
+                if attempt == MAX_RETRIES - 1:
+                    ErrorHandler.save_traceback(self.data_dir, url=product.url, headers=scraper.get_current_headers())
+                    return True, False
+                scraper.refresh_identity()
+                self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
+
+        return False, False
+
     def run(self) -> None:
         signal.signal(signal.SIGINT, self.signal_handler)
         signal.signal(signal.SIGTERM, self.signal_handler)
@@ -80,96 +169,12 @@ class ScrapingOrchestrator:
         abort_scraping = False
 
         for index, row in enumerate(products_data):
-            if abort_scraping:
-                break
-            if self.interrupted:
+            if abort_scraping or self.interrupted:
                 break
 
-            product = Product.from_dict(row)
-
-            if product.skip:
-                logging.info(f"\n🔕 {product.name}: Skipped (skip field set to true)")
-                continue
-
-            if index >= 0:
-                logging.info("")
-
-            self._sleep_with_jitter(MIN_DELAY_SECONDS)
-            if self.interrupted:
-                break
-
-            if not product.url:
-                logging.warning(f"❗ {product.name}: URL is missing, skipping product.")
-                continue
-
-            if product.target_price < 0:
-                logging.warning(f"❗ {product.name}: Invalid target price '{row.get('target_price')}', skipping product.")
-                continue
-
-            if 'target_price' not in row:
-                logging.warning(f"❗ {product.name}: Target price is missing, defaulting to 0.0.")
-
-            scraper = self.scraper_factory.get_scraper(product.url)
-
-            for attempt in range(MAX_RETRIES):
-                if self.interrupted:
-                    break
-
-                try:
-                    result = scraper.scrape_product(product.url, product.name)
-
-                    if self.interrupted:
-                        break
-
-                    if result is not None:
-                        if result.price < product.target_price:
-                            logging.info(f"🎉 {product.name}: {result.price} {result.currency} (Target: {product.target_price} {result.currency})")
-                            if self.notifier.has_services:
-                                if self.notifier.notify_low_price(product.name, product.target_price, result.price, product.url, result.currency):
-                                    logging.info("    ↳ 📨 Notification sent to configured URL(s).")
-                                else:
-                                    logging.warning("    ↳ 🔕 Notification failed to send to one or more configured URL(s).")
-                            else:
-                                logging.info("    ↳ 🔕 No notification sent (no URL(s) configured in .env).")
-                        else:
-                            logging.info(f"✅ {product.name}: {result.price} {result.currency} (Target: {product.target_price} {result.currency})")
-
-                        self.products_manager.update_product(
-                            url=product.url,
-                            last_price=result.price,
-                            last_checked=datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-                        )
-                        break
-                    else:
-                        break
-
-                except ScraperParseError as e:
-                    logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__}: {e}).")
-                    scraper.refresh_identity()
-                    self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
-                except RateLimitError as e:
-                    logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
-                    if attempt == MAX_RETRIES - 1:
-                        logging.error("🛑 RateLimitError: Max retries reached. Aborting scraping.")
-                        ErrorHandler.save_traceback(self.data_dir, url=product.url, headers=scraper.get_current_headers())
-                        has_errors = True
-                        abort_scraping = True
-                        break
-                    scraper.refresh_identity()
-                    self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
-                except ServerError as e:
-                    logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
-                    if attempt == MAX_RETRIES - 1:
-                        break
-                    self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
-                except Exception as e:
-                    logging.error(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
-                    if attempt == MAX_RETRIES - 1:
-                        ErrorHandler.save_traceback(self.data_dir, url=product.url, headers=scraper.get_current_headers())
-                        has_errors = True
-                        break
-                    scraper.refresh_identity()
-                    self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
+            product_has_errors, product_abort = self._process_product(row, index)
+            has_errors = has_errors or product_has_errors
+            abort_scraping = abort_scraping or product_abort
 
         self.products_manager.save_atomically()
 

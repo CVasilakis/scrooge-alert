@@ -6,7 +6,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from utils import setup_logging
-from cli import CLIHandler
+from cli import handle_ping, handle_status, run_main_program
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='Skroutz Price Alert scraper')
@@ -17,15 +17,15 @@ def main() -> None:
 
     if args.ping:
         setup_logging(args.quiet)
-        CLIHandler.handle_ping()
+        handle_ping()
 
     if args.status:
         setup_logging(False)
-        CLIHandler.handle_status()
+        handle_status()
 
     if not args.ping and not args.status:
         setup_logging(args.quiet)
-        CLIHandler.run_main_program()
+        run_main_program()
 
 if __name__ == "__main__":
     main()
