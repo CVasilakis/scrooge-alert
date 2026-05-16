@@ -1,40 +1,23 @@
 import json
 import os
-import sys
 import logging
 from urllib.parse import urlparse
 from typing import Dict, Any
-
-from config import EXIT_CODE_PRODUCTS_ERROR
 
 class ProductsManager:
     def __init__(self, products_path: str):
         self.products_path = products_path
         self.products_data: Dict[str, Any] = {}
         self.product_updates: Dict[str, Dict[str, Any]] = {}
-        self.faulty_count = 0
 
-    def load(self, exit_on_error: bool = True) -> Dict[str, Any]:
+    def load(self) -> Dict[str, Any]:
         """Loads the products data from the JSON file."""
         try:
             with open(self.products_path, 'r') as file:
                 self.products_data = json.load(file)
-
-            self.faulty_count = 0
-            for product in self.products_data.get("products", []):
-                if not all(k in product for k in ("name", "url", "target_price")):
-                    self.faulty_count += 1
-
-        except (FileNotFoundError, PermissionError) as e:
-            logging.warning(f"🛑 Failed to load {os.path.basename(self.products_path)}")
-            logging.warning(f"    ↳  {e}\n")
-            if exit_on_error:
-                sys.exit(EXIT_CODE_PRODUCTS_ERROR)
-        except json.JSONDecodeError as e:
-            logging.warning(f"🛑 Failed to load {os.path.basename(self.products_path)}: Invalid JSON format.")
-            logging.warning(f"    ↳  {e}\n")
-            if exit_on_error:
-                sys.exit(EXIT_CODE_PRODUCTS_ERROR)
+        except (OSError, json.JSONDecodeError):
+            self.products_data = {"products": []}
+            
         return self.products_data
 
     def _get_clean_url(self, url: str) -> str:

@@ -30,7 +30,7 @@ class ConfigValidator:
             raise EnvFileError("NOTIFICATION_URLS contains no valid notification URL(s)")
 
     @staticmethod
-    def check_products_file() -> None:
+    def check_products_file() -> tuple[int, int]:
         if not os.path.exists(DATA_DIR):
             os.makedirs(DATA_DIR)
 
@@ -45,6 +45,11 @@ class ConfigValidator:
                 data = json.load(f)
                 if not isinstance(data, dict) or not isinstance(data.get("products"), list):
                     raise ProductFileError("The data/products.json file contains invalid JSON format")
+
+                products = data.get("products", [])
+                num_products = len(products)
+                faulty_count = sum(1 for p in products if not all(k in p for k in ("name", "url", "target_price")))
+                return num_products, faulty_count
         except (json.JSONDecodeError, OSError):
             raise ProductFileError("The data/products.json file contains invalid JSON format")
 
@@ -149,7 +154,10 @@ class ConfigValidator:
     @staticmethod
     def print_prod_status(fatal_on_error: bool = False) -> None:
         try:
-            ConfigValidator.check_products_file()
+            num_products, faulty_count = ConfigValidator.check_products_file()
+            logging.info(f"✅ Loaded {num_products} products from data/products.json")
+            if faulty_count > 0:
+                logging.warning(f"    ↳ ❗ Detected {faulty_count} misconfigured product(s) in data/products.json")
         except ProductFileError as e:
             icon = "🛑" if fatal_on_error else "❗"
             suffix = "!\n" if fatal_on_error else "!"

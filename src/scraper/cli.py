@@ -5,7 +5,6 @@ from filelock import FileLock, Timeout
 
 from config import LOCK_FILE_PATH, LOCK_TIMEOUT, DATA_DIR, EXIT_CODE_SKIPPED, EXIT_CODE_ERROR, EXIT_CODE_SUCCESS, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_RATE_LIMIT_ERROR, PRODUCTS_FILE_PATH
 from validators import ConfigValidator
-from exceptions import ProductFileError
 from data_manager import ProductsManager
 from notifier import Notifier
 from utils import ErrorHandler, SystemdHelper
@@ -59,19 +58,6 @@ class CLIHandler:
 
         ConfigValidator.print_update_status()
         ConfigValidator.print_prod_status(fatal_on_error=False)
-
-        try:
-            ConfigValidator.check_products_file()
-            products_manager = ProductsManager(PRODUCTS_FILE_PATH)
-            products_data = products_manager.load(exit_on_error=False)
-            if products_data:
-                num_products = len(products_data.get("products", []))
-                print(f"✅ Loaded {num_products} products from data/products.json")
-                if products_manager.faulty_count > 0:
-                    print(f"    ↳ ❗ Detected {products_manager.faulty_count} misconfigured product(s) in data/products.json")
-        except ProductFileError:
-            pass
-
         ConfigValidator.print_env_status(fatal_on_error=False)
 
         timer_props = SystemdHelper.get_systemd_properties('skroutz-price-alert.timer', 'ActiveState,NextElapseUSecRealtime')
@@ -156,13 +142,7 @@ class CLIHandler:
         ConfigValidator.print_prod_status(fatal_on_error=True)
 
         products_manager = ProductsManager(PRODUCTS_FILE_PATH)
-        products_data = products_manager.load(exit_on_error=True)
-
-        if products_data is not None:
-            num_products = len(products_data.get("products", []))
-            logging.info(f"✅ Loaded {num_products} products from data/products.json")
-            if products_manager.faulty_count > 0:
-                logging.warning(f"    ↳ ❗ Detected {products_manager.faulty_count} misconfigured product(s) in data/products.json")
+        products_manager.load()
 
         ConfigValidator.print_env_status(fatal_on_error=False)
 
