@@ -10,6 +10,10 @@ class ServerError(ScraperError):
     """Raised when the server returns a 5xx error."""
     pass
 
+class ScraperParseError(ScraperError):
+    """Raised when the scraper fails to parse the response data."""
+    pass
+
 class EnvFileError(Exception):
     """Raised when there is an issue with the environment configuration."""
     pass

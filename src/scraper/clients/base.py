@@ -8,7 +8,8 @@ class BaseScraperClient(ABC):
         pass
 
     @abstractmethod
-    def cycle_headers(self) -> None:
+    def refresh_identity(self) -> None:
+        """Called before a retry to reset headers, sessions, or cookies to evade blocks."""
         pass
 
     @abstractmethod

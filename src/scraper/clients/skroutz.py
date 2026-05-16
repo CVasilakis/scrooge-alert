@@ -4,11 +4,12 @@ import random
 from urllib.parse import urlparse
 from typing import Optional, Dict
 
+import json
 import tls_client
 
 from clients.base import BaseScraperClient
 from models import ScrapeResult
-from exceptions import ScraperError, RateLimitError, ServerError
+from exceptions import ScraperError, RateLimitError, ServerError, ScraperParseError
 from config import DEFAULT_HEADERS_POOL
 
 class SkroutzClient(BaseScraperClient):
@@ -22,8 +23,14 @@ class SkroutzClient(BaseScraperClient):
     def get_current_headers(self) -> Dict[str, str]:
         return self.current_headers
 
-    def cycle_headers(self) -> None:
+    def refresh_identity(self) -> None:
         self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
+        if hasattr(self, 'session'):
+            self.session.close()
+        self.session = tls_client.Session(
+            client_identifier="chrome120",  # type: ignore
+            random_tls_extension_order=True
+        )
 
     def scrape_product(self, product_url: str, product_name: str) -> Optional[ScrapeResult]:
         parsed_url = urlparse(product_url)
@@ -58,7 +65,10 @@ class SkroutzClient(BaseScraperClient):
         elif response.status_code != 200:
             raise ScraperError(f"HTTP request failed with status code {response.status_code}")
 
-        response_data = response.json()
+        try:
+            response_data = response.json()
+        except json.JSONDecodeError as e:
+            raise ScraperParseError(f"No JSON response: {e}")
 
         if response_data.get("price_min") is None:
             logging.warning(f"❗️ {product_name}: Not available")

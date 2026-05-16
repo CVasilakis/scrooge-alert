@@ -19,7 +19,7 @@ class ScraperFactory:
             if scraper_type == 'skroutz':
                 self._scrapers[scraper_type] = SkroutzClient()
             else:
-                self._scrapers[scraper_type] = SkroutzClient()
+                raise ValueError(f"Unsupported domain: {domain}")
 
         return self._scrapers[scraper_type]
 

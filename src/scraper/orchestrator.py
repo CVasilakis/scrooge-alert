@@ -4,10 +4,9 @@ import datetime
 import random
 import time
 import sys
-import json
 
 from config import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR
-from exceptions import RateLimitError, ServerError
+from exceptions import RateLimitError, ServerError, ScraperParseError
 from models import Product
 from clients.factory import ScraperFactory
 from data_manager import ProductsManager
@@ -144,9 +143,9 @@ class ScrapingOrchestrator:
                     else:
                         break
 
-                except json.JSONDecodeError:
-                    logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED (JSONDecodeError: No JSON response).")
-                    scraper.cycle_headers()
+                except ScraperParseError as e:
+                    logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__}: {e}).")
+                    scraper.refresh_identity()
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
                 except RateLimitError as e:
                     logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
@@ -156,7 +155,7 @@ class ScrapingOrchestrator:
                         has_errors = True
                         abort_scraping = True
                         break
-                    scraper.cycle_headers()
+                    scraper.refresh_identity()
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
                 except ServerError as e:
                     logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
@@ -169,7 +168,7 @@ class ScrapingOrchestrator:
                         ErrorHandler.save_traceback(self.data_dir, url=product.url, headers=scraper.get_current_headers())
                         has_errors = True
                         break
-                    scraper.cycle_headers()
+                    scraper.refresh_identity()
                     self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
 
         self.products_manager.save_atomically()
