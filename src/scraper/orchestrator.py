@@ -4,6 +4,7 @@ import datetime
 import random
 import time
 import sys
+from typing import Optional
 
 from config import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR
 from exceptions import RateLimitError, ServerError, ScraperParseError
@@ -11,15 +12,17 @@ from models import Product
 from clients.factory import ScraperFactory
 from data_manager import ProductsManager
 from notifier import Notifier
-from utils import ErrorHandler
+from utils import save_traceback
+from ui import ProgressStrategy, SilentProgressStrategy
 
 class ScrapingOrchestrator:
-    def __init__(self, products_manager: ProductsManager, scraper_factory: ScraperFactory, notifier: Notifier, data_dir: str):
+    def __init__(self, products_manager: ProductsManager, scraper_factory: ScraperFactory, notifier: Notifier, data_dir: str, progress_strategy: Optional[ProgressStrategy] = None):
         self.products_manager = products_manager
         self.scraper_factory = scraper_factory
         self.notifier = notifier
         self.data_dir = data_dir
         self.interrupted = False
+        self.progress_strategy = progress_strategy or SilentProgressStrategy()
 
     def signal_handler(self, signum, _frame):
         sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
@@ -31,19 +34,16 @@ class ScrapingOrchestrator:
         total_delay = base_delay + (RETRY_DELAY_MULTIPLIER * attempt) + jitter
 
         start_time = time.time()
-        is_info = logging.getLogger().isEnabledFor(logging.INFO)
         while time.time() - start_time < total_delay:
             if self.interrupted:
                 break
-            if is_info:
-                remaining = max(0.0, total_delay - (time.time() - start_time))
-                print(f"\r⏳ Sleeping for {remaining:.1f} seconds...   ", end="", flush=True)
+            remaining = max(0.0, total_delay - (time.time() - start_time))
+            self.progress_strategy.display_progress(remaining)
             time.sleep(0.1)
 
-        if is_info and not self.interrupted:
-            print("\r" + " " * 40 + "\r", end="", flush=True)
+        if not self.interrupted:
             actual_delay = time.time() - start_time
-            logging.info(f"⏳ Slept for {actual_delay:.1f} seconds.")
+            self.progress_strategy.complete(actual_delay)
 
     def check_for_old_entries(self, hours: int) -> None:
         needs_save = False
@@ -141,7 +141,7 @@ class ScrapingOrchestrator:
                 logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
                 if attempt == MAX_RETRIES - 1:
                     logging.error("🛑 RateLimitError: Max retries reached. Aborting scraping.")
-                    ErrorHandler.save_traceback(self.data_dir, url=product.url, headers=scraper.get_current_headers())
+                    save_traceback(self.data_dir, url=product.url, headers=scraper.get_current_headers())
                     return True, True
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
@@ -153,7 +153,7 @@ class ScrapingOrchestrator:
             except Exception as e:
                 logging.error(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
                 if attempt == MAX_RETRIES - 1:
-                    ErrorHandler.save_traceback(self.data_dir, url=product.url, headers=scraper.get_current_headers())
+                    save_traceback(self.data_dir, url=product.url, headers=scraper.get_current_headers())
                     return True, False
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)

@@ -7,7 +7,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_RATE_LIMIT_ERROR
 from validators import ConfigValidator
-from utils import setup_logging, SystemdHelper
+from updater import InteractiveUpdateChecker
+from utils import setup_logging, get_systemd_properties, is_linger_enabled
 
 def main():
     NC = '\033[0m'
@@ -19,13 +20,14 @@ def main():
 
     logging.info("\nChecking Skroutz Price Alert Status...\n")
 
-    ConfigValidator.print_update_status()
+    update_checker = InteractiveUpdateChecker()
+    update_checker.check()
     ConfigValidator.print_prod_status(fatal_on_error=False)
     ConfigValidator.print_env_status(fatal_on_error=False)
 
-    timer_props = SystemdHelper.get_systemd_properties('skroutz-price-alert.timer', 'ActiveState,NextElapseUSecRealtime')
-    service_props = SystemdHelper.get_systemd_properties('skroutz-price-alert.service', 'ActiveState,Result,ExecMainStartTimestamp,ExecMainStatus')
-    linger_enabled_val = SystemdHelper.is_linger_enabled()
+    timer_props = get_systemd_properties('skroutz-price-alert.timer', 'ActiveState,NextElapseUSecRealtime')
+    service_props = get_systemd_properties('skroutz-price-alert.service', 'ActiveState,Result,ExecMainStartTimestamp,ExecMainStatus')
+    linger_enabled_val = is_linger_enabled()
 
     linger_icon = "✅" if linger_enabled_val else "❗"
     linger_enabled = f"{GREEN}Yes{NC}" if linger_enabled_val else f"{RED}No{NC}"

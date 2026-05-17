@@ -1,13 +1,12 @@
 import os
 import json
 import logging
-import subprocess
 import sys
 import apprise
 from dotenv import load_dotenv
 
 from config import BASE_DIR, DATA_DIR, PRODUCTS_FILE_PATH, EXIT_CODE_ENV_ERROR, EXIT_CODE_PRODUCTS_ERROR, APPRISE_PLACEHOLDERS
-from exceptions import EnvFileError, ProductFileError, UpdateCheckError
+from exceptions import EnvFileError, ProductFileError
 
 class ConfigValidator:
     @staticmethod
@@ -52,43 +51,6 @@ class ConfigValidator:
                 return num_products, faulty_count
         except (json.JSONDecodeError, OSError):
             raise ProductFileError("The data/products.json file contains invalid JSON format")
-
-    @staticmethod
-    def check_for_updates() -> bool:
-        try:
-            remote_url = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], cwd=BASE_DIR, stderr=subprocess.DEVNULL).decode('utf-8').strip()
-
-            if remote_url.startswith('git@github.com:'):
-                remote_url = remote_url.replace('git@github.com:', 'https://github.com/')
-
-            local_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=BASE_DIR, stderr=subprocess.DEVNULL).decode('utf-8').strip()
-            remote_output = subprocess.check_output(['git', 'ls-remote', remote_url, 'HEAD'], cwd=BASE_DIR, stderr=subprocess.DEVNULL).decode('utf-8').strip()
-            if remote_output:
-                remote_hash = remote_output.split()[0]
-                return local_hash != remote_hash
-            else:
-                raise UpdateCheckError("No remote output received")
-        except Exception as e:
-            raise UpdateCheckError(f"Could not check for updates: {e}")
-
-    @staticmethod
-    def print_update_status() -> None:
-        is_info = logging.getLogger().isEnabledFor(logging.INFO)
-        if not is_info:
-            return
-
-        print("⏳ Checking for updates...", end="", flush=True)
-
-        try:
-            has_update = ConfigValidator.check_for_updates()
-            print("\r" + " " * 30 + "\r", end="", flush=True)
-            if has_update:
-                logging.info("✨ A new version is available! Run ./update.sh to update.\n")
-            else:
-                logging.info("✅ You are running the latest version.")
-        except UpdateCheckError:
-            print("\r" + " " * 30 + "\r", end="", flush=True)
-            logging.info("❗ Could not check for script updates.\n")
 
     @staticmethod
     def print_env_status(fatal_on_error: bool = False, show_invalid_details: bool = False) -> None:

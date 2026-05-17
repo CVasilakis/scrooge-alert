@@ -9,11 +9,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import LOCK_FILE_PATH, LOCK_TIMEOUT, DATA_DIR, EXIT_CODE_SKIPPED, EXIT_CODE_ERROR, PRODUCTS_FILE_PATH
 from validators import ConfigValidator
+from updater import InteractiveUpdateChecker, SilentUpdateChecker
 from data_manager import ProductsManager
 from notifier import Notifier
-from utils import setup_logging, ErrorHandler
+from utils import setup_logging, save_traceback
 from clients.factory import ScraperFactory
 from orchestrator import ScrapingOrchestrator
+from ui import InteractiveProgressStrategy, SilentProgressStrategy
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='Skroutz Price Alert scraper')
@@ -24,7 +26,13 @@ def main() -> None:
 
     logging.info("\nStarting Skroutz Price Alert...\n")
 
-    ConfigValidator.print_update_status()
+    if args.quiet:
+        update_checker = SilentUpdateChecker()
+        progress_strategy = SilentProgressStrategy()
+    else:
+        update_checker = InteractiveUpdateChecker()
+        progress_strategy = InteractiveProgressStrategy()
+    update_checker.check()
     ConfigValidator.print_prod_status(fatal_on_error=True)
 
     products_manager = ProductsManager(PRODUCTS_FILE_PATH)
@@ -41,7 +49,7 @@ def main() -> None:
         with lock:
             scraper_factory = ScraperFactory()
             try:
-                orchestrator = ScrapingOrchestrator(products_manager, scraper_factory, notifier, DATA_DIR)
+                orchestrator = ScrapingOrchestrator(products_manager, scraper_factory, notifier, DATA_DIR, progress_strategy)
                 orchestrator.run()
             finally:
                 scraper_factory.close_all()
@@ -50,7 +58,7 @@ def main() -> None:
         logging.error('\n🛑 Skroutz Price Alert script did not start! Another instance is currently running.\n')
         sys.exit(EXIT_CODE_SKIPPED)
     except Exception:
-        ErrorHandler.save_traceback(DATA_DIR)
+        save_traceback(DATA_DIR)
         logging.info("")
         notifier.notify_crash()
         sys.exit(EXIT_CODE_ERROR)
