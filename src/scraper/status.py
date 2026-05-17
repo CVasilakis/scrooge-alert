@@ -1,57 +1,23 @@
-import os
 import sys
+import os
 import logging
-from filelock import FileLock, Timeout
 
-from config import LOCK_FILE_PATH, LOCK_TIMEOUT, DATA_DIR, EXIT_CODE_SKIPPED, EXIT_CODE_ERROR, EXIT_CODE_SUCCESS, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_RATE_LIMIT_ERROR, PRODUCTS_FILE_PATH
+# Ensure the script directory is in the python path to allow imports when running as a module
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from config import EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_RATE_LIMIT_ERROR
 from validators import ConfigValidator
-from data_manager import ProductsManager
-from notifier import Notifier
-from utils import ErrorHandler, SystemdHelper
-from clients.factory import ScraperFactory
-from orchestrator import ScrapingOrchestrator
+from utils import setup_logging, SystemdHelper
 
-def handle_ping() -> None:
-    logging.info("\nSending Skroutz Price Alert Test Notification...\n")
-
-    ConfigValidator.print_env_status(fatal_on_error=True, show_invalid_details=True)
-
-    notification_urls = os.environ.get("NOTIFICATION_URLS", "")
-    notifier = Notifier(notification_urls)
-
-    try:
-        results = notifier.notify_test()
-
-        if not results:
-            logging.info("\n🛑 No valid notification URL(s) found.\n")
-            return
-
-        success_count = 0
-        for i, (identifier, success) in enumerate(results, 1):
-            if success:
-                logging.info(f"    ↳ 📨 Success: URL #{i} ({identifier})")
-                success_count += 1
-            else:
-                logging.info(f"    ↳ 🔕 Failed:  URL #{i} ({identifier})")
-
-        total_urls = len([u for u in notification_urls.split(',') if u.strip()])
-        if success_count == total_urls:
-            status_icon = "✅"
-        elif success_count == 0:
-            status_icon = "🛑"
-        else:
-            status_icon = "🟡"
-        logging.info(f"\n{status_icon} Test notification completed ({success_count} of {total_urls} URL(s) succeeded)!\n")
-    except Exception as e:
-        logging.error(f"🛑 An error occurred while sending test notification: {e}\n")
-
-def handle_status() -> None:
+def main():
     NC = '\033[0m'
     RED = '\033[0;31m'
     GREEN = '\033[0;32m'
     YELLOW = '\033[0;33m'
 
-    print("\nChecking Skroutz Price Alert Status...\n")
+    setup_logging()
+
+    logging.info("\nChecking Skroutz Price Alert Status...\n")
 
     ConfigValidator.print_update_status()
     ConfigValidator.print_prod_status(fatal_on_error=False)
@@ -131,36 +97,5 @@ def handle_status() -> None:
         print("    ↳ Timer pending first execution. Waiting for the scheduled time.")
     print("")
 
-def run_main_program() -> None:
-    logging.info("\nStarting Skroutz Price Alert...\n")
-
-    ConfigValidator.print_update_status()
-    ConfigValidator.print_prod_status(fatal_on_error=True)
-
-    products_manager = ProductsManager(PRODUCTS_FILE_PATH)
-    products_manager.load()
-
-    ConfigValidator.print_env_status(fatal_on_error=False)
-
-    notification_urls = os.environ.get("NOTIFICATION_URLS", "")
-    notifier = Notifier(notification_urls)
-
-    lock = FileLock(LOCK_FILE_PATH, timeout=LOCK_TIMEOUT)
-
-    try:
-        with lock:
-            scraper_factory = ScraperFactory()
-            try:
-                orchestrator = ScrapingOrchestrator(products_manager, scraper_factory, notifier, DATA_DIR)
-                orchestrator.run()
-            finally:
-                scraper_factory.close_all()
-
-    except Timeout:
-        logging.error('\n🛑 Skroutz Price Alert script did not start! Another instance is currently running.\n')
-        sys.exit(EXIT_CODE_SKIPPED)
-    except Exception:
-        ErrorHandler.save_traceback(DATA_DIR)
-        logging.info("")
-        notifier.notify_crash()
-        sys.exit(EXIT_CODE_ERROR)
+if __name__ == "__main__":
+    main()

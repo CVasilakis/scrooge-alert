@@ -5,7 +5,7 @@ import os
 import subprocess
 from typing import Optional, Dict
 
-def setup_logging(quiet: bool) -> None:
+def setup_logging(quiet: bool = False) -> None:
     level = logging.WARNING if quiet else logging.INFO
     logging.basicConfig(level=level, format='%(message)s')
     logging.getLogger('apprise').setLevel(logging.CRITICAL)
