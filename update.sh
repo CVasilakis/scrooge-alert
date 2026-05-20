@@ -17,6 +17,9 @@ main() {
 
     # Automatically get the directory where the script is located
     SCRIPT_DIR="$( cd "$( dirname "$0" )" >/dev/null 2>&1 && pwd )"
+    
+    # Systemd Configurations
+    SERVICE_NAME="skroutz-price-alert"
 
     # ==============================================================================
     # EXECUTION
@@ -41,6 +44,11 @@ main() {
         esac
     elif [ "$CURRENT_BRANCH" != "main" ]; then
         printf "%b\n" "\n${YELLOW}Switching from branch '${CURRENT_BRANCH}' to 'main'.${NC}"
+    fi
+
+    # Ensure the script isn't actively running while we change the files out from under it
+    if command -v systemctl > /dev/null 2>&1; then
+        systemctl --user stop "$SERVICE_NAME.service" 2>/dev/null || true
     fi
 
     if ! git checkout -f main --quiet; then

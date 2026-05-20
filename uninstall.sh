@@ -69,12 +69,11 @@ if [ -d "$VENV_DIR" ]; then
     rm -rf "$VENV_DIR"
     printf "%b\n" "${GREEN}Python virtual environment ($VENV_DIR) removed.${NC}"
 else
-    printf "%b\n" "${YELLOW}Virtual environment not found, skipping.${NC}"
+    printf "%b\n" "${GREEN}Python virtual environment ($VENV_DIR) already removed.${NC}"
 fi
 
-printf "%b\n" "\n${YELLOW}Note: User configurations (.env, data/products.json) were NOT removed.${NC}"
-printf "%b\n" "If you want to completely purge everything, you can safely delete this folder."
-
-printf "%b\n" "\n${YELLOW}Note: User lingering (loginctl) was left enabled as other services might rely on it.${NC}"
-
 printf "%b\n" "\n${GREEN}Uninstallation complete!${NC}"
+printf "%b\n" "\nUser configurations (.env, data/products.json) were NOT removed."
+printf "%b\n" "User lingering (loginctl) was left enabled as other services might rely on it."
+printf "%b\n" "To reinstall the application, run: ${CYAN}./install.sh${NC}"
+printf "%b\n" "To completely purge everything, you can safely delete this folder.\n"

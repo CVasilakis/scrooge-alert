@@ -26,6 +26,7 @@ The application is primarily intended for automated background execution but pro
 - **Exit Codes:** The script utilizes specific exit codes to indicate failure states when running as a service (these can be easily viewed using the `--status` flag):
   - **`15`**: Indicates an issue with the `data/products.json` file (e.g., file missing, wrong permissions, or invalid JSON).
   - **`42`**: Indicates that the script did not start because another instance is already running (file lock timeout).
+  - **`130`**: Indicates that the script was interrupted (e.g., via Ctrl+C or system termination).
 
 ## Development Conventions
 - **Scraping Practices & Rate Limiting:** The scraper intentionally paces requests using a base delay (20s) plus randomized jitter (1-5s) between product checks to avoid triggering Skroutz's anti-bot protections. Concurrency is avoided to maintain a low profile.

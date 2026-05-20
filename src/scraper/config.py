@@ -5,6 +5,7 @@ from typing import List, Dict
 # Used to indicate failure states when running as a background service.
 EXIT_CODE_SUCCESS: int = 0
 EXIT_CODE_ERROR: int = 1
+EXIT_CODE_INTERRUPT: int = 130        # Script was interrupted (user or system termination)
 EXIT_CODE_PRODUCTS_ERROR: int = 15    # Issue with the data/products.json file
 EXIT_CODE_ENV_ERROR: int = 16         # Issue with the .env file
 EXIT_CODE_RATE_LIMIT_ERROR: int = 17  # Blocked by server due to rate limits

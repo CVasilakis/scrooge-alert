@@ -6,7 +6,7 @@ import time
 import sys
 from typing import Optional
 
-from config import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR
+from config import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT
 from exceptions import RateLimitError, ServerError, ScraperParseError
 from models import Product
 from clients.factory import ScraperFactory
@@ -183,6 +183,9 @@ class ScrapingOrchestrator:
 
         if not self.interrupted and has_errors:
             self.notifier.notify_errors()
+
+        if self.interrupted:
+            sys.exit(EXIT_CODE_INTERRUPT)
 
         if abort_scraping:
             sys.exit(EXIT_CODE_RATE_LIMIT_ERROR)

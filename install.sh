@@ -52,6 +52,15 @@ fi
 if [ -f "$SCRIPT_DIR/$MAIN_SCRIPT" ]; then
     chmod +x "$SCRIPT_DIR/$MAIN_SCRIPT"
 fi
+if [ -f "$SCRIPT_DIR/scripts/stop.sh" ]; then
+    chmod +x "$SCRIPT_DIR/scripts/stop.sh"
+fi
+if [ -f "$SCRIPT_DIR/scripts/disable.sh" ]; then
+    chmod +x "$SCRIPT_DIR/scripts/disable.sh"
+fi
+if [ -f "$SCRIPT_DIR/scripts/enable.sh" ]; then
+    chmod +x "$SCRIPT_DIR/scripts/enable.sh"
+fi
 if [ -f "$SCRIPT_DIR/uninstall.sh" ]; then
     chmod +x "$SCRIPT_DIR/uninstall.sh"
 fi

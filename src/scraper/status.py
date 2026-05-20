@@ -5,7 +5,7 @@ import logging
 # Ensure the script directory is in the python path to allow imports when running as a module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_RATE_LIMIT_ERROR
+from config import EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT
 from validators import ConfigValidator
 from updater import InteractiveUpdateChecker
 from utils import setup_logging, get_systemd_properties, is_linger_enabled
@@ -46,6 +46,7 @@ def main():
     products_error = (exec_status == str(EXIT_CODE_PRODUCTS_ERROR))
     env_error = (exec_status == str(EXIT_CODE_ENV_ERROR))
     rate_limit_error = (exec_status == str(EXIT_CODE_RATE_LIMIT_ERROR))
+    interrupted = (exec_status == str(EXIT_CODE_INTERRUPT))
     is_currently_running = service_active in ("active", "activating")
     is_pending_first_execution = timer_active_val and not last_exec_time
 
@@ -82,6 +83,9 @@ def main():
         elif rate_limit_error:
             completed_icon = "❗"
             completed_str = f"{RED}Failed{NC} (Server blocked requests due to rate limits)"
+        elif interrupted:
+            completed_icon = "🟡"
+            completed_str = f"{YELLOW}Interrupted{NC} (User or system interrupt)"
         else:
             completed_icon = "❗"
             completed_str = f"{RED}Failed{NC} ({error_details})"
