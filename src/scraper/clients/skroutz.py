@@ -14,6 +14,7 @@ from config import DEFAULT_HEADERS_POOL
 
 class SkroutzClient(BaseScraperClient):
     def __init__(self):
+        """Initializes the Skroutz client, picking a random header and setting up a TLS session."""
         self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
         self.session = tls_client.Session(
             client_identifier="chrome120",  # type: ignore
@@ -21,9 +22,15 @@ class SkroutzClient(BaseScraperClient):
         )
 
     def get_current_headers(self) -> Dict[str, str]:
+        """Retrieves the current HTTP headers.
+        
+        Returns:
+            Dict[str, str]: The current headers in use.
+        """
         return self.current_headers
 
     def refresh_identity(self) -> None:
+        """Refreshes the client's identity by selecting new headers and recreating the session."""
         self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
         if hasattr(self, 'session'):
             self.session.close()
@@ -33,6 +40,21 @@ class SkroutzClient(BaseScraperClient):
         )
 
     def scrape_product(self, product_url: str, product_name: str) -> Optional[ScrapeResult]:
+        """Scrapes the Skroutz API for the current price of a product.
+        
+        Args:
+            product_url (str): The Skroutz URL of the product.
+            product_name (str): The name of the product.
+            
+        Returns:
+            Optional[ScrapeResult]: The scraped price and currency, or None if unavailable.
+            
+        Raises:
+            ScraperError: For generic scraping errors (e.g. empty response, unexpected HTTP code).
+            RateLimitError: If the server blocks the request or limits the rate.
+            ServerError: For server-side HTTP errors (5xx).
+            ScraperParseError: If the API response cannot be decoded as JSON.
+        """
         parsed_url = urlparse(product_url)
         domain = parsed_url.netloc
         match = re.search(r'/s/(\d+)', parsed_url.path)
@@ -85,4 +107,5 @@ class SkroutzClient(BaseScraperClient):
         return ScrapeResult(price=float(price_str), currency=currency)
 
     def close(self) -> None:
+        """Closes the underlying TLS session."""
         self.session.close()

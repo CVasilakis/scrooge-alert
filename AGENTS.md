@@ -10,7 +10,8 @@ This project is an automated Python application designed to monitor product pric
   - **Data Access (`data_manager.py`)**: `ProductsManager` handles data I/O and state.
   - **Orchestration (`orchestrator.py`)**: `ScrapingOrchestrator` runs a store-agnostic execution loop.
   - **Configuration & Validation (`config.py`, `validators.py`)**: Centralized constants and environment/file health checks.
-  - **CLI Layer (`cli.py`)**: `CLIHandler` manages user interactions and systemd status reporting.
+  - **Terminal UI (`tui_bar.py`)**: Manages the interactive progress bar during sleep intervals using the Strategy pattern (`ProgressStrategy`).
+  - **CLI Tools (`ping.py`, `status.py`)**: Dedicated scripts for specific CLI commands to maintain separation of concerns.
   User configuration is completely externalized to `.env` (notification endpoints) and `data/products.json` (the list of tracked products). It is designed to run silently as a background task, leveraging a local Python virtual environment (`venv`) to isolate dependencies.
 
 ## Building and Running
@@ -18,6 +19,7 @@ The application is primarily intended for automated background execution but pro
 
 - **Installation:** Execute `./install.sh`. This script creates the Python virtual environment, installs dependencies, and configures an hourly systemd user timer.
 - **Automated Execution:** Handled automatically by the systemd service (`skroutz-price-alert.timer`).
+- **Service Management:** Use `./scripts/disable.sh` to temporarily stop and disable the background timer, `./scripts/enable.sh` to resume it, and `./scripts/stop.sh` to forcefully kill a running execution.
 - **Manual Execution:** Execute `./scripts/run.sh` to run the scraper interactively and view output logs in the terminal.
 - **Help Message:** Execute `./scripts/run.sh --help` to print the help message and view all available script arguments.
 - **Testing Notifications:** Run `./scripts/run.sh --ping` to send a test payload and verify that the Apprise URLs in your `.env` file are configured correctly.
@@ -25,6 +27,8 @@ The application is primarily intended for automated background execution but pro
 - **Uninstallation:** Execute `./uninstall.sh` to cleanly stop and disable the systemd services and remove the virtual environment (user data is preserved).
 - **Exit Codes:** The script utilizes specific exit codes to indicate failure states when running as a service (these can be easily viewed using the `--status` flag):
   - **`15`**: Indicates an issue with the `data/products.json` file (e.g., file missing, wrong permissions, or invalid JSON).
+  - **`16`**: Indicates an issue with the `.env` file configuration.
+  - **`17`**: Indicates the scraper was blocked by the server due to rate limits.
   - **`42`**: Indicates that the script did not start because another instance is already running (file lock timeout).
   - **`130`**: Indicates that the script was interrupted (e.g., via Ctrl+C or system termination).
 

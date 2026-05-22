@@ -14,10 +14,9 @@ NC='\033[0m' # No Color
 # GLOBAL VARIABLES
 # ==============================================================================
 
-# Automatically get the directory where the script is located
+# Get the directory where the script is located
 SCRIPT_DIR="$( cd "$( dirname "$0" )" >/dev/null 2>&1 && pwd )"
 
-# Systemd Configurations
 SERVICE_NAME="skroutz-price-alert"
 SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
@@ -48,7 +47,6 @@ fi
 
 printf "%b\n" "\n${CYAN}Stopping and disabling background schedule (timer)...${NC}"
 
-# Stop and disable the timer and service
 systemctl --user stop "$SERVICE_NAME.timer" 2>/dev/null || true
 systemctl --user disable "$SERVICE_NAME.timer" 2>/dev/null || true
 systemctl --user stop "$SERVICE_NAME.service" 2>/dev/null || true

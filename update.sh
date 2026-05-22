@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+# Wrap the update process in a function to avoid script changes
+# due to git pull on the run-time
 main() {
     # ==============================================================================
     # COLORS
@@ -15,10 +17,9 @@ main() {
     # GLOBAL VARIABLES
     # ==============================================================================
 
-    # Automatically get the directory where the script is located
+    # Get the directory where the script is located
     SCRIPT_DIR="$( cd "$( dirname "$0" )" >/dev/null 2>&1 && pwd )"
-    
-    # Systemd Configurations
+
     SERVICE_NAME="skroutz-price-alert"
 
     # ==============================================================================

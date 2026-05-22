@@ -10,6 +10,11 @@ from notifier import Notifier
 from utils import setup_logging
 
 def main():
+    """Main entry point for sending a test notification.
+    
+    This function initializes the notifier with URLs from the environment and sends
+    a test message, reporting the success or failure of each configured service.
+    """
     setup_logging()
 
     logging.info("\nSending Skroutz Price Alert Test Notification...\n")

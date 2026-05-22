@@ -203,7 +203,7 @@ If you run the script without any flags, it will execute normally and output its
 ```
 
 > [!NOTE]
-> Only one instance of the script is allowed to run at a time to avoid triggering anti-bot protections. If a background execution is currently in progress, your manual run will be blocked until it completes. If you need to forcefully stop the active background execution to run the script manually, you can safely use the command `systemctl --user stop skroutz-price-alert.service`. This stops the current background run but will not break any future scheduled executions.
+> Only one instance of the script is allowed to run at a time to avoid triggering anti-bot protections. If a background execution is currently in progress, your manual run will be blocked until it completes. If you need to forcefully stop the active background execution to run the script manually, you can safely use the stop script: `./scripts/stop.sh`. This stops the current background run but will not break any future scheduled executions.
 
 #### Status Check:
 
@@ -376,6 +376,23 @@ The script relies entirely on your system's clock to generate the timestamps sav
 <br>
 
 By default, Linux kills all background processes associated with a user the moment they log out of their SSH session. Enabling "lingering" tells the system to keep your user's background services running continuously, even after you disconnect. It is a completely safe, standard Linux feature that allows the scraper to run automatically without requiring root (`sudo`) privileges. The installer simply checks if it's enabled for your user and turns it on if it isn't, and because other services might rely on this setting, the uninstallation script intentionally leaves it enabled.
+</details>
+
+<details>
+<summary><b>10. How can I temporarily disable background executions?</b></summary>
+<br>
+
+If you want to stop the script from running automatically in the background without completely uninstalling it, you can use the disable script:
+
+```sh
+./scripts/disable.sh
+```
+
+To re-enable background scheduled executions later, run:
+
+```sh
+./scripts/enable.sh
+```
 </details>
 
 ## 🗺️ Future Updates (Roadmap)

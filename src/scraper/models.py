@@ -16,6 +16,14 @@ class Product:
 
     @classmethod
     def from_dict(cls, data: dict) -> 'Product':
+        """Creates a Product instance from a dictionary.
+        
+        Args:
+            data (dict): The dictionary containing product data.
+            
+        Returns:
+            Product: A new Product instance populated with data from the dictionary.
+        """
         try:
             target_price_raw = data.get('target_price', 0.0)
             if isinstance(target_price_raw, str):

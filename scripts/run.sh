@@ -5,15 +5,18 @@ set -eu
 # COLORS
 # ==============================================================================
 RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # ==============================================================================
 # GLOBAL VARIABLES
 # ==============================================================================
 
-# Automatically get the directory where the script is located
-SCRIPT_DIR="$(cd "$(dirname "$0")" >/dev/null 2>&1 && pwd)"
-BASE_DIR="$(dirname "$SCRIPT_DIR")"
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "$0" )" >/dev/null 2>&1 && pwd )"
+BASE_DIR="$( dirname "$SCRIPT_DIR" )"
 
 # ==============================================================================
 # HELPER FUNCTIONS
@@ -38,7 +41,7 @@ EOF
 # ==============================================================================
 
 if [ "$#" -gt 1 ]; then
-    printf "${RED}\nPlease provide no more than one flag!${NC}\n"
+    printf "%b\n" "${RED}\nPlease provide no more than one flag!${NC}"
     print_help
     exit 1
 fi
@@ -63,7 +66,7 @@ if [ "$#" -eq 1 ]; then
             TARGET="main.py"
             ;;
         *)
-            printf "${RED}\nInvalid flag provided: $1${NC}\n"
+            printf "%b\n" "${RED}\nInvalid flag provided: $1${NC}"
             print_help
             exit 1
             ;;

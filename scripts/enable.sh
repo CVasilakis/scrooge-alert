@@ -14,11 +14,11 @@ NC='\033[0m' # No Color
 # GLOBAL VARIABLES
 # ==============================================================================
 
-# Automatically get the directory where the script is located
+# Get the directory where the script is located
 SCRIPT_DIR="$( cd "$( dirname "$0" )" >/dev/null 2>&1 && pwd )"
 
-# Systemd Configurations
 SERVICE_NAME="skroutz-price-alert"
+SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
 cd "$SCRIPT_DIR"
 
@@ -31,7 +31,6 @@ fi
 # ENABLING SERVICE
 # ------------------------------------------------------------------------------
 
-# Check if it's already enabled and active
 IS_ENABLED=$(systemctl --user is-enabled "$SERVICE_NAME.timer" 2>/dev/null || true)
 IS_ACTIVE=$(systemctl --user is-active "$SERVICE_NAME.timer" 2>/dev/null || true)
 

@@ -13,10 +13,19 @@ from clients.factory import ScraperFactory
 from data_manager import ProductsManager
 from notifier import Notifier
 from utils import save_traceback
-from ui import ProgressStrategy, SilentProgressStrategy
+from tui_bar import ProgressStrategy, SilentProgressStrategy
 
 class ScrapingOrchestrator:
     def __init__(self, products_manager: ProductsManager, scraper_factory: ScraperFactory, notifier: Notifier, data_dir: str, progress_strategy: Optional[ProgressStrategy] = None):
+        """Initializes the ScrapingOrchestrator.
+        
+        Args:
+            products_manager (ProductsManager): The manager for product data.
+            scraper_factory (ScraperFactory): The factory to create web scrapers.
+            notifier (Notifier): The service used to send notifications.
+            data_dir (str): The directory for saving data and error logs.
+            progress_strategy (Optional[ProgressStrategy]): The strategy for displaying progress.
+        """
         self.products_manager = products_manager
         self.scraper_factory = scraper_factory
         self.notifier = notifier
@@ -25,11 +34,23 @@ class ScrapingOrchestrator:
         self.progress_strategy = progress_strategy or SilentProgressStrategy()
 
     def signal_handler(self, signum, _frame):
+        """Handles termination signals gracefully.
+        
+        Args:
+            signum (int): The signal number received.
+            _frame: The current stack frame (unused).
+        """
         sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
         logging.info(f"\n\n🛑 Received signal {sig_name}. Gracefully shutting down...")
         self.interrupted = True
 
     def _sleep_with_jitter(self, base_delay: float, attempt: int = 0) -> None:
+        """Pauses execution for a calculated duration with random jitter.
+        
+        Args:
+            base_delay (float): The minimum delay in seconds.
+            attempt (int): The retry attempt number to increase the delay. Defaults to 0.
+        """
         jitter = random.uniform(RANDOM_DELAY_MIN, RANDOM_DELAY_MAX)
         total_delay = base_delay + (RETRY_DELAY_MULTIPLIER * attempt) + jitter
 
@@ -46,6 +67,11 @@ class ScrapingOrchestrator:
             self.progress_strategy.complete(actual_delay)
 
     def check_for_old_entries(self, hours: int) -> None:
+        """Checks if any product hasn't been successfully scraped recently.
+        
+        Args:
+            hours (int): The threshold in hours to consider an entry 'old'.
+        """
         needs_save = False
         for row in self.products_manager.products_data.get("products", []):
             product = Product.from_dict(row)
@@ -72,6 +98,12 @@ class ScrapingOrchestrator:
             self.products_manager.save_atomically()
 
     def _handle_successful_scrape(self, product: Product, result) -> None:
+        """Processes a successful product scrape, sending notifications if necessary.
+        
+        Args:
+            product (Product): The product that was scraped.
+            result (ScrapeResult): The result containing the current price and currency.
+        """
         if result.price < product.target_price:
             logging.info(f"🎉 {product.name}: {result.price} {result.currency} (Target: {product.target_price} {result.currency})")
             if self.notifier.has_services:
@@ -91,6 +123,17 @@ class ScrapingOrchestrator:
         )
 
     def _process_product(self, row: dict, index: int) -> tuple[bool, bool]:
+        """Processes a single product from the configuration, attempting to scrape it.
+        
+        Args:
+            row (dict): The dictionary representation of the product.
+            index (int): The index of the product in the list.
+            
+        Returns:
+            tuple[bool, bool]: A tuple containing two boolean values:
+                - has_errors: True if an error occurred during processing.
+                - abort_scraping: True if scraping should be aborted entirely (e.g., rate limit).
+        """
         product = Product.from_dict(row)
 
         if product.skip:
@@ -161,6 +204,11 @@ class ScrapingOrchestrator:
         return False, False
 
     def run(self) -> None:
+        """Starts the scraping orchestrator loop.
+        
+        Iterates through all configured products, attempts to scrape them,
+        and manages the overall workflow, including saving state and error reporting.
+        """
         signal.signal(signal.SIGINT, self.signal_handler)
         signal.signal(signal.SIGTERM, self.signal_handler)
 

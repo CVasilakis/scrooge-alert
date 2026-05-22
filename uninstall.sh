@@ -14,13 +14,11 @@ NC='\033[0m' # No Color
 # GLOBAL VARIABLES
 # ==============================================================================
 
-# Automatically get the directory where the script is located
+# Get the directory where the script is located
 SCRIPT_DIR="$( cd "$( dirname "$0" )" >/dev/null 2>&1 && pwd )"
 
-# Environment and File Configurations
 VENV_DIR="venv"
 
-# Systemd Configurations
 SERVICE_NAME="skroutz-price-alert"
 SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 

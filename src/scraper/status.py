@@ -11,6 +11,11 @@ from updater import InteractiveUpdateChecker
 from utils import setup_logging, get_systemd_properties, is_linger_enabled
 
 def main():
+    """Main entry point for checking the status of the Skroutz Price Alert service.
+    
+    This function retrieves status information from systemd, validates configuration,
+    checks for updates, and prints a formatted status report to the console.
+    """
     NC = '\033[0m'
     RED = '\033[0;31m'
     GREEN = '\033[0;32m'

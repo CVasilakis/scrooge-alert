@@ -6,6 +6,14 @@ from config import BASE_DIR
 from exceptions import UpdateCheckError
 
 def check_for_updates() -> bool:
+    """Checks if there are new commits in the remote repository.
+    
+    Returns:
+        bool: True if a new version is available, False otherwise.
+        
+    Raises:
+        UpdateCheckError: If there's an error communicating with the remote repository.
+    """
     try:
         remote_url = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], cwd=BASE_DIR, stderr=subprocess.DEVNULL).decode('utf-8').strip()
 
@@ -25,10 +33,12 @@ def check_for_updates() -> bool:
 class UpdateCheckerStrategy(ABC):
     @abstractmethod
     def check(self) -> None:
+        """Executes the update check strategy."""
         pass
 
 class InteractiveUpdateChecker(UpdateCheckerStrategy):
     def check(self) -> None:
+        """Checks for updates and prints the result to standard output interactively."""
         print("⏳ Checking for updates...", end="", flush=True)
 
         try:
@@ -44,4 +54,5 @@ class InteractiveUpdateChecker(UpdateCheckerStrategy):
 
 class SilentUpdateChecker(UpdateCheckerStrategy):
     def check(self) -> None:
+        """A no-op update checker strategy for silent execution."""
         pass

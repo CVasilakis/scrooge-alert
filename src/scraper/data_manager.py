@@ -6,12 +6,21 @@ from typing import Dict, Any
 
 class ProductsManager:
     def __init__(self, products_path: str):
+        """Initializes the ProductsManager.
+        
+        Args:
+            products_path (str): The file path to the products JSON file.
+        """
         self.products_path = products_path
         self.products_data: Dict[str, Any] = {}
         self.product_updates: Dict[str, Dict[str, Any]] = {}
 
     def load(self) -> Dict[str, Any]:
-        """Loads the products data from the JSON file."""
+        """Loads the products data from the JSON file.
+        
+        Returns:
+            Dict[str, Any]: The parsed JSON data representing products.
+        """
         try:
             with open(self.products_path, 'r') as file:
                 self.products_data = json.load(file)
@@ -21,14 +30,27 @@ class ProductsManager:
         return self.products_data
 
     def _get_clean_url(self, url: str) -> str:
-        """Strips query parameters and fragments to return the clean base URL."""
+        """Strips query parameters and fragments to return the clean base URL.
+        
+        Args:
+            url (str): The raw URL to clean.
+            
+        Returns:
+            str: The sanitized base URL.
+        """
         if not url:
             return ""
         parsed = urlparse(url)
         return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
 
     def update_product(self, url: str, last_price: float, last_checked: str) -> None:
-        """Caches updates for a product based on its clean URL."""
+        """Caches updates for a product based on its clean URL.
+        
+        Args:
+            url (str): The URL of the product.
+            last_price (float): The most recent scraped price.
+            last_checked (str): The formatted timestamp of the last check.
+        """
         clean_url = self._get_clean_url(url)
         self.product_updates[clean_url] = {
             'last_price': last_price,
