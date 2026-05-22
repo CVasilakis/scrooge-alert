@@ -14,6 +14,7 @@ EXIT_CODE_SKIPPED: int = 42           # Skipped execution (another instance runn
 # --- Base Directory Paths ---
 BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR: str = os.path.join(BASE_DIR, "data")
+LOGS_DIR: str = os.path.join(BASE_DIR, "logs")
 PRODUCTS_FILE_PATH: str = os.path.join(DATA_DIR, "products.json")
 LOCK_FILE_PATH: str = os.path.join(DATA_DIR, "skroutz_price_alert_running.lock")
 

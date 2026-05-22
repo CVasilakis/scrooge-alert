@@ -12,7 +12,7 @@ class ConfigValidator:
     @staticmethod
     def check_env_file() -> None:
         """Validates the existence and contents of the .env file.
-        
+
         Raises:
             EnvFileError: If the .env file is missing, unreadable, or missing valid NOTIFICATION_URLS.
         """
@@ -36,10 +36,10 @@ class ConfigValidator:
     @staticmethod
     def check_products_file() -> tuple[int, int]:
         """Validates the products.json file and counts products.
-        
+
         Returns:
             tuple[int, int]: A tuple containing the total number of products and the number of faulty products.
-            
+
         Raises:
             ProductFileError: If the file is missing, unreadable, or contains invalid JSON.
         """
@@ -68,7 +68,7 @@ class ConfigValidator:
     @staticmethod
     def print_env_status(fatal_on_error: bool = False, show_invalid_details: bool = False) -> None:
         """Validates the .env file and prints the status to the log.
-        
+
         Args:
             fatal_on_error (bool): If True, exits the program when an error is encountered.
             show_invalid_details (bool): If True, logs details of invalid notification URLs.
@@ -135,7 +135,7 @@ class ConfigValidator:
     @staticmethod
     def print_prod_status(fatal_on_error: bool = False) -> None:
         """Validates the products file and prints the status to the log.
-        
+
         Args:
             fatal_on_error (bool): If True, exits the program when an error is encountered.
         """

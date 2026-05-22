@@ -18,7 +18,7 @@ from tui_bar import ProgressStrategy, SilentProgressStrategy
 class ScrapingOrchestrator:
     def __init__(self, products_manager: ProductsManager, scraper_factory: ScraperFactory, notifier: Notifier, data_dir: str, progress_strategy: Optional[ProgressStrategy] = None):
         """Initializes the ScrapingOrchestrator.
-        
+
         Args:
             products_manager (ProductsManager): The manager for product data.
             scraper_factory (ScraperFactory): The factory to create web scrapers.
@@ -35,7 +35,7 @@ class ScrapingOrchestrator:
 
     def signal_handler(self, signum, _frame):
         """Handles termination signals gracefully.
-        
+
         Args:
             signum (int): The signal number received.
             _frame: The current stack frame (unused).
@@ -46,7 +46,7 @@ class ScrapingOrchestrator:
 
     def _sleep_with_jitter(self, base_delay: float, attempt: int = 0) -> None:
         """Pauses execution for a calculated duration with random jitter.
-        
+
         Args:
             base_delay (float): The minimum delay in seconds.
             attempt (int): The retry attempt number to increase the delay. Defaults to 0.
@@ -68,7 +68,7 @@ class ScrapingOrchestrator:
 
     def check_for_old_entries(self, hours: int) -> None:
         """Checks if any product hasn't been successfully scraped recently.
-        
+
         Args:
             hours (int): The threshold in hours to consider an entry 'old'.
         """
@@ -99,7 +99,7 @@ class ScrapingOrchestrator:
 
     def _handle_successful_scrape(self, product: Product, result) -> None:
         """Processes a successful product scrape, sending notifications if necessary.
-        
+
         Args:
             product (Product): The product that was scraped.
             result (ScrapeResult): The result containing the current price and currency.
@@ -124,11 +124,11 @@ class ScrapingOrchestrator:
 
     def _process_product(self, row: dict, index: int) -> tuple[bool, bool]:
         """Processes a single product from the configuration, attempting to scrape it.
-        
+
         Args:
             row (dict): The dictionary representation of the product.
             index (int): The index of the product in the list.
-            
+
         Returns:
             tuple[bool, bool]: A tuple containing two boolean values:
                 - has_errors: True if an error occurred during processing.
@@ -205,7 +205,7 @@ class ScrapingOrchestrator:
 
     def run(self) -> None:
         """Starts the scraping orchestrator loop.
-        
+
         Iterates through all configured products, attempts to scrape them,
         and manages the overall workflow, including saving state and error reporting.
         """

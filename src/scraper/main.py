@@ -19,7 +19,7 @@ from tui_bar import InteractiveProgressStrategy, SilentProgressStrategy
 
 def main() -> None:
     """Main entry point for the Skroutz Price Alert scraper application.
-    
+
     This function initializes the environment, parses arguments, sets up logging,
     checks for updates, loads products, and starts the scraping orchestrator.
     It manages file locks to prevent multiple concurrent instances and handles

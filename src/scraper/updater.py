@@ -7,10 +7,10 @@ from exceptions import UpdateCheckError
 
 def check_for_updates() -> bool:
     """Checks if there are new commits in the remote repository.
-    
+
     Returns:
         bool: True if a new version is available, False otherwise.
-        
+
     Raises:
         UpdateCheckError: If there's an error communicating with the remote repository.
     """

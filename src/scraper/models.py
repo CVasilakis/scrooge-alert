@@ -17,10 +17,10 @@ class Product:
     @classmethod
     def from_dict(cls, data: dict) -> 'Product':
         """Creates a Product instance from a dictionary.
-        
+
         Args:
             data (dict): The dictionary containing product data.
-            
+
         Returns:
             Product: A new Product instance populated with data from the dictionary.
         """
@@ -31,7 +31,7 @@ class Product:
             target_price = float(target_price_raw)
         except (ValueError, TypeError):
             target_price = -1.0 # indicating invalid
-            
+
         return cls(
             name=data.get('name', 'Unknown'),
             url=data.get('url', ''),

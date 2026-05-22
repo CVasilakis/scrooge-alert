@@ -9,13 +9,13 @@ class ScraperFactory:
 
     def get_scraper(self, url: str) -> BaseScraperClient:
         """Retrieves or creates an appropriate scraper client for the given URL.
-        
+
         Args:
             url (str): The product URL to determine the correct scraper for.
-            
+
         Returns:
             BaseScraperClient: The instantiated scraper client.
-            
+
         Raises:
             ValueError: If the URL belongs to an unsupported domain.
         """

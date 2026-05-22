@@ -23,7 +23,7 @@ class SkroutzClient(BaseScraperClient):
 
     def get_current_headers(self) -> Dict[str, str]:
         """Retrieves the current HTTP headers.
-        
+
         Returns:
             Dict[str, str]: The current headers in use.
         """
@@ -41,14 +41,14 @@ class SkroutzClient(BaseScraperClient):
 
     def scrape_product(self, product_url: str, product_name: str) -> Optional[ScrapeResult]:
         """Scrapes the Skroutz API for the current price of a product.
-        
+
         Args:
             product_url (str): The Skroutz URL of the product.
             product_name (str): The name of the product.
-            
+
         Returns:
             Optional[ScrapeResult]: The scraped price and currency, or None if unavailable.
-            
+
         Raises:
             ScraperError: For generic scraping errors (e.g. empty response, unexpected HTTP code).
             RateLimitError: If the server blocks the request or limits the rate.
