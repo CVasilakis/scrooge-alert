@@ -101,7 +101,11 @@ class ProductsManager:
             with open(temp_file_path, mode='w') as file:
                 json.dump(self.products_data, file, indent=2)
             os.replace(temp_file_path, self.products_path)
-            logging.info("\n✅ Successfully updated data/products.json file\n")
+            logging.info("")
+            logging.info("✅ Successfully updated data/products.json file")
+            logging.info("")
         except OSError as e:
-            logging.error("\n🛑 Failed to update data/products.json file!")
-            logging.error(f"    ↳  {e}\n")
+            logging.info("")
+            logging.error("🛑 Failed to update data/products.json file!")
+            logging.error(f"    ↳  {e}")
+            logging.info("")

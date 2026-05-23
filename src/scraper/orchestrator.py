@@ -12,7 +12,7 @@ from models import Product
 from clients.factory import ScraperFactory
 from data_manager import ProductsManager
 from notifier import Notifier
-from utils import save_traceback
+from logger import save_traceback
 from tui_bar import ProgressStrategy, SilentProgressStrategy
 
 class ScrapingOrchestrator:
@@ -41,7 +41,9 @@ class ScrapingOrchestrator:
             _frame: The current stack frame (unused).
         """
         sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
-        logging.info(f"\n\n🛑 Received signal {sig_name}. Gracefully shutting down...")
+        logging.info("")
+        logging.info("")
+        logging.info(f"🛑 Received signal {sig_name}. Gracefully shutting down...")
         self.interrupted = True
 
     def _sleep_with_jitter(self, base_delay: float, attempt: int = 0) -> None:
@@ -137,7 +139,8 @@ class ScrapingOrchestrator:
         product = Product.from_dict(row)
 
         if product.skip:
-            logging.info(f"\n🔕 {product.name}: Skipped (skip field set to true)")
+            logging.info("")
+            logging.info(f"🔕 {product.name}: Skipped (skip field set to true)")
             return False, False
 
         if index >= 0:
@@ -184,7 +187,7 @@ class ScrapingOrchestrator:
                 logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
                 if attempt == MAX_RETRIES - 1:
                     logging.error("🛑 RateLimitError: Max retries reached. Aborting scraping.")
-                    save_traceback(self.data_dir, url=product.url, headers=scraper.get_current_headers())
+                    save_traceback(url=product.url, headers=scraper.get_current_headers())
                     return True, True
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
@@ -196,7 +199,7 @@ class ScrapingOrchestrator:
             except Exception as e:
                 logging.error(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
                 if attempt == MAX_RETRIES - 1:
-                    save_traceback(self.data_dir, url=product.url, headers=scraper.get_current_headers())
+                    save_traceback(url=product.url, headers=scraper.get_current_headers())
                     return True, False
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)

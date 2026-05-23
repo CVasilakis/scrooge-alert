@@ -12,7 +12,7 @@ from validators import ConfigValidator
 from updater import InteractiveUpdateChecker, SilentUpdateChecker
 from data_manager import ProductsManager
 from notifier import Notifier
-from utils import setup_logging, save_traceback
+from logger import setup_logging, save_traceback
 from clients.factory import ScraperFactory
 from orchestrator import ScrapingOrchestrator
 from tui_bar import InteractiveProgressStrategy, SilentProgressStrategy
@@ -31,7 +31,9 @@ def main() -> None:
 
     setup_logging(args.quiet)
 
-    logging.info("\nStarting Skroutz Price Alert...\n")
+    logging.info("")
+    logging.info("Starting Skroutz Price Alert...")
+    logging.info("")
 
     if args.quiet:
         update_checker = SilentUpdateChecker()
@@ -62,10 +64,12 @@ def main() -> None:
                 scraper_factory.close_all()
 
     except Timeout:
-        logging.error('\n🛑 Skroutz Price Alert script did not start! Another instance is currently running.\n')
+        logging.info("")
+        logging.error('🛑 Skroutz Price Alert script did not start! Another instance is currently running.')
+        logging.info("")
         sys.exit(EXIT_CODE_SKIPPED)
     except Exception:
-        save_traceback(DATA_DIR)
+        save_traceback()
         logging.info("")
         notifier.notify_crash()
         sys.exit(EXIT_CODE_ERROR)

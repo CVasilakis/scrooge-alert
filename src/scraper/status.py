@@ -8,7 +8,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT
 from validators import ConfigValidator
 from updater import InteractiveUpdateChecker
-from utils import setup_logging, get_systemd_properties, is_linger_enabled
+from utils import get_systemd_properties, is_linger_enabled
+from logger import setup_logging
 
 def main():
     """Main entry point for checking the status of the Skroutz Price Alert service.
@@ -23,7 +24,9 @@ def main():
 
     setup_logging()
 
-    logging.info("\nChecking Skroutz Price Alert Status...\n")
+    logging.info("")
+    logging.info("Checking Skroutz Price Alert Status...")
+    logging.info("")
 
     update_checker = InteractiveUpdateChecker()
     update_checker.check()

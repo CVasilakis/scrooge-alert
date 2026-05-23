@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from validators import ConfigValidator
 from notifier import Notifier
-from utils import setup_logging
+from logger import setup_logging
 
 def main():
     """Main entry point for sending a test notification.
@@ -17,7 +17,9 @@ def main():
     """
     setup_logging()
 
-    logging.info("\nSending Skroutz Price Alert Test Notification...\n")
+    logging.info("")
+    logging.info("Sending Skroutz Price Alert Test Notification...")
+    logging.info("")
 
     ConfigValidator.print_env_status(fatal_on_error=True, show_invalid_details=True)
 
@@ -28,7 +30,9 @@ def main():
         results = notifier.notify_test()
 
         if not results:
-            logging.info("\n🛑 No valid notification URL(s) found.\n")
+            logging.info("")
+            logging.info("🛑 No valid notification URL(s) found.")
+            logging.info("")
             return
 
         success_count = 0
@@ -46,9 +50,12 @@ def main():
             status_icon = "🛑"
         else:
             status_icon = "🟡"
-        logging.info(f"\n{status_icon} Test notification completed ({success_count} of {total_urls} URL(s) succeeded)!\n")
+        logging.info("")
+        logging.info(f"{status_icon} Test notification completed ({success_count} of {total_urls} URL(s) succeeded)!")
+        logging.info("")
     except Exception as e:
-        logging.error(f"🛑 An error occurred while sending test notification: {e}\n")
+        logging.error(f"🛑 An error occurred while sending test notification: {e}")
+        logging.info("")
 
 if __name__ == "__main__":
     main()

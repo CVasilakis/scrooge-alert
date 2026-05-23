@@ -281,9 +281,12 @@ You can easily test your notification setup using the `--ping` flag:
 ./scripts/run.sh --ping
 ```
 
-**3. Finding Crash Reports (Error Logs):**
+**3. Application Logs & Crash Reports:**
 
-If the script unexpectedly fails while running in the background, it saves the error details directly to the `data/error_log.txt` file.
+The application maintains comprehensive logs to help you monitor background executions and diagnose issues. You can find these files in the `logs/` directory:
+
+*   **Background Execution Logs (`logs/skroutz.log`):** When the script runs automatically in the background, all standard output is saved here. These logs rotate daily at midnight, and the system automatically retains the last 7 days of history to prevent excessive disk usage.
+*   **Crash Reports (`logs/error_log.txt`):** If the script unexpectedly fails or encounters a critical exception, it saves the detailed stack trace and error information directly to this file for easier debugging.
 
 ## ⚖️ Rate Limiting
 
