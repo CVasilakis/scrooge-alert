@@ -46,4 +46,4 @@ else
 fi
 
 printf "%b\n" "\nTo disable future background executions, run: ${CYAN}./scripts/disable.sh${NC}"
-printf "%b\n" "To completely remove the application, run: ${CYAN}./uninstall.sh${NC}\n"
+printf "%b\n" "To completely remove the application, run: ${CYAN}./scripts/uninstall.sh${NC}\n"

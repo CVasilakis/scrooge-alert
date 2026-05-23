@@ -41,7 +41,7 @@ if [ "$TIMER_ENABLED" != "enabled" ] && [ "$TIMER_ACTIVE" != "active" ] && \
    [ "$SERVICE_ACTIVE" != "active" ] && [ "$SERVICE_ACTIVE" != "activating" ]; then
     printf "%b\n" "\n${GREEN}The background service and timer are already disabled. Nothing to do.${NC}"
     printf "%b\n" "\nTo re-enable background execution, run: ${CYAN}./scripts/enable.sh${NC}"
-    printf "%b\n" "To completely remove the application, run: ${CYAN}./uninstall.sh${NC}\n"
+    printf "%b\n" "To completely remove the application, run: ${CYAN}./scripts/uninstall.sh${NC}\n"
     exit 0
 fi
 
@@ -55,4 +55,4 @@ systemctl --user reset-failed "$SERVICE_NAME.service" "$SERVICE_NAME.timer" 2>/d
 
 printf "%b\n" "\n${GREEN}Background execution disabled successfully.${NC}"
 printf "%b\n" "\nTo re-enable background execution, run: ${CYAN}./scripts/enable.sh${NC}"
-printf "%b\n" "To completely remove the application, run: ${CYAN}./uninstall.sh${NC}\n"
+printf "%b\n" "To completely remove the application, run: ${CYAN}./scripts/uninstall.sh${NC}\n"

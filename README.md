@@ -249,7 +249,7 @@ You might receive the following push notification alerts throughout the lifecycl
 To completely remove the background service and clean up the Python virtual environment, execute the uninstallation script:
 
 ```sh
-./uninstall.sh
+./scripts/uninstall.sh
 ```
 
 The uninstallation process safely performs the following actions:
@@ -367,7 +367,7 @@ The script relies entirely on your system's clock to generate the timestamps sav
 <summary><b>8. How do I move the project to a different folder?</b></summary>
 <br>
 
-1. Run `./uninstall.sh` in the old folder to clean up the existing background processes.
+1. Run `./scripts/uninstall.sh` in the old folder to clean up the existing background processes.
 2. Clone the repository into your new desired folder using Git.
 3. Move your `config/products.json` and `.env` files from the old folder to the new one.
 4. Run `./install.sh` in the new location to rebuild the environment and background timers.

@@ -61,8 +61,8 @@ fi
 if [ -f "$SCRIPT_DIR/scripts/enable.sh" ]; then
     chmod +x "$SCRIPT_DIR/scripts/enable.sh"
 fi
-if [ -f "$SCRIPT_DIR/uninstall.sh" ]; then
-    chmod +x "$SCRIPT_DIR/uninstall.sh"
+if [ -f "$SCRIPT_DIR/scripts/uninstall.sh" ]; then
+    chmod +x "$SCRIPT_DIR/scripts/uninstall.sh"
 fi
 if [ -f "$SCRIPT_DIR/update.sh" ]; then
     chmod +x "$SCRIPT_DIR/update.sh"

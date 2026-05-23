@@ -37,7 +37,7 @@ IS_ACTIVE=$(systemctl --user is-active "$SERVICE_NAME.timer" 2>/dev/null || true
 if [ "$IS_ENABLED" = "enabled" ] && [ "$IS_ACTIVE" = "active" ]; then
     printf "%b\n" "\n${GREEN}The background service timer is already enabled and active. Nothing to do.${NC}"
     printf "%b\n" "\nTo disable background execution, run: ${CYAN}./scripts/disable.sh${NC}"
-    printf "%b\n" "To completely remove the application, run: ${CYAN}./uninstall.sh${NC}\n"
+    printf "%b\n" "To completely remove the application, run: ${CYAN}./scripts/uninstall.sh${NC}\n"
     exit 0
 fi
 
@@ -47,7 +47,7 @@ printf "%b\n" "\n${CYAN}Enabling and starting background schedule (timer)...${NC
 if systemctl --user enable --now "$SERVICE_NAME.timer" >/dev/null 2>&1; then
     printf "%b\n" "\n${GREEN}Background execution enabled successfully.${NC}"
     printf "%b\n" "\nTo disable background execution, run: ${CYAN}./scripts/disable.sh${NC}"
-    printf "%b\n" "To completely remove the application, run: ${CYAN}./uninstall.sh${NC}\n"
+    printf "%b\n" "To completely remove the application, run: ${CYAN}./scripts/uninstall.sh${NC}\n"
 else
     printf "%b\n" "\n${RED}Error: Failed to enable the timer!${NC}"
     printf "%b\n" "${RED}Try running ./install.sh to fix the issue.${NC}\n"

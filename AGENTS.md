@@ -24,7 +24,7 @@ The application is primarily intended for automated background execution but pro
 - **Help Message:** Execute `./scripts/run.sh --help` to print the help message and view all available script arguments.
 - **Testing Notifications:** Run `./scripts/run.sh --ping` to send a test payload and verify that the Apprise URLs in your `.env` file are configured correctly.
 - **Health Checks:** Run `./scripts/run.sh --status` to perform a comprehensive health check. This validates the configuration (products and notification settings), checks for available script updates, and verifies the status of the background systemd service and timer.
-- **Uninstallation:** Execute `./uninstall.sh` to cleanly stop and disable the systemd services and remove the virtual environment (user data is preserved).
+- **Uninstallation:** Execute `./scripts/uninstall.sh` to cleanly stop and disable the systemd services and remove the virtual environment (user data is preserved).
 - **Exit Codes:** The script utilizes specific exit codes to indicate failure states when running as a service (these can be easily viewed using the `--status` flag):
   - **`15`**: Indicates an issue with the `config/products.json` file (e.g., file missing, wrong permissions, or invalid JSON).
   - **`16`**: Indicates an issue with the `.env` file configuration.
