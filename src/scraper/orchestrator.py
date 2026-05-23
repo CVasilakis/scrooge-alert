@@ -6,7 +6,7 @@ import time
 import sys
 from typing import Optional
 
-from config import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT
+from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT
 from exceptions import RateLimitError, ServerError, ScraperParseError
 from models import Product
 from clients.factory import ScraperFactory
@@ -16,20 +16,20 @@ from logger import save_traceback
 from tui_bar import ProgressStrategy, SilentProgressStrategy
 
 class ScrapingOrchestrator:
-    def __init__(self, products_manager: ProductsManager, scraper_factory: ScraperFactory, notifier: Notifier, data_dir: str, progress_strategy: Optional[ProgressStrategy] = None):
+    def __init__(self, products_manager: ProductsManager, scraper_factory: ScraperFactory, notifier: Notifier, config_dir: str, progress_strategy: Optional[ProgressStrategy] = None):
         """Initializes the ScrapingOrchestrator.
 
         Args:
             products_manager (ProductsManager): The manager for product data.
             scraper_factory (ScraperFactory): The factory to create web scrapers.
             notifier (Notifier): The service used to send notifications.
-            data_dir (str): The directory for saving data and error logs.
+            config_dir (str): The directory for saving user data and configuration.
             progress_strategy (Optional[ProgressStrategy]): The strategy for displaying progress.
         """
         self.products_manager = products_manager
         self.scraper_factory = scraper_factory
         self.notifier = notifier
-        self.data_dir = data_dir
+        self.config_dir = config_dir
         self.interrupted = False
         self.progress_strategy = progress_strategy or SilentProgressStrategy()
 

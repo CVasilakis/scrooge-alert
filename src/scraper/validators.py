@@ -5,7 +5,7 @@ import sys
 import apprise
 from dotenv import load_dotenv
 
-from config import BASE_DIR, DATA_DIR, PRODUCTS_FILE_PATH, EXIT_CODE_ENV_ERROR, EXIT_CODE_PRODUCTS_ERROR, APPRISE_PLACEHOLDERS
+from constants import BASE_DIR, CONFIG_DIR, PRODUCTS_FILE_PATH, EXIT_CODE_ENV_ERROR, EXIT_CODE_PRODUCTS_ERROR, APPRISE_PLACEHOLDERS
 from exceptions import EnvFileError, ProductFileError
 
 class ConfigValidator:
@@ -43,27 +43,27 @@ class ConfigValidator:
         Raises:
             ProductFileError: If the file is missing, unreadable, or contains invalid JSON.
         """
-        if not os.path.exists(DATA_DIR):
-            os.makedirs(DATA_DIR)
+        if not os.path.exists(CONFIG_DIR):
+            os.makedirs(CONFIG_DIR)
 
         if not os.path.exists(PRODUCTS_FILE_PATH) or not os.path.isfile(PRODUCTS_FILE_PATH):
-            raise ProductFileError("The data/products.json file is missing or not a file")
+            raise ProductFileError("The config/products.json file is missing or not a file")
 
         if not os.access(PRODUCTS_FILE_PATH, os.R_OK | os.W_OK):
-            raise ProductFileError("The data/products.json file has wrong permissions")
+            raise ProductFileError("The config/products.json file has wrong permissions")
 
         try:
             with open(PRODUCTS_FILE_PATH, 'r') as f:
                 data = json.load(f)
                 if not isinstance(data, dict) or not isinstance(data.get("products"), list):
-                    raise ProductFileError("The data/products.json file contains invalid JSON format")
+                    raise ProductFileError("The config/products.json file contains invalid JSON format")
 
                 products = data.get("products", [])
                 num_products = len(products)
                 faulty_count = sum(1 for p in products if not all(k in p for k in ("name", "url", "target_price")))
                 return num_products, faulty_count
         except (json.JSONDecodeError, OSError):
-            raise ProductFileError("The data/products.json file contains invalid JSON format")
+            raise ProductFileError("The config/products.json file contains invalid JSON format")
 
     @staticmethod
     def print_env_status(fatal_on_error: bool = False, show_invalid_details: bool = False) -> None:
@@ -141,9 +141,9 @@ class ConfigValidator:
         """
         try:
             num_products, faulty_count = ConfigValidator.check_products_file()
-            logging.info(f"✅ Loaded {num_products} products from data/products.json")
+            logging.info(f"✅ Loaded {num_products} products from config/products.json")
             if faulty_count > 0:
-                logging.warning(f"    ↳ ❗ Detected {faulty_count} misconfigured product(s) in data/products.json")
+                logging.warning(f"    ↳ ❗ Detected {faulty_count} misconfigured product(s) in config/products.json")
         except ProductFileError as e:
             icon = "🛑" if fatal_on_error else "❗"
             suffix = "!\n" if fatal_on_error else "!"

@@ -71,7 +71,7 @@ else
 fi
 
 printf "%b\n" "\n${GREEN}Uninstallation complete!${NC}"
-printf "%b\n" "\nUser configurations (.env, data/products.json) were NOT removed."
+printf "%b\n" "\nUser configurations (.env, config/products.json) were NOT removed."
 printf "%b\n" "User lingering (loginctl) was left enabled as other services might rely on it."
 printf "%b\n" "To reinstall the application, run: ${CYAN}./install.sh${NC}"
 printf "%b\n" "To completely purge everything, you can safely delete this folder.\n"

@@ -1,5 +1,5 @@
 import apprise
-from config import APPRISE_PLACEHOLDERS
+from constants import APPRISE_PLACEHOLDERS
 
 class Notifier:
     def __init__(self, notification_urls: str):

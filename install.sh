@@ -166,12 +166,12 @@ printf "%b\n" "${GREEN}Systemd timer configured successfully.${NC}"
 # LAST CHECKS
 # ------------------------------------------------------------------------------
 
-if [ ! -f "data/products.json" ] || [ ! -f ".env" ]; then
+if [ ! -f "config/products.json" ] || [ ! -f ".env" ]; then
     printf "%b\n" "\n${YELLOW}Note: Configuration required!${NC}"
 fi
 
-if [ ! -f "data/products.json" ]; then
-    printf "%b\n" "- Copy data/products.json.example to data/products.json"
+if [ ! -f "config/products.json" ]; then
+    printf "%b\n" "- Copy config/products.json.example to config/products.json"
     printf "%b\n" "  and fill it with your desired products."
 fi
 
@@ -180,7 +180,7 @@ if [ ! -f ".env" ]; then
     printf "%b\n" "  and configure your apprise notification URLs."
 fi
 
-if [ ! -f "data/products.json" ] || [ ! -f ".env" ]; then
+if [ ! -f "config/products.json" ] || [ ! -f ".env" ]; then
     printf "%b\n" "- Read the README.md file for more information."
 fi
 

@@ -5,7 +5,7 @@ import logging
 # Ensure the script directory is in the python path to allow imports when running as a module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT
+from constants import EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT
 from validators import ConfigValidator
 from updater import InteractiveUpdateChecker
 from utils import get_systemd_properties, is_linger_enabled
@@ -84,7 +84,7 @@ def main():
             completed_str = f"{YELLOW}Skipped{NC} (Another instance was running)"
         elif products_error:
             completed_icon = "❗"
-            completed_str = f"{RED}Failed{NC} (Issue with data/products.json file)"
+            completed_str = f"{RED}Failed{NC} (Issue with config/products.json file)"
         elif env_error:
             completed_icon = "❗"
             completed_str = f"{RED}Failed{NC} (Issue with .env file)"

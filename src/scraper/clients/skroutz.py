@@ -10,7 +10,7 @@ import tls_client
 from clients.base import BaseScraperClient
 from models import ScrapeResult
 from exceptions import ScraperError, RateLimitError, ServerError, ScraperParseError
-from config import DEFAULT_HEADERS_POOL
+from constants import DEFAULT_HEADERS_POOL
 
 class SkroutzClient(BaseScraperClient):
     def __init__(self):

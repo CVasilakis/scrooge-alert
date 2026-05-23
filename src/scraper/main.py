@@ -7,7 +7,7 @@ from filelock import FileLock, Timeout
 # Ensure the script directory is in the python path to allow imports when running as a module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import LOCK_FILE_PATH, LOCK_TIMEOUT, DATA_DIR, EXIT_CODE_SKIPPED, EXIT_CODE_ERROR, PRODUCTS_FILE_PATH
+from constants import LOCK_FILE_PATH, LOCK_TIMEOUT, CONFIG_DIR, EXIT_CODE_SKIPPED, EXIT_CODE_ERROR, PRODUCTS_FILE_PATH
 from validators import ConfigValidator
 from updater import InteractiveUpdateChecker, SilentUpdateChecker
 from data_manager import ProductsManager
@@ -58,7 +58,7 @@ def main() -> None:
         with lock:
             scraper_factory = ScraperFactory()
             try:
-                orchestrator = ScrapingOrchestrator(products_manager, scraper_factory, notifier, DATA_DIR, progress_strategy)
+                orchestrator = ScrapingOrchestrator(products_manager, scraper_factory, notifier, CONFIG_DIR, progress_strategy)
                 orchestrator.run()
             finally:
                 scraper_factory.close_all()

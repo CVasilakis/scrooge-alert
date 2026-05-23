@@ -21,7 +21,7 @@ def setup_logging(quiet: bool = False) -> None:
         quiet (bool): If True, logs to file silently. Otherwise, logs to terminal.
     """
     if quiet:
-        from config import LOGS_DIR
+        from constants import LOGS_DIR
 
         log_format = '[%(asctime)s] %(message)s'
         date_format = '%Y-%m-%d %H:%M:%S'
@@ -57,7 +57,7 @@ def save_traceback(url: Optional[str] = None, headers: Optional[Dict[str, str]] 
         url (Optional[str]): The URL associated with the error, if any.
         headers (Optional[Dict[str, str]]): HTTP headers associated with the error, if any.
     """
-    from config import LOGS_DIR
+    from constants import LOGS_DIR
 
     os.makedirs(LOGS_DIR, exist_ok=True)
     logging.error("🛑 An error occurred. Check logs/error_log.txt for details.")

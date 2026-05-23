@@ -2,7 +2,7 @@ import logging
 import subprocess
 from abc import ABC, abstractmethod
 
-from config import BASE_DIR
+from constants import BASE_DIR
 from exceptions import UpdateCheckError
 
 def check_for_updates() -> bool:
