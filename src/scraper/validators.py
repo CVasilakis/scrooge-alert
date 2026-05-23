@@ -5,7 +5,7 @@ import sys
 import apprise
 from dotenv import load_dotenv
 
-from constants import BASE_DIR, CONFIG_DIR, PRODUCTS_FILE_PATH, EXIT_CODE_ENV_ERROR, EXIT_CODE_PRODUCTS_ERROR, APPRISE_PLACEHOLDERS
+from constants import BASE_DIR, CONFIG_DIR, SKROUTZ_FILE_PATH, EXIT_CODE_ENV_ERROR, EXIT_CODE_PRODUCTS_ERROR, APPRISE_PLACEHOLDERS
 from exceptions import EnvFileError, ProductFileError
 
 class ConfigValidator:
@@ -35,7 +35,7 @@ class ConfigValidator:
 
     @staticmethod
     def check_products_file() -> tuple[int, int]:
-        """Validates the products.json file and counts products.
+        """Validates the skroutz.json file and counts products.
 
         Returns:
             tuple[int, int]: A tuple containing the total number of products and the number of faulty products.
@@ -46,24 +46,24 @@ class ConfigValidator:
         if not os.path.exists(CONFIG_DIR):
             os.makedirs(CONFIG_DIR)
 
-        if not os.path.exists(PRODUCTS_FILE_PATH) or not os.path.isfile(PRODUCTS_FILE_PATH):
-            raise ProductFileError("The config/products.json file is missing or not a file")
+        if not os.path.exists(SKROUTZ_FILE_PATH) or not os.path.isfile(SKROUTZ_FILE_PATH):
+            raise ProductFileError("The config/skroutz.json file is missing or not a file")
 
-        if not os.access(PRODUCTS_FILE_PATH, os.R_OK | os.W_OK):
-            raise ProductFileError("The config/products.json file has wrong permissions")
+        if not os.access(SKROUTZ_FILE_PATH, os.R_OK | os.W_OK):
+            raise ProductFileError("The config/skroutz.json file has wrong permissions")
 
         try:
-            with open(PRODUCTS_FILE_PATH, 'r') as f:
+            with open(SKROUTZ_FILE_PATH, 'r') as f:
                 data = json.load(f)
                 if not isinstance(data, dict) or not isinstance(data.get("products"), list):
-                    raise ProductFileError("The config/products.json file contains invalid JSON format")
+                    raise ProductFileError("The config/skroutz.json file contains invalid JSON format")
 
                 products = data.get("products", [])
                 num_products = len(products)
                 faulty_count = sum(1 for p in products if not all(k in p for k in ("name", "url", "target_price")))
                 return num_products, faulty_count
         except (json.JSONDecodeError, OSError):
-            raise ProductFileError("The config/products.json file contains invalid JSON format")
+            raise ProductFileError("The config/skroutz.json file contains invalid JSON format")
 
     @staticmethod
     def print_env_status(fatal_on_error: bool = False, show_invalid_details: bool = False) -> None:
@@ -141,9 +141,9 @@ class ConfigValidator:
         """
         try:
             num_products, faulty_count = ConfigValidator.check_products_file()
-            logging.info(f"✅ Loaded {num_products} products from config/products.json")
+            logging.info(f"✅ Loaded {num_products} products from config/skroutz.json")
             if faulty_count > 0:
-                logging.warning(f"    ↳ ❗ Detected {faulty_count} misconfigured product(s) in config/products.json")
+                logging.warning(f"    ↳ ❗ Detected {faulty_count} misconfigured product(s) in config/skroutz.json")
         except ProductFileError as e:
             icon = "🛑" if fatal_on_error else "❗"
             suffix = "!\n" if fatal_on_error else "!"

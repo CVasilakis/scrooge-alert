@@ -7,7 +7,7 @@ from filelock import FileLock, Timeout
 # Ensure the script directory is in the python path to allow imports when running as a module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from constants import LOCK_FILE_PATH, LOCK_TIMEOUT, CONFIG_DIR, EXIT_CODE_SKIPPED, EXIT_CODE_ERROR, PRODUCTS_FILE_PATH
+from constants import LOCK_FILE_PATH, LOCK_TIMEOUT, CONFIG_DIR, EXIT_CODE_SKIPPED, EXIT_CODE_ERROR, SKROUTZ_FILE_PATH
 from validators import ConfigValidator
 from updater import InteractiveUpdateChecker, SilentUpdateChecker
 from data_manager import ProductsManager
@@ -44,7 +44,7 @@ def main() -> None:
     update_checker.check()
     ConfigValidator.print_prod_status(fatal_on_error=True)
 
-    products_manager = ProductsManager(PRODUCTS_FILE_PATH)
+    products_manager = ProductsManager(SKROUTZ_FILE_PATH)
     products_manager.load()
 
     ConfigValidator.print_env_status(fatal_on_error=False)

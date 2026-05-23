@@ -102,10 +102,10 @@ class ProductsManager:
                 json.dump(self.products_data, file, indent=2)
             os.replace(temp_file_path, self.products_path)
             logging.info("")
-            logging.info("✅ Successfully updated config/products.json file")
+            logging.info("✅ Successfully updated config/skroutz.json file")
             logging.info("")
         except OSError as e:
             logging.info("")
-            logging.error("🛑 Failed to update config/products.json file!")
+            logging.error("🛑 Failed to update config/skroutz.json file!")
             logging.error(f"    ↳  {e}")
             logging.info("")

@@ -166,12 +166,12 @@ printf "%b\n" "${GREEN}Systemd timer configured successfully.${NC}"
 # LAST CHECKS
 # ------------------------------------------------------------------------------
 
-if [ ! -f "config/products.json" ] || [ ! -f ".env" ]; then
+if [ ! -f "config/skroutz.json" ] || [ ! -f ".env" ]; then
     printf "%b\n" "\n${YELLOW}Note: Configuration required!${NC}"
 fi
 
-if [ ! -f "config/products.json" ]; then
-    printf "%b\n" "- Copy config/products.json.example to config/products.json"
+if [ ! -f "config/skroutz.json" ]; then
+    printf "%b\n" "- Copy config/skroutz.json.example to config/skroutz.json"
     printf "%b\n" "  and fill it with your desired products."
 fi
 
@@ -180,7 +180,7 @@ if [ ! -f ".env" ]; then
     printf "%b\n" "  and configure your apprise notification URLs."
 fi
 
-if [ ! -f "config/products.json" ] || [ ! -f ".env" ]; then
+if [ ! -f "config/skroutz.json" ] || [ ! -f ".env" ]; then
     printf "%b\n" "- Read the README.md file for more information."
 fi
 

@@ -21,7 +21,7 @@
 4. [Installation](#-installation)
 5. [Configuration](#%EF%B8%8F-configuration)
    - [Notification Settings (.env)](#file-1-notification-settings-env)
-   - [Product Tracking (config/products.json)](#file-2-product-tracking-configproductsjson)
+   - [Product Tracking (config/skroutz.json)](#file-2-product-tracking-configproductsjson)
 6. [Usage](#-usage)
    - [Automated Systemd Run](#option-1-automated-run)
    - [Manual Run (CLI Flags)](#option-2-manual-run-cli-flags)
@@ -112,7 +112,7 @@ The scraper supports all Skroutz domains, dynamically detecting the locale and c
 
 ## ⚙️ Configuration
 
-All custom user parameters reside outside the source code logic. Apprise Notification URLs go in the `.env` file, and the Skroutz products you want to monitor go inside the `config/products.json` file.
+All custom user parameters reside outside the source code logic. Apprise Notification URLs go in the `.env` file, and the Skroutz products you want to monitor go inside the `config/skroutz.json` file.
 
 ### File 1: Notification Settings (`.env`)
 
@@ -129,16 +129,16 @@ You can specify multiple platforms by separating their URLs with commas. For ins
 NOTIFICATION_URLS = tgram://<token>/<chat_id>, discord://<webhook_id>/<webhook_token>
 ```
 
-### File 2: Product Tracking (`config/products.json`)
+### File 2: Product Tracking (`config/skroutz.json`)
 
-The `config/` directory stores your product monitoring list. Copy the provided `config/products.json.example` template to create your initial tracking file:
+The `config/` directory stores your product monitoring list. Copy the provided `config/skroutz.json.example` template to create your initial tracking file:
 
 ```sh
-cp config/products.json.example config/products.json
-nano config/products.json
+cp config/skroutz.json.example config/skroutz.json
+nano config/skroutz.json
 ```
 
-Afterwards, open `config/products.json` and populate it with the items you want to keep an eye on. For example, if you wish to track two products, your file should be structured like this:
+Afterwards, open `config/skroutz.json` and populate it with the items you want to keep an eye on. For example, if you wish to track two products, your file should be structured like this:
 
 ```json
 {
@@ -207,7 +207,7 @@ If you run the script without any flags, it will execute normally and output its
 
 #### Status Check:
 
-If you run the script using the `--status` flag, the script verifies the integrity of your `config/products.json` file, validates your environment variables in `.env` file, and queries systemd to display the following background execution details:
+If you run the script using the `--status` flag, the script verifies the integrity of your `config/skroutz.json` file, validates your environment variables in `.env` file, and queries systemd to display the following background execution details:
 
 ```sh
 ./scripts/run.sh --status
@@ -258,7 +258,7 @@ The uninstallation process safely performs the following actions:
 * Deletes the Python virtual environment (`venv`).
 
 > [!NOTE]
-> **User Data:** Your personal configurations, specifically the `.env` and `config/products.json` files, are preserved by the uninstallation script to prevent accidental data loss. If you wish to completely purge the application, simply delete the `skroutz-price-alert` directory after running the uninstallation script.
+> **User Data:** Your personal configurations, specifically the `.env` and `config/skroutz.json` files, are preserved by the uninstallation script to prevent accidental data loss. If you wish to completely purge the application, simply delete the `skroutz-price-alert` directory after running the uninstallation script.
 > 
 > **User Lingering:** The script purposefully leaves systemd user lingering enabled, as other background services on your system may rely on it. If you are certain that no other services require this functionality, you can manually disable it by running: `loginctl disable-linger $USER`
 
@@ -266,7 +266,7 @@ The uninstallation process safely performs the following actions:
 
 **1. Failing to Fetch Products:**
 
-If the script cannot retrieve data for certain items, begin by checking for broken links in your `config/products.json` file. Invalid URLs are often redirected to similar products by Skroutz.
+If the script cannot retrieve data for certain items, begin by checking for broken links in your `config/skroutz.json` file. Invalid URLs are often redirected to similar products by Skroutz.
 If the URLs are correct but failures persist across multiple products, your connection has likely been temporarily restricted by the website's anti-bot protection. To mitigate this, reduce your network traffic by tracking fewer products, or decrease the script's run frequency by editing `~/.config/systemd/user/skroutz-price-alert.timer`.
 
 > [!TIP]  
@@ -297,7 +297,7 @@ The default configuration applies rate limiting to reduce traffic and increase t
 *   A base 20s delay, plus randomized jitter (1-5s), is enforced between requests.
 
 > [!TIP]
-> Periodically remove items from `config/products.json` once you purchase them or abandon interest. Also avoid decreasing the scraping delays. Over-frequent scraping will trigger strict anti-bot mechanisms and the script will fail to fetch the product data.
+> Periodically remove items from `config/skroutz.json` once you purchase them or abandon interest. Also avoid decreasing the scraping delays. Over-frequent scraping will trigger strict anti-bot mechanisms and the script will fail to fetch the product data.
 
 ## ❓ Frequently Asked Questions
 
@@ -360,7 +360,7 @@ To mimic human behavior, the script spaces out its requests. It applies a base d
 <summary><b>7. Why are the timestamps in my product list showing the wrong time?</b></summary>
 <br>
 
-The script relies entirely on your system's clock to generate the timestamps saved in `config/products.json`. If the time looks wrong, your operating system's clock or timezone is likely out of sync. You can usually fix this by updating your server's time settings.
+The script relies entirely on your system's clock to generate the timestamps saved in `config/skroutz.json`. If the time looks wrong, your operating system's clock or timezone is likely out of sync. You can usually fix this by updating your server's time settings.
 </details>
 
 <details>
@@ -369,7 +369,7 @@ The script relies entirely on your system's clock to generate the timestamps sav
 
 1. Run `./scripts/uninstall.sh` in the old folder to clean up the existing background processes.
 2. Clone the repository into your new desired folder using Git.
-3. Move your `config/products.json` and `.env` files from the old folder to the new one.
+3. Move your `config/skroutz.json` and `.env` files from the old folder to the new one.
 4. Run `./install.sh` in the new location to rebuild the environment and background timers.
 5. Safely delete the old project folder.
 </details>
@@ -401,6 +401,7 @@ To re-enable background scheduled executions later, run:
 ## 🗺️ Future Updates (Roadmap)
 
 - [x] **Enhanced Evasion:** Rotate TLS sessions and request fingerprints intelligently.
+- [ ] **Multi-Marketplace Expansion:** Support more scrapers for other marketplaces.
 - [ ] **User Interface:** Introduction of a Web UI for non-CLI management.
 - [ ] **Docker Support:** Add an alternative Dockerized setup via docker-compose configuration.
 

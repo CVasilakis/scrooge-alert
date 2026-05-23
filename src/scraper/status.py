@@ -84,7 +84,7 @@ def main():
             completed_str = f"{YELLOW}Skipped{NC} (Another instance was running)"
         elif products_error:
             completed_icon = "❗"
-            completed_str = f"{RED}Failed{NC} (Issue with config/products.json file)"
+            completed_str = f"{RED}Failed{NC} (Issue with config/skroutz.json file)"
         elif env_error:
             completed_icon = "❗"
             completed_str = f"{RED}Failed{NC} (Issue with .env file)"
