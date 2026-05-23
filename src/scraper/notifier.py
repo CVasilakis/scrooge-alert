@@ -71,7 +71,7 @@ class Notifier:
         """
         return self.notify(
             title='Skroutz Scraping Errors',
-            body='The Skroutz Price Alert script encountered errors while checking some of your products. Please review the error logs for more details.'
+            body='The Scrooge Alert script encountered errors while checking some of your products. Please review the error logs for more details.'
         )
 
     def notify_crash(self) -> bool:
@@ -82,7 +82,7 @@ class Notifier:
         """
         return self.notify(
             title='Skroutz Script Crash',
-            body='The Skroutz Price Alert script failed unexpectedly. Please review the error logs for more details on the crash.'
+            body='The Scrooge Alert script failed unexpectedly. Please review the error logs for more details on the crash.'
         )
 
     def notify_test(self) -> list:
@@ -92,7 +92,7 @@ class Notifier:
             list: A list of tuples containing the identifier and the success status (bool).
         """
         title = 'Skroutz Test Notification'
-        body = 'This is a test message to confirm that your Skroutz Price Alert notifications are configured correctly!'
+        body = 'This is a test message to confirm that your Scrooge Alert notifications are configured correctly!'
 
         results = []
         for server in self.app_notif.servers:

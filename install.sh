@@ -23,8 +23,8 @@ REQUIREMENTS_FILE="requirements.txt"
 MAIN_SCRIPT="scripts/run.sh"
 
 # Systemd Configurations
-SERVICE_NAME="skroutz-price-alert"
-SERVICE_DESC="Skroutz Price Alert notification task"
+SERVICE_NAME="skroutz-scraper"
+SERVICE_DESC="Scrooge Alert notification task for skroutz"
 
 
 # ==============================================================================

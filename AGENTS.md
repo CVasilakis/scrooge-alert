@@ -1,4 +1,4 @@
-# Skroutz Price Alert - Development Context
+# Scrooge Alert - Development Context
 
 ## Project Overview
 This project is an automated Python application designed to monitor product prices across Skroutz domains and send push notifications when prices drop below user-defined target thresholds. 
@@ -18,7 +18,7 @@ This project is an automated Python application designed to monitor product pric
 The application is primarily intended for automated background execution but provides wrapper scripts for easy management and manual testing.
 
 - **Installation:** Execute `./install.sh`. This script creates the Python virtual environment, installs dependencies, and configures an hourly systemd user timer.
-- **Automated Execution:** Handled automatically by the systemd service (`skroutz-price-alert.timer`).
+- **Automated Execution:** Handled automatically by the systemd service (`skroutz-scraper.timer`).
 - **Service Management:** Use `./scripts/disable.sh` to temporarily stop and disable the background timer, `./scripts/enable.sh` to resume it, and `./scripts/stop.sh` to forcefully kill a running execution.
 - **Manual Execution:** Execute `./scripts/run.sh` to run the scraper interactively and view output logs in the terminal.
 - **Help Message:** Execute `./scripts/run.sh --help` to print the help message and view all available script arguments.

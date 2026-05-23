@@ -18,21 +18,21 @@ from orchestrator import ScrapingOrchestrator
 from tui_bar import InteractiveProgressStrategy, SilentProgressStrategy
 
 def main() -> None:
-    """Main entry point for the Skroutz Price Alert scraper application.
+    """Main entry point for the Scrooge Alert application.
 
     This function initializes the environment, parses arguments, sets up logging,
     checks for updates, loads products, and starts the scraping orchestrator.
     It manages file locks to prevent multiple concurrent instances and handles
     unexpected errors by notifying the user and saving tracebacks.
     """
-    parser = argparse.ArgumentParser(description='Skroutz Price Alert scraper')
+    parser = argparse.ArgumentParser(description='Scrooge Alert scraper')
     parser.add_argument('--quiet', action='store_true', help='Run script with no console output')
     args, _ = parser.parse_known_args()
 
     setup_logging(args.quiet)
 
     logging.info("")
-    logging.info("Starting Skroutz Price Alert...")
+    logging.info("Starting Scrooge Alert...")
     logging.info("")
 
     if args.quiet:
@@ -65,7 +65,7 @@ def main() -> None:
 
     except Timeout:
         logging.info("")
-        logging.error('🛑 Skroutz Price Alert script did not start! Another instance is currently running.')
+        logging.error('🛑 Scrooge Alert script did not start! Another instance is currently running.')
         logging.info("")
         sys.exit(EXIT_CODE_SKIPPED)
     except Exception:

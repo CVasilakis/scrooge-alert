@@ -1,6 +1,6 @@
 <h1 align="center">
   <img src="assets/banner.svg" alt="Project Banner" width="120"><br>
-  Skroutz Price Alert
+  Scrooge Alert
 </h1>
 
 <p align="center">An open-source Skroutz web scraper and price monitor. Receive automated push notifications when products reach your desired price.</p>
@@ -93,8 +93,8 @@ The scraper supports all Skroutz domains, dynamically detecting the locale and c
 2. **Clone the repository:**
 
     ```sh
-    git clone https://github.com/CVasilakis/skroutz-price-alert
-    cd skroutz-price-alert
+    git clone https://github.com/CVasilakis/scrooge-alert
+    cd scrooge-alert
     ```
 
 3. **Run the installation script:**
@@ -230,7 +230,7 @@ If you want to test whether your `.env` notification URLs are configured correct
 This will send a test message to each configured Apprise URL(s). It will output a report of successes and failures, helping you quickly identify and debug any misconfigured notification endpoints.
 
 > [!TIP]
-> If the script fails to run in the background or you do not receive expected notifications, please consult the [Troubleshooting & Debugging](#-troubleshooting--debugging) section. If your problem persists, feel free to [open an issue](https://github.com/CVasilakis/skroutz-price-alert/issues).
+> If the script fails to run in the background or you do not receive expected notifications, please consult the [Troubleshooting & Debugging](#-troubleshooting--debugging) section. If your problem persists, feel free to [open an issue](https://github.com/CVasilakis/scrooge-alert/issues).
 
 ## 🔔 Notifications & Messages
 
@@ -240,9 +240,9 @@ You might receive the following push notification alerts throughout the lifecycl
 | :--- | :--- |
 | **Skroutz Price Drop Alert!** | `"{Product} is now available for ..."` <br> Sent when a product's price falls below your price limit. |
 | **Skroutz Tracking Stale** | `"The scraping for "{Product}" hasn't been successfully completed in over 48 hours..."` <br> Sent if a specific product continuously fails the scrape. |
-| **Skroutz Scraping Errors** | `"The Skroutz Price Alert script encountered errors while checking some of your products..."` <br> Sent if the application hits fatal request limits or unhandled exceptions. |
-| **Skroutz Script Crash** | `"The Skroutz Price Alert script failed unexpectedly. Please review the error logs..."` <br> Sent if the script completely failed to run. |
-| **Skroutz Test Notification** | `"This is a test message to confirm that your Skroutz Price Alert notifications are configured correctly!"` <br> Sent when manually invoking the script with the `--ping` flag. |
+| **Skroutz Scraping Errors** | `"The Scrooge Alert script encountered errors while checking some of your products..."` <br> Sent if the application hits fatal request limits or unhandled exceptions. |
+| **Skroutz Script Crash** | `"The Scrooge Alert script failed unexpectedly. Please review the error logs..."` <br> Sent if the script completely failed to run. |
+| **Skroutz Test Notification** | `"This is a test message to confirm that your Scrooge Alert notifications are configured correctly!"` <br> Sent when manually invoking the script with the `--ping` flag. |
 
 ## 🗑️ Uninstallation
 
@@ -258,7 +258,7 @@ The uninstallation process safely performs the following actions:
 * Deletes the Python virtual environment (`venv`).
 
 > [!NOTE]
-> **User Data:** Your personal configurations, specifically the `.env` and `config/skroutz.json` files, are preserved by the uninstallation script to prevent accidental data loss. If you wish to completely purge the application, simply delete the `skroutz-price-alert` directory after running the uninstallation script.
+> **User Data:** Your personal configurations, specifically the `.env` and `config/skroutz.json` files, are preserved by the uninstallation script to prevent accidental data loss. If you wish to completely purge the application, simply delete the `scrooge-alert` directory after running the uninstallation script.
 > 
 > **User Lingering:** The script purposefully leaves systemd user lingering enabled, as other background services on your system may rely on it. If you are certain that no other services require this functionality, you can manually disable it by running: `loginctl disable-linger $USER`
 
@@ -267,7 +267,7 @@ The uninstallation process safely performs the following actions:
 **1. Failing to Fetch Products:**
 
 If the script cannot retrieve data for certain items, begin by checking for broken links in your `config/skroutz.json` file. Invalid URLs are often redirected to similar products by Skroutz.
-If the URLs are correct but failures persist across multiple products, your connection has likely been temporarily restricted by the website's anti-bot protection. To mitigate this, reduce your network traffic by tracking fewer products, or decrease the script's run frequency by editing `~/.config/systemd/user/skroutz-price-alert.timer`.
+If the URLs are correct but failures persist across multiple products, your connection has likely been temporarily restricted by the website's anti-bot protection. To mitigate this, reduce your network traffic by tracking fewer products, or decrease the script's run frequency by editing `~/.config/systemd/user/skroutz-scraper.timer`.
 
 > [!TIP]  
 > For the best results, this script should **not** be run behind a VPN and should ideally be executed from a standard Greek residential IP address. High traffic coming from known VPS providers, data centers, or VPNs is very likely to trigger strict anti-bot mechanisms, causing the script to fail.
@@ -312,7 +312,7 @@ To confirm the script is running in the background, use the `--status` flag. If 
 ```
 
 The systemd execution metrics reported by the `--status` flag only reflect background scheduled executions, not manual runs.
-If the command reveals any warnings, please run `./update.sh` which re-installs the background service and ensures that you are on the latest version. If the issue persists after updating, please [open an issue](https://github.com/CVasilakis/skroutz-price-alert/issues) for further assistance.
+If the command reveals any warnings, please run `./update.sh` which re-installs the background service and ensures that you are on the latest version. If the issue persists after updating, please [open an issue](https://github.com/CVasilakis/scrooge-alert/issues) for further assistance.
 </details>
 
 <details>
@@ -405,12 +405,12 @@ To re-enable background scheduled executions later, run:
 - [ ] **User Interface:** Introduction of a Web UI for non-CLI management.
 - [ ] **Docker Support:** Add an alternative Dockerized setup via docker-compose configuration.
 
-To see all the undergoing feature requests or to request a new feature, please check the [open issues](https://github.com/CVasilakis/skroutz-price-alert/issues).
+To see all the undergoing feature requests or to request a new feature, please check the [open issues](https://github.com/CVasilakis/scrooge-alert/issues).
 
 ## 🤝 Contributing & Issues
 
 Contributions are always welcome! If you have an idea to make this project better, feel free to fork the repository and submit a pull request.
-If you encounter a bug or run into any issues, please [open an issue](https://github.com/CVasilakis/skroutz-price-alert/issues). To help me resolve it quickly, include as much detail as possible.
+If you encounter a bug or run into any issues, please [open an issue](https://github.com/CVasilakis/scrooge-alert/issues). To help me resolve it quickly, include as much detail as possible.
 
 ## 💝 Support & Donations
 

@@ -18,7 +18,7 @@ def main():
     setup_logging()
 
     logging.info("")
-    logging.info("Sending Skroutz Price Alert Test Notification...")
+    logging.info("Sending Scrooge Alert Test Notification...")
     logging.info("")
 
     ConfigValidator.print_env_status(fatal_on_error=True, show_invalid_details=True)

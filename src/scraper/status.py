@@ -12,7 +12,7 @@ from utils import get_systemd_properties, is_linger_enabled
 from logger import setup_logging
 
 def main():
-    """Main entry point for checking the status of the Skroutz Price Alert service.
+    """Main entry point for checking the status of the Scrooge Alert service.
 
     This function retrieves status information from systemd, validates configuration,
     checks for updates, and prints a formatted status report to the console.
@@ -25,7 +25,7 @@ def main():
     setup_logging()
 
     logging.info("")
-    logging.info("Checking Skroutz Price Alert Status...")
+    logging.info("Checking Scrooge Alert Status...")
     logging.info("")
 
     update_checker = InteractiveUpdateChecker()
@@ -33,8 +33,8 @@ def main():
     ConfigValidator.print_prod_status(fatal_on_error=False)
     ConfigValidator.print_env_status(fatal_on_error=False)
 
-    timer_props = get_systemd_properties('skroutz-price-alert.timer', 'ActiveState,NextElapseUSecRealtime')
-    service_props = get_systemd_properties('skroutz-price-alert.service', 'ActiveState,Result,ExecMainStartTimestamp,ExecMainStatus')
+    timer_props = get_systemd_properties('skroutz-scraper.timer', 'ActiveState,NextElapseUSecRealtime')
+    service_props = get_systemd_properties('skroutz-scraper.service', 'ActiveState,Result,ExecMainStartTimestamp,ExecMainStatus')
     linger_enabled_val = is_linger_enabled()
 
     linger_icon = "✅" if linger_enabled_val else "❗"

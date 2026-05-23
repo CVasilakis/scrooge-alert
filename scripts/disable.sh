@@ -17,7 +17,7 @@ NC='\033[0m' # No Color
 # Get the directory where the script is located
 SCRIPT_DIR="$( cd "$( dirname "$0" )" >/dev/null 2>&1 && pwd )"
 
-SERVICE_NAME="skroutz-price-alert"
+SERVICE_NAME="skroutz-scraper"
 SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
 cd "$SCRIPT_DIR"

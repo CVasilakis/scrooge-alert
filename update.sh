@@ -20,13 +20,13 @@ main() {
     # Get the directory where the script is located
     SCRIPT_DIR="$( cd "$( dirname "$0" )" >/dev/null 2>&1 && pwd )"
 
-    SERVICE_NAME="skroutz-price-alert"
+    SERVICE_NAME="skroutz-scraper"
 
     # ==============================================================================
     # EXECUTION
     # ==============================================================================
 
-    printf "%b\n" "\n${CYAN}Updating Skroutz Price Alert...${NC}"
+    printf "%b\n" "\n${CYAN}Updating Scrooge Alert...${NC}"
 
     cd "$SCRIPT_DIR"
 
