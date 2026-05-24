@@ -190,7 +190,7 @@ You can manually interact with the application using the wrapper script. The wra
 
 | Flag&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Action |
 | :--- | :--- |
-| `--quiet` | Suppresses all console output. This is used by the systemd setup to prevent log spam. |
+| `--quiet` | Suppresses all console output and redirects execution logs to the `logs/` directory. This is utilized by the systemd setup to ensure silent background operation. |
 | `--status` | Performs a comprehensive health check. It validates the configuration, and verifies the background systemd service and timer status. |
 | `--ping` | Sends a test notification directly to your configured Apprise URLs, then immediately exits. Helps pinpoint `.env` misconfigurations. |
 
@@ -236,13 +236,13 @@ This will send a test message to each configured Apprise URL(s). It will output 
 
 You might receive the following push notification alerts throughout the lifecycle of the script:
 
-| Notification Title | Body / Cause |
+| Notification Title | Trigger Condition |
 | :--- | :--- |
-| **Skroutz Price Drop Alert!** | `"{Product} is now available for ..."` <br> Sent when a product's price falls below your price limit. |
-| **Skroutz Tracking Stale** | `"The scraping for "{Product}" hasn't been successfully completed in over 48 hours..."` <br> Sent if a specific product continuously fails the scrape. |
-| **Skroutz Scraping Errors** | `"The Scrooge Alert script encountered errors while checking some of your products..."` <br> Sent if the application hits fatal request limits or unhandled exceptions. |
-| **Skroutz Script Crash** | `"The Scrooge Alert script failed unexpectedly. Please review the error logs..."` <br> Sent if the script completely failed to run. |
-| **Skroutz Test Notification** | `"This is a test message to confirm that your Scrooge Alert notifications are configured correctly!"` <br> Sent when manually invoking the script with the `--ping` flag. |
+| **Scrooge Alert - Price Drop!** | Sent when a product's price falls below your price limit. |
+| **Scrooge Alert - Tracking Stale** | Sent if a specific product continuously fails the scrape. |
+| **Scrooge Alert - Scraping Errors** | Sent if the application hits request limits or unhandled exceptions. |
+| **Scrooge Alert - Script Crash** | Sent if the script completely failed to run. |
+| **Scrooge Alert - Test Notification** | Sent when manually invoking the script with the `--ping` flag. |
 
 ## 🗑️ Uninstallation
 

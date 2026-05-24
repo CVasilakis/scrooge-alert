@@ -124,7 +124,7 @@ class ScrapingOrchestrator:
             last_checked=datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
         )
 
-    def _process_product(self, row: dict, index: int) -> tuple[bool, bool]:
+    def _process_product(self, row: dict, index: int) -> tuple[Exception | None, bool]:
         """Processes a single product from the configuration, attempting to scrape it.
 
         Args:
@@ -132,8 +132,8 @@ class ScrapingOrchestrator:
             index (int): The index of the product in the list.
 
         Returns:
-            tuple[bool, bool]: A tuple containing two boolean values:
-                - has_errors: True if an error occurred during processing.
+            tuple[Exception | None, bool]: A tuple containing:
+                - error: The Exception that caused the failure, or None if successful.
                 - abort_scraping: True if scraping should be aborted entirely (e.g., rate limit).
         """
         product = Product.from_dict(row)
@@ -141,22 +141,22 @@ class ScrapingOrchestrator:
         if product.skip:
             logging.info("")
             logging.info(f"🔕 {product.name}: Skipped (skip field set to true)")
-            return False, False
+            return None, False
 
         if index >= 0:
             logging.info("")
 
         self._sleep_with_jitter(MIN_DELAY_SECONDS)
         if self.interrupted:
-            return False, False
+            return None, False
 
         if not product.url:
             logging.warning(f"❗ {product.name}: URL is missing, skipping product.")
-            return False, False
+            return None, False
 
         if product.target_price < 0:
             logging.warning(f"❗ {product.name}: Invalid target price '{row.get('target_price')}', skipping product.")
-            return False, False
+            return None, False
 
         if 'target_price' not in row:
             logging.warning(f"❗ {product.name}: Target price is missing, defaulting to 0.0.")
@@ -181,6 +181,8 @@ class ScrapingOrchestrator:
 
             except ScraperParseError as e:
                 logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__}: {e}).")
+                if attempt == MAX_RETRIES - 1:
+                    return e, False
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except RateLimitError as e:
@@ -188,23 +190,23 @@ class ScrapingOrchestrator:
                 if attempt == MAX_RETRIES - 1:
                     logging.error("🛑 RateLimitError: Max retries reached. Aborting scraping.")
                     save_traceback(url=product.url, headers=scraper.get_current_headers())
-                    return True, True
+                    return e, True
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except ServerError as e:
                 logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
                 if attempt == MAX_RETRIES - 1:
-                    break
+                    return e, False
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except Exception as e:
                 logging.error(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
                 if attempt == MAX_RETRIES - 1:
                     save_traceback(url=product.url, headers=scraper.get_current_headers())
-                    return True, False
+                    return e, False
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
 
-        return False, False
+        return None, False
 
     def run(self) -> None:
         """Starts the scraping orchestrator loop.
@@ -216,15 +218,16 @@ class ScrapingOrchestrator:
         signal.signal(signal.SIGTERM, self.signal_handler)
 
         products_data = self.products_manager.products_data.get("products", [])
-        has_errors = False
+        failed_items = []
         abort_scraping = False
 
         for index, row in enumerate(products_data):
             if abort_scraping or self.interrupted:
                 break
 
-            product_has_errors, product_abort = self._process_product(row, index)
-            has_errors = has_errors or product_has_errors
+            product_error, product_abort = self._process_product(row, index)
+            if product_error:
+                failed_items.append((Product.from_dict(row), product_error))
             abort_scraping = abort_scraping or product_abort
 
         self.products_manager.save_atomically()
@@ -232,8 +235,8 @@ class ScrapingOrchestrator:
         if not self.interrupted:
             self.check_for_old_entries(OLD_ENTRY_HOURS)
 
-        if not self.interrupted and has_errors:
-            self.notifier.notify_errors()
+        if not self.interrupted and failed_items:
+            self.notifier.notify_errors(failed_items)
 
         if self.interrupted:
             sys.exit(EXIT_CODE_INTERRUPT)

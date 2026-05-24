@@ -1,5 +1,9 @@
 import apprise
+from typing import TYPE_CHECKING
 from constants import APPRISE_PLACEHOLDERS
+
+if TYPE_CHECKING:
+    from models import Product
 
 class Notifier:
     def __init__(self, notification_urls: str):
@@ -16,6 +20,12 @@ class Notifier:
                 if url and not any(p in url for p in APPRISE_PLACEHOLDERS):
                     if self.app_notif.add(url):
                         self.has_services = True
+
+    def _extract_site(self, url: str) -> str:
+        """Extracts a human-readable site name from a product URL."""
+        if url and 'skroutz' in url.lower():
+            return 'Skroutz'
+        return "Unknown Site"
 
     def notify(self, title: str, body: str) -> bool:
         """Sends a notification with the given title and body.
@@ -42,9 +52,10 @@ class Notifier:
         Returns:
             bool: True if the notification was sent successfully, False otherwise.
         """
+        site = self._extract_site(url)
         return self.notify(
-            title='Skroutz Price Drop Alert!',
-            body=f'{product_name} is now available for {current_price}{currency}, which is below your target of {target_price}{currency}.\nView it here: {url}'
+            title='Scrooge Alert - Price Drop!',
+            body=f'{product_name} is now available for {current_price}{currency} in {site}, which is below your target of {target_price}{currency}.\nView it here: {url}'
         )
 
     def notify_old_entries(self, product_name: str, hours: int, url: str) -> bool:
@@ -58,21 +69,46 @@ class Notifier:
         Returns:
             bool: True if the notification was sent successfully, False otherwise.
         """
+        site = self._extract_site(url)
         return self.notify(
-            title='Skroutz Tracking Stale',
-            body=f'The scraping for "{product_name}" hasn\'t been successfully completed in over {hours} hours. Please check the error logs or verify if the URL is still valid.\nProduct URL: {url}'
+            title='Scrooge Alert - Tracking Stale',
+            body=f'The scraping for "{product_name}" on {site} hasn\'t been successfully completed in over {hours} hours. Please check the error logs or verify if the URL is still valid.\nProduct URL: {url}'
         )
 
-    def notify_errors(self) -> bool:
-        """Sends a notification indicating that errors occurred during scraping.
+    def notify_errors(self, failed_items: list[tuple['Product', Exception]]) -> bool:
+        """Sends a notification indicating that specific errors occurred during scraping.
+
+        Formats a summary of the failed products and their corresponding errors.
+        If many errors occurred, the list is truncated to prevent notification bloat.
+
+        Args:
+            failed_items (list[tuple[Product, Exception]]): A list of tuples containing
+                the product that failed and the exception that caused the failure.
 
         Returns:
             bool: True if the notification was sent successfully, False otherwise.
         """
-        return self.notify(
-            title='Skroutz Scraping Errors',
-            body='The Scrooge Alert script encountered errors while checking some of your products. Please review the error logs for more details.'
-        )
+        if not failed_items:
+            return False
+
+        # Extract site name from the first failed item to give context
+        site = self._extract_site(failed_items[0][0].url)
+        title = f'Scrooge Alert - Scraping Errors on {site}'
+
+        MAX_ERRORS_TO_SHOW = 5
+        body_lines = [f"The script encountered errors while checking {len(failed_items)} product(s) on {site}:\n"]
+
+        for product, error in failed_items[:MAX_ERRORS_TO_SHOW]:
+            error_type = type(error).__name__
+            body_lines.append(f"- {product.name}: {error_type}")
+
+        if len(failed_items) > MAX_ERRORS_TO_SHOW:
+            remaining = len(failed_items) - MAX_ERRORS_TO_SHOW
+            body_lines.append(f"... and {remaining} more errors.")
+
+        body_lines.append("\nPlease review the error logs for more details.")
+
+        return self.notify(title=title, body="\n".join(body_lines))
 
     def notify_crash(self) -> bool:
         """Sends a notification indicating that the script crashed unexpectedly.
@@ -81,8 +117,8 @@ class Notifier:
             bool: True if the notification was sent successfully, False otherwise.
         """
         return self.notify(
-            title='Skroutz Script Crash',
-            body='The Scrooge Alert script failed unexpectedly. Please review the error logs for more details on the crash.'
+            title='Scrooge Alert - Script Crash',
+            body='The script failed unexpectedly. Please review the error logs for more details on the crash.'
         )
 
     def notify_test(self) -> list:
@@ -91,7 +127,7 @@ class Notifier:
         Returns:
             list: A list of tuples containing the identifier and the success status (bool).
         """
-        title = 'Skroutz Test Notification'
+        title = 'Scrooge Alert - Test Notification'
         body = 'This is a test message to confirm that your Scrooge Alert notifications are configured correctly!'
 
         results = []
