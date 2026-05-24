@@ -4,6 +4,7 @@ import traceback
 import os
 from typing import Optional, Dict
 from logging.handlers import TimedRotatingFileHandler
+from constants import LOGS_DIR
 
 class NonEmptyFilter(logging.Filter):
     """Filter that prevents empty or whitespace-only log messages from being recorded."""
@@ -21,7 +22,6 @@ def setup_logging(quiet: bool = False) -> None:
         quiet (bool): If True, logs to file silently. Otherwise, logs to terminal.
     """
     if quiet:
-        from constants import LOGS_DIR
 
         log_format = '[%(asctime)s] %(message)s'
         date_format = '%Y-%m-%d %H:%M:%S'
@@ -57,11 +57,10 @@ def save_traceback(url: Optional[str] = None, headers: Optional[Dict[str, str]] 
         url (Optional[str]): The URL associated with the error, if any.
         headers (Optional[Dict[str, str]]): HTTP headers associated with the error, if any.
     """
-    from constants import LOGS_DIR
 
     os.makedirs(LOGS_DIR, exist_ok=True)
-    logging.error("🛑 An error occurred. Check logs/error_log.txt for details.")
-    log_path = os.path.join(LOGS_DIR, "error_log.txt")
+    logging.error("🛑 An error occurred. Check logs/errors.txt for details.")
+    log_path = os.path.join(LOGS_DIR, "errors.txt")
     time_now = datetime.datetime.now().strftime("%Y-%m-%d (%H:%M:%S)")
     with open(log_path, "a", newline='') as log_file:
         log_file.write(f"\n\nAn error occurred at {time_now}:\n")
