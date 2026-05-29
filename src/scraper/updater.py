@@ -45,12 +45,15 @@ class InteractiveUpdateChecker(UpdateCheckerStrategy):
             has_update = check_for_updates()
             print("\r" + " " * 30 + "\r", end="", flush=True)
             if has_update:
-                logging.info("✨ A new version is available! Run ./update.sh to update.\n")
+                logging.info("✨ A new version is available! Run ./update.sh to update.")
+                logging.info("")
             else:
                 logging.info("✅ You are running the latest version.")
-        except UpdateCheckError:
+        except UpdateCheckError as e:
             print("\r" + " " * 30 + "\r", end="", flush=True)
-            logging.info("❗ Could not check for script updates.\n")
+            logging.warning("❗ Could not check for script updates:")
+            logging.warning(f"    ↳ {e}")
+            logging.info("")
 
 class SilentUpdateChecker(UpdateCheckerStrategy):
     def check(self) -> None:

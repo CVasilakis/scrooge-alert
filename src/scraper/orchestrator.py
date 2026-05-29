@@ -44,6 +44,7 @@ class ScrapingOrchestrator:
         logging.info("")
         logging.info("")
         logging.info(f"🛑 Received signal {sig_name}. Gracefully shutting down...")
+        logging.info("")
         self.interrupted = True
 
     def _sleep_with_jitter(self, base_delay: float, attempt: int = 0) -> None:
@@ -180,29 +181,54 @@ class ScrapingOrchestrator:
                     break
 
             except ScraperParseError as e:
-                logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__}: {e}).")
                 if attempt == MAX_RETRIES - 1:
+                    logging.error(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
+                    logging.error(f"    ↳ ❗ {e}")
+                    logging.info("")
                     return e, False
+                else:
+                    logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
+                    logging.warning(f"    ↳ ❗ {e}")
+                    logging.info("")
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except RateLimitError as e:
-                logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
                 if attempt == MAX_RETRIES - 1:
+                    logging.error(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
+                    logging.error(f"    ↳ ❗ {e}")
+                    logging.info("")
                     logging.error("🛑 RateLimitError: Max retries reached. Aborting scraping.")
+                    logging.info("")
                     save_traceback(url=product.url, headers=scraper.get_current_headers())
                     return e, True
+                else:
+                    logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
+                    logging.warning(f"    ↳ ❗ {e}")
+                    logging.info("")
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except ServerError as e:
-                logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
                 if attempt == MAX_RETRIES - 1:
+                    logging.error(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
+                    logging.error(f"    ↳ ❗ {e}")
+                    logging.info("")
                     return e, False
+                else:
+                    logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
+                    logging.warning(f"    ↳ ❗ {e}")
+                    logging.info("")
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except Exception as e:
-                logging.error(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!\n    ↳ ❗ {e}\n")
                 if attempt == MAX_RETRIES - 1:
+                    logging.error(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
+                    logging.error(f"    ↳ ❗ {e}")
+                    logging.info("")
                     save_traceback(url=product.url, headers=scraper.get_current_headers())
                     return e, False
+                else:
+                    logging.warning(f"{product.name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
+                    logging.warning(f"    ↳ ❗ {e}")
+                    logging.info("")
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
 
@@ -243,3 +269,5 @@ class ScrapingOrchestrator:
 
         if abort_scraping:
             sys.exit(EXIT_CODE_RATE_LIMIT_ERROR)
+
+        logging.info("")

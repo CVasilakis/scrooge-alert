@@ -126,11 +126,12 @@ class ConfigValidator:
                 if invalid_urls:
                     logging.warning(f"    ↳ ❗ Also found {len(invalid_urls)} invalid notification URL(s) in .env")
         except EnvFileError as e:
-            icon = "🛑" if fatal_on_error else "❗"
-            suffix = "!\n" if fatal_on_error else "!"
-            logging.warning(f"{icon} {e}{suffix}")
             if fatal_on_error:
+                logging.error(f"🛑 {e}!")
+                logging.info("")
                 sys.exit(EXIT_CODE_ENV_ERROR)
+            else:
+                logging.warning(f"❗ {e}!")
 
     @staticmethod
     def print_prod_status(fatal_on_error: bool = False) -> None:
@@ -145,8 +146,9 @@ class ConfigValidator:
             if faulty_count > 0:
                 logging.warning(f"    ↳ ❗ Detected {faulty_count} misconfigured product(s) in config/skroutz.json")
         except ProductFileError as e:
-            icon = "🛑" if fatal_on_error else "❗"
-            suffix = "!\n" if fatal_on_error else "!"
-            logging.warning(f"{icon} {e}{suffix}")
             if fatal_on_error:
+                logging.error(f"🛑 {e}!")
+                logging.info("")
                 sys.exit(EXIT_CODE_PRODUCTS_ERROR)
+            else:
+                logging.warning(f"❗ {e}!")

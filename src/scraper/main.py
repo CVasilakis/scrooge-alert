@@ -69,8 +69,10 @@ def main() -> None:
         logging.info("")
         sys.exit(EXIT_CODE_SKIPPED)
     except Exception:
-        save_traceback()
         logging.info("")
+        logging.error("🛑 A fatal error occurred! Check logs/errors.txt for details.")
+        logging.info("")
+        save_traceback()
         notifier.notify_crash()
         sys.exit(EXIT_CODE_ERROR)
 

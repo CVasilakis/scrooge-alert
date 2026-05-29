@@ -48,9 +48,9 @@ class SilentProgressStrategy(ProgressStrategy):
         pass
 
     def complete(self, actual_delay: float) -> None:
-        """Logs the completed sleep time silently.
+        """A no-op for completing progress silently.
 
         Args:
-            actual_delay (float): The total actual time slept in seconds.
+            actual_delay (float): The total actual time slept in seconds (ignored).
         """
-        logging.info(f"⏳ Slept for {actual_delay:.1f} seconds")
+        pass

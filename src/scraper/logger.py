@@ -59,7 +59,6 @@ def save_traceback(url: Optional[str] = None, headers: Optional[Dict[str, str]] 
     """
 
     os.makedirs(LOGS_DIR, exist_ok=True)
-    logging.error("🛑 An error occurred. Check logs/errors.txt for details.")
     log_path = os.path.join(LOGS_DIR, "errors.txt")
     time_now = datetime.datetime.now().strftime("%Y-%m-%d (%H:%M:%S)")
     with open(log_path, "a", newline='') as log_file:
