@@ -2,12 +2,11 @@ import argparse
 import sys
 import os
 import logging
-from filelock import FileLock, Timeout
 
 # Ensure the script directory is in the python path to allow imports when running as a module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from constants import LOCK_FILE_PATH, LOCK_TIMEOUT, CONFIG_DIR, EXIT_CODE_SKIPPED, EXIT_CODE_ERROR, SKROUTZ_FILE_PATH
+from constants import CONFIG_DIR, EXIT_CODE_ERROR, SKROUTZ_FILE_PATH
 from validators import ConfigValidator
 from updater import InteractiveUpdateChecker, SilentUpdateChecker
 from data_manager import ProductsManager
@@ -22,11 +21,11 @@ def main() -> None:
 
     This function initializes the environment, parses arguments, sets up logging,
     checks for updates, loads products, and starts the scraping orchestrator.
-    It manages file locks to prevent multiple concurrent instances and handles
-    unexpected errors by notifying the user and saving tracebacks.
+    It delegates file locking and scraping execution to the ScrapingOrchestrator.
     """
     parser = argparse.ArgumentParser(description='Scrooge Alert scraper')
     parser.add_argument('--quiet', action='store_true', help='Run script with no console output')
+    parser.add_argument('--skroutz', action='store_true', help='Run the Skroutz scraper')
     args, _ = parser.parse_known_args()
 
     setup_logging(args.quiet)
@@ -52,22 +51,23 @@ def main() -> None:
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
     notifier = Notifier(notification_urls)
 
-    lock = FileLock(LOCK_FILE_PATH, timeout=LOCK_TIMEOUT)
+    registered_scrapers = ['skroutz']
+    targets_to_run = []
+    
+    if args.skroutz:
+        targets_to_run.append('skroutz')
+        
+    if not targets_to_run:
+        targets_to_run = registered_scrapers
 
     try:
-        with lock:
-            scraper_factory = ScraperFactory()
-            try:
-                orchestrator = ScrapingOrchestrator(products_manager, scraper_factory, notifier, CONFIG_DIR, progress_strategy)
-                orchestrator.run()
-            finally:
-                scraper_factory.close_all()
+        scraper_factory = ScraperFactory()
+        try:
+            orchestrator = ScrapingOrchestrator(targets_to_run, products_manager, scraper_factory, notifier, CONFIG_DIR, progress_strategy)
+            orchestrator.run()
+        finally:
+            scraper_factory.close_all()
 
-    except Timeout:
-        logging.info("")
-        logging.error('🛑 Scrooge Alert script did not start! Another instance is currently running.')
-        logging.info("")
-        sys.exit(EXIT_CODE_SKIPPED)
     except Exception:
         logging.info("")
         logging.error("🛑 A fatal error occurred! Check logs/errors.txt for details.")

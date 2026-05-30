@@ -25,3 +25,7 @@ class ProductFileError(Exception):
 class UpdateCheckError(Exception):
     """Raised when there is an issue checking for script updates."""
     pass
+
+class LockAcquisitionError(Exception):
+    """Raised when a lock cannot be acquired because it is held by another process."""
+    pass

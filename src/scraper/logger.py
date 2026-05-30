@@ -21,13 +21,13 @@ def setup_logging(quiet: bool = False) -> None:
     Args:
         quiet (bool): If True, logs to file silently. Otherwise, logs to terminal.
     """
+    # Ensure the logs directory exists regardless of quiet mode for the lock file
+    os.makedirs(LOGS_DIR, exist_ok=True)
+
     if quiet:
 
         log_format = '[%(asctime)s] %(message)s'
         date_format = '%Y-%m-%d %H:%M:%S'
-
-        # Ensure the logs directory exists
-        os.makedirs(LOGS_DIR, exist_ok=True)
 
         log_path = os.path.join(LOGS_DIR, "skroutz.log")
 

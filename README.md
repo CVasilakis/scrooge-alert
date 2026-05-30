@@ -188,11 +188,21 @@ You can manually interact with the application using the wrapper script. The wra
 
 #### Available CLI Flags:
 
+**Execution Flags:**
+These flags modify the overall behavior of the script or trigger user assistance routines.
+
 | Flag&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Action |
 | :--- | :--- |
 | `--quiet` | Suppresses all console output and redirects execution logs to the `logs/` directory. This is utilized by the systemd setup to ensure silent background operation. |
 | `--status` | Performs a comprehensive health check. It validates the configuration, and verifies the background systemd service and timer status. |
 | `--ping` | Sends a test notification directly to your configured Apprise URLs, then immediately exits. Helps pinpoint `.env` misconfigurations. |
+
+**Target Scraper Flags:**
+These flags allow you to isolate execution to specific platforms. If no target flags are provided, the script defaults to running all registered scrapers sequentially. They can be combined with `--quiet`.
+
+| Flag&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Action |
+| :--- | :--- |
+| `--skroutz` | Activates the Skroutz scraper. |
 
 #### Normal Execution:
 
@@ -203,7 +213,7 @@ If you run the script without any flags, it will execute normally and output its
 ```
 
 > [!NOTE]
-> Only one instance of the script is allowed to run at a time to avoid triggering anti-bot protections. If a background execution is currently in progress, your manual run will be blocked until it completes. If you need to forcefully stop the active background execution to run the script manually, you can safely use the stop script: `./scripts/stop.sh`. This stops the current background run but will not break any future scheduled executions.
+> Only one instance of a specific scraper is allowed to run at a time to avoid triggering anti-bot protections. If a background execution for a domain (e.g., Skroutz) is currently in progress, your manual run for that domain will be blocked and skipped. If you need to forcefully stop all active background executions to run the scraper manually, you can safely use the stop script: `./scripts/stop.sh`. This stops all the current background runs but will not break any future scheduled executions.
 
 #### Status Check:
 

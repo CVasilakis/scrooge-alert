@@ -16,7 +16,6 @@ BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 CONFIG_DIR: str = os.path.join(BASE_DIR, "config")
 LOGS_DIR: str = os.path.join(BASE_DIR, "logs")
 SKROUTZ_FILE_PATH: str = os.path.join(CONFIG_DIR, "skroutz.json")
-LOCK_FILE_PATH: str = os.path.join(BASE_DIR, "skroutz_scraper_running.lock")
 
 # --- Scraping Configuration ---
 

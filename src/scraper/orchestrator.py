@@ -6,8 +6,9 @@ import time
 import sys
 from typing import Optional
 
+from lock_manager import ScraperLockManager
 from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT
-from exceptions import RateLimitError, ServerError, ScraperParseError
+from exceptions import RateLimitError, ServerError, ScraperParseError, LockAcquisitionError
 from models import Product
 from clients.factory import ScraperFactory
 from data_manager import ProductsManager
@@ -16,16 +17,18 @@ from logger import save_traceback
 from tui_bar import ProgressStrategy, SilentProgressStrategy
 
 class ScrapingOrchestrator:
-    def __init__(self, products_manager: ProductsManager, scraper_factory: ScraperFactory, notifier: Notifier, config_dir: str, progress_strategy: Optional[ProgressStrategy] = None):
+    def __init__(self, targets_to_run: list, products_manager: ProductsManager, scraper_factory: ScraperFactory, notifier: Notifier, config_dir: str, progress_strategy: Optional[ProgressStrategy] = None):
         """Initializes the ScrapingOrchestrator.
 
         Args:
+            targets_to_run (list): A list of scraper types to run.
             products_manager (ProductsManager): The manager for product data.
             scraper_factory (ScraperFactory): The factory to create web scrapers.
             notifier (Notifier): The service used to send notifications.
             config_dir (str): The directory for saving user data and configuration.
             progress_strategy (Optional[ProgressStrategy]): The strategy for displaying progress.
         """
+        self.targets_to_run = targets_to_run
         self.products_manager = products_manager
         self.scraper_factory = scraper_factory
         self.notifier = notifier
@@ -237,7 +240,7 @@ class ScrapingOrchestrator:
     def run(self) -> None:
         """Starts the scraping orchestrator loop.
 
-        Iterates through all configured products, attempts to scrape them,
+        Iterates through all configured targets, attempts to scrape their products,
         and manages the overall workflow, including saving state and error reporting.
         """
         signal.signal(signal.SIGINT, self.signal_handler)
@@ -246,17 +249,49 @@ class ScrapingOrchestrator:
         products_data = self.products_manager.products_data.get("products", [])
         failed_items = []
         abort_scraping = False
+        needs_save = False
 
-        for index, row in enumerate(products_data):
+        # Group products by target
+        products_by_target = {target: [] for target in self.targets_to_run}
+        for row in products_data:
+            url = row.get('url', '')
+            if not url:
+                continue
+            try:
+                target = self.scraper_factory.get_scraper_type(url)
+                if target in products_by_target:
+                    products_by_target[target].append(row)
+            except ValueError:
+                # Unsupported domain, handled during validation or later, skip here
+                continue
+
+        for target in self.targets_to_run:
             if abort_scraping or self.interrupted:
                 break
 
-            product_error, product_abort = self._process_product(row, index)
-            if product_error:
-                failed_items.append((Product.from_dict(row), product_error))
-            abort_scraping = abort_scraping or product_abort
+            target_products = products_by_target.get(target, [])
+            if not target_products:
+                continue
 
-        self.products_manager.save_atomically()
+            try:
+                with ScraperLockManager.acquire(target):
+                    for index, row in enumerate(target_products):
+                        if abort_scraping or self.interrupted:
+                            break
+
+                        product_error, product_abort = self._process_product(row, index)
+                        if product_error:
+                            failed_items.append((Product.from_dict(row), product_error))
+                        abort_scraping = abort_scraping or product_abort
+                        needs_save = True
+
+            except LockAcquisitionError:
+                logging.info("")
+                logging.warning(f"🛑 Another instance of the {target} scraper is currently running. Aborting...")
+                continue
+
+        if needs_save:
+            self.products_manager.save_atomically()
 
         if not self.interrupted:
             self.check_for_old_entries(OLD_ENTRY_HOURS)

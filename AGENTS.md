@@ -29,7 +29,7 @@ The application is primarily intended for automated background execution but pro
   - **`15`**: Indicates an issue with the `config/skroutz.json` file (e.g., file missing, wrong permissions, or invalid JSON).
   - **`16`**: Indicates an issue with the `.env` file configuration.
   - **`17`**: Indicates the scraper was blocked by the server due to rate limits.
-  - **`42`**: Indicates that the script did not start because another instance is already running (file lock timeout).
+  - **`42`**: Indicates that a specific scraper target did not start because another instance of it is already running (file lock timeout).
   - **`130`**: Indicates that the script was interrupted (e.g., via Ctrl+C or system termination).
 
 ## Development Conventions
