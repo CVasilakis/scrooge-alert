@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 from constants import APPRISE_PLACEHOLDERS
 
 if TYPE_CHECKING:
-    from models import Product
+    from models.base import BaseTrackedItem
 
 class Notifier:
     def __init__(self, notification_urls: str):
@@ -75,7 +75,7 @@ class Notifier:
             body=f'The scraping for "{product_name}" on {site} hasn\'t been successfully completed in over {hours} hours. Please check the error logs or verify if the URL is still valid.\nProduct URL: {url}'
         )
 
-    def notify_errors(self, failed_items: list[tuple['Product', Exception]]) -> bool:
+    def notify_errors(self, failed_items: list[tuple['BaseTrackedItem', Exception]]) -> bool:
         """Sends a notification indicating that specific errors occurred during scraping.
 
         Formats a summary of the failed products and their corresponding errors.
@@ -100,7 +100,8 @@ class Notifier:
 
         for product, error in failed_items[:MAX_ERRORS_TO_SHOW]:
             error_type = type(error).__name__
-            body_lines.append(f"- {product.name}: {error_type}")
+            item_name = getattr(product, 'name', 'Unknown Item')
+            body_lines.append(f"- {item_name}: {error_type}")
 
         if len(failed_items) > MAX_ERRORS_TO_SHOW:
             remaining = len(failed_items) - MAX_ERRORS_TO_SHOW

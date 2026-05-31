@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Optional
-from models import ScrapeResult
+from models.base import ScrapeResult
 
 class BaseScraperClient(ABC):
     @abstractmethod

@@ -5,8 +5,10 @@ import logging
 # Ensure the script directory is in the python path to allow imports when running as a module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from constants import EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT
-from validators import ConfigValidator
+from constants import EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, CONFIG_DIR
+from validators import EnvValidator
+from exceptions import StorageFileError
+from storage.factory import DataManagerFactory
 from updater import InteractiveUpdateChecker
 from utils import get_systemd_properties, is_linger_enabled
 from logger import setup_logging
@@ -30,8 +32,22 @@ def main():
 
     update_checker = InteractiveUpdateChecker()
     update_checker.check()
-    ConfigValidator.print_prod_status(fatal_on_error=False)
-    ConfigValidator.print_env_status(fatal_on_error=False)
+
+    data_manager_factory = DataManagerFactory(CONFIG_DIR)
+    registered_scrapers = ['skroutz'] # Assuming all by default for status
+    for target in registered_scrapers:
+        try:
+            manager = data_manager_factory.get_manager(target)
+            total, faulty = manager.validate_storage()
+            logging.info(f"✅ Loaded {total} items from {target} config")
+            if faulty > 0:
+                logging.warning(f"    ↳ ❗ Detected {faulty} misconfigured item(s) in {target} config")
+        except StorageFileError as e:
+            logging.warning(f"❗ {e}!")
+        except ValueError:
+            continue
+
+    EnvValidator.print_env_status(fatal_on_error=False)
 
     timer_props = get_systemd_properties('skroutz-scraper.timer', 'ActiveState,NextElapseUSecRealtime')
     service_props = get_systemd_properties('skroutz-scraper.service', 'ActiveState,Result,ExecMainStartTimestamp,ExecMainStatus')

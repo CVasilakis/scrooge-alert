@@ -9,13 +9,13 @@ class ScraperFactory:
 
     def get_scraper_type(self, url: str) -> str:
         """Determines the scraper type based on the URL domain.
-        
+
         Args:
             url (str): The product URL.
-            
+
         Returns:
             str: The identifier for the scraper type (e.g., 'skroutz').
-            
+
         Raises:
             ValueError: If the URL belongs to an unsupported domain.
         """

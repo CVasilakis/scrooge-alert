@@ -2,11 +2,15 @@ import json
 import os
 import logging
 from urllib.parse import urlparse
-from typing import Dict, Any
+from typing import Dict, Any, List
+from .base import BaseDataManager
+from models.skroutz import Product
+from exceptions import StorageFileError
+from constants import CONFIG_DIR
 
-class ProductsManager:
+class SkroutzDataManager(BaseDataManager):
     def __init__(self, products_path: str):
-        """Initializes the ProductsManager.
+        """Initializes the SkroutzDataManager.
 
         Args:
             products_path (str): The file path to the products JSON file.
@@ -43,14 +47,8 @@ class ProductsManager:
         parsed = urlparse(url)
         return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
 
-    def update_product(self, url: str, last_price: float, last_checked: str) -> None:
-        """Caches updates for a product based on its clean URL.
-
-        Args:
-            url (str): The URL of the product.
-            last_price (float): The most recent scraped price.
-            last_checked (str): The formatted timestamp of the last check.
-        """
+    def update_item(self, url: str, last_price: float, last_checked: str) -> None:
+        """Caches updates for a product based on its clean URL."""
         clean_url = self._get_clean_url(url)
         self.product_updates[clean_url] = {
             'last_price': last_price,
@@ -106,3 +104,42 @@ class ProductsManager:
             logging.error("🛑 Failed to update config/skroutz.json file!")
             logging.error(f"    ↳  {e}")
             logging.info("")
+
+    def parse_item(self, data: Dict[str, Any]) -> Product:
+        """Parses a dictionary into a Product."""
+        return Product.from_dict(data)
+
+    def get_items(self) -> List[Dict[str, Any]]:
+        """Returns the list of products as dictionaries."""
+        return self.products_data.get("products", [])
+
+    def validate_storage(self) -> tuple[int, int]:
+        """Validates the skroutz.json file and counts products.
+
+        Returns:
+            tuple[int, int]: A tuple containing the total number of products and the number of faulty products.
+
+        Raises:
+            StorageFileError: If the file is missing, unreadable, or contains invalid JSON.
+        """
+        if not os.path.exists(CONFIG_DIR):
+            os.makedirs(CONFIG_DIR)
+
+        if not os.path.exists(self.products_path) or not os.path.isfile(self.products_path):
+            raise StorageFileError("The config/skroutz.json file is missing or not a file")
+
+        if not os.access(self.products_path, os.R_OK | os.W_OK):
+            raise StorageFileError("The config/skroutz.json file has wrong permissions")
+
+        try:
+            with open(self.products_path, 'r') as f:
+                data = json.load(f)
+                if not isinstance(data, dict) or not isinstance(data.get("products"), list):
+                    raise StorageFileError("The config/skroutz.json file contains invalid JSON format")
+
+                products = data.get("products", [])
+                num_products = len(products)
+                faulty_count = sum(1 for p in products if not all(k in p for k in ("name", "url", "target_price")))
+                return num_products, faulty_count
+        except (json.JSONDecodeError, OSError):
+            raise StorageFileError("The config/skroutz.json file contains invalid JSON format")

@@ -5,9 +5,9 @@ This project is an automated Python application designed to monitor product pric
 
 - **Main Technologies:** Python 3, `apprise` (for versatile push notifications via Telegram, Discord, etc.), `tls_client` (for evasive web scraping by mimicking browser TLS fingerprints), and systemd (for automated background scheduling on Linux).
 - **Architecture:** The application features a modular, extensible architecture residing in `src/core/`. The entrypoint is `main.py`, which delegates to specialized modules:
-  - **Models (`models.py`)**: Data Transfer Objects (`Product`, `ScrapeResult`) for strict type safety.
+  - **Models (`models/`)**: Data Transfer Objects (`BaseTrackedItem`, `Product`, `ScrapeResult`) for strict type safety.
+  - **Storage & State (`storage/`)**: Employs the Factory pattern (`DataManagerFactory`) to load JSON configuration specific to each domain/scraper.
   - **Network & Clients (`clients/`)**: Employs the Strategy/Interface pattern (`BaseScraperClient`) and a Factory pattern (`ScraperFactory`) to dynamically load store-specific scrapers (e.g., `SkroutzClient`). TLS sessions are persisted for performance.
-  - **Data Access (`data_manager.py`)**: `ProductsManager` handles data I/O and state.
   - **Orchestration (`orchestrator.py`)**: `ScrapingOrchestrator` runs a store-agnostic execution loop.
   - **Configuration & Validation (`config.py`, `validators.py`)**: Centralized constants and environment/file health checks.
   - **Terminal UI (`tui_bar.py`)**: Manages the interactive progress bar during sleep intervals using the Strategy pattern (`ProgressStrategy`).

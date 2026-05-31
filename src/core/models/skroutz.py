@@ -1,25 +1,19 @@
 from dataclasses import dataclass
+from typing import Dict, Any
+from .base import BaseTrackedItem
 
 @dataclass
-class ScrapeResult:
-    price: float
-    currency: str
-
-@dataclass
-class Product:
-    name: str
-    url: str
-    target_price: float
-    skip: bool = False
+class Product(BaseTrackedItem):
+    name: str = "Unknown"
+    target_price: float = 0.0
     last_price: float = 0.0
-    last_checked: str = ""
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'Product':
+    def from_dict(cls, data: Dict[str, Any]) -> 'Product':
         """Creates a Product instance from a dictionary.
 
         Args:
-            data (dict): The dictionary containing product data.
+            data (Dict[str, Any]): The dictionary containing product data.
 
         Returns:
             Product: A new Product instance populated with data from the dictionary.

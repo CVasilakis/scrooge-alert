@@ -6,10 +6,11 @@ import logging
 # Ensure the script directory is in the python path to allow imports when running as a module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from constants import CONFIG_DIR, EXIT_CODE_ERROR, SKROUTZ_FILE_PATH
-from validators import ConfigValidator
+from constants import CONFIG_DIR, EXIT_CODE_ERROR, EXIT_CODE_PRODUCTS_ERROR
+from validators import EnvValidator
+from exceptions import StorageFileError
 from updater import InteractiveUpdateChecker, SilentUpdateChecker
-from data_manager import ProductsManager
+from storage.factory import DataManagerFactory
 from notifier import Notifier
 from logger import setup_logging, save_traceback
 from clients.factory import ScraperFactory
@@ -41,29 +42,41 @@ def main() -> None:
         update_checker = InteractiveUpdateChecker()
         progress_strategy = InteractiveProgressStrategy()
     update_checker.check()
-    ConfigValidator.print_prod_status(fatal_on_error=True)
 
-    products_manager = ProductsManager(SKROUTZ_FILE_PATH)
-    products_manager.load()
+    data_manager_factory = DataManagerFactory(CONFIG_DIR)
 
-    ConfigValidator.print_env_status(fatal_on_error=False)
+    registered_scrapers = ['skroutz']
+    targets_to_run = []
+
+    if args.skroutz:
+        targets_to_run.append('skroutz')
+
+    if not targets_to_run:
+        targets_to_run = registered_scrapers
+
+    for target in targets_to_run:
+        try:
+            manager = data_manager_factory.get_manager(target)
+            total, faulty = manager.validate_storage()
+            logging.info(f"✅ Loaded {total} items from {target} config")
+            if faulty > 0:
+                logging.warning(f"    ↳ ❗ Detected {faulty} misconfigured item(s) in {target} config")
+        except StorageFileError as e:
+            logging.error(f"🛑 {e}!")
+            logging.info("")
+            sys.exit(EXIT_CODE_PRODUCTS_ERROR)
+        except ValueError:
+            continue
+
+    EnvValidator.print_env_status(fatal_on_error=False)
 
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
     notifier = Notifier(notification_urls)
 
-    registered_scrapers = ['skroutz']
-    targets_to_run = []
-    
-    if args.skroutz:
-        targets_to_run.append('skroutz')
-        
-    if not targets_to_run:
-        targets_to_run = registered_scrapers
-
     try:
         scraper_factory = ScraperFactory()
         try:
-            orchestrator = ScrapingOrchestrator(targets_to_run, products_manager, scraper_factory, notifier, CONFIG_DIR, progress_strategy)
+            orchestrator = ScrapingOrchestrator(targets_to_run, data_manager_factory, scraper_factory, notifier, CONFIG_DIR, progress_strategy)
             orchestrator.run()
         finally:
             scraper_factory.close_all()

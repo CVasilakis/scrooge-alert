@@ -8,7 +8,7 @@ import json
 import tls_client
 
 from clients.base import BaseScraperClient
-from models import ScrapeResult
+from models.base import ScrapeResult
 from exceptions import ScraperError, RateLimitError, ServerError, ScraperParseError
 from constants import DEFAULT_HEADERS_POOL
 

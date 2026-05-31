@@ -18,8 +18,8 @@ class EnvFileError(Exception):
     """Raised when there is an issue with the environment configuration."""
     pass
 
-class ProductFileError(Exception):
-    """Raised when there is an issue with the products data file."""
+class StorageFileError(Exception):
+    """Raised when there is an issue with a storage data file."""
     pass
 
 class UpdateCheckError(Exception):

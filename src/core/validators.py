@@ -1,14 +1,13 @@
 import os
-import json
 import logging
 import sys
 import apprise
 from dotenv import load_dotenv
 
-from constants import BASE_DIR, CONFIG_DIR, SKROUTZ_FILE_PATH, EXIT_CODE_ENV_ERROR, EXIT_CODE_PRODUCTS_ERROR, APPRISE_PLACEHOLDERS
-from exceptions import EnvFileError, ProductFileError
+from constants import BASE_DIR, EXIT_CODE_ENV_ERROR, APPRISE_PLACEHOLDERS
+from exceptions import EnvFileError
 
-class ConfigValidator:
+class EnvValidator:
     @staticmethod
     def check_env_file() -> None:
         """Validates the existence and contents of the .env file.
@@ -34,38 +33,6 @@ class ConfigValidator:
             raise EnvFileError("NOTIFICATION_URLS contains no valid notification URL(s)")
 
     @staticmethod
-    def check_products_file() -> tuple[int, int]:
-        """Validates the skroutz.json file and counts products.
-
-        Returns:
-            tuple[int, int]: A tuple containing the total number of products and the number of faulty products.
-
-        Raises:
-            ProductFileError: If the file is missing, unreadable, or contains invalid JSON.
-        """
-        if not os.path.exists(CONFIG_DIR):
-            os.makedirs(CONFIG_DIR)
-
-        if not os.path.exists(SKROUTZ_FILE_PATH) or not os.path.isfile(SKROUTZ_FILE_PATH):
-            raise ProductFileError("The config/skroutz.json file is missing or not a file")
-
-        if not os.access(SKROUTZ_FILE_PATH, os.R_OK | os.W_OK):
-            raise ProductFileError("The config/skroutz.json file has wrong permissions")
-
-        try:
-            with open(SKROUTZ_FILE_PATH, 'r') as f:
-                data = json.load(f)
-                if not isinstance(data, dict) or not isinstance(data.get("products"), list):
-                    raise ProductFileError("The config/skroutz.json file contains invalid JSON format")
-
-                products = data.get("products", [])
-                num_products = len(products)
-                faulty_count = sum(1 for p in products if not all(k in p for k in ("name", "url", "target_price")))
-                return num_products, faulty_count
-        except (json.JSONDecodeError, OSError):
-            raise ProductFileError("The config/skroutz.json file contains invalid JSON format")
-
-    @staticmethod
     def print_env_status(fatal_on_error: bool = False, show_invalid_details: bool = False) -> None:
         """Validates the .env file and prints the status to the log.
 
@@ -74,7 +41,7 @@ class ConfigValidator:
             show_invalid_details (bool): If True, logs details of invalid notification URLs.
         """
         try:
-            ConfigValidator.check_env_file()
+            EnvValidator.check_env_file()
             notification_urls = os.environ.get("NOTIFICATION_URLS", "")
             valid_urls = []
             invalid_urls = []
@@ -130,25 +97,5 @@ class ConfigValidator:
                 logging.error(f"🛑 {e}!")
                 logging.info("")
                 sys.exit(EXIT_CODE_ENV_ERROR)
-            else:
-                logging.warning(f"❗ {e}!")
-
-    @staticmethod
-    def print_prod_status(fatal_on_error: bool = False) -> None:
-        """Validates the products file and prints the status to the log.
-
-        Args:
-            fatal_on_error (bool): If True, exits the program when an error is encountered.
-        """
-        try:
-            num_products, faulty_count = ConfigValidator.check_products_file()
-            logging.info(f"✅ Loaded {num_products} products from config/skroutz.json")
-            if faulty_count > 0:
-                logging.warning(f"    ↳ ❗ Detected {faulty_count} misconfigured product(s) in config/skroutz.json")
-        except ProductFileError as e:
-            if fatal_on_error:
-                logging.error(f"🛑 {e}!")
-                logging.info("")
-                sys.exit(EXIT_CODE_PRODUCTS_ERROR)
             else:
                 logging.warning(f"❗ {e}!")
