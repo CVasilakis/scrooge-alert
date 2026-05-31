@@ -4,7 +4,7 @@
 This project is an automated Python application designed to monitor product prices across Skroutz domains and send push notifications when prices drop below user-defined target thresholds. 
 
 - **Main Technologies:** Python 3, `apprise` (for versatile push notifications via Telegram, Discord, etc.), `tls_client` (for evasive web scraping by mimicking browser TLS fingerprints), and systemd (for automated background scheduling on Linux).
-- **Architecture:** The application features a modular, extensible architecture residing in `src/scraper/`. The entrypoint is `main.py`, which delegates to specialized modules:
+- **Architecture:** The application features a modular, extensible architecture residing in `src/core/`. The entrypoint is `main.py`, which delegates to specialized modules:
   - **Models (`models.py`)**: Data Transfer Objects (`Product`, `ScrapeResult`) for strict type safety.
   - **Network & Clients (`clients/`)**: Employs the Strategy/Interface pattern (`BaseScraperClient`) and a Factory pattern (`ScraperFactory`) to dynamically load store-specific scrapers (e.g., `SkroutzClient`). TLS sessions are persisted for performance.
   - **Data Access (`data_manager.py`)**: `ProductsManager` handles data I/O and state.

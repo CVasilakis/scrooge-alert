@@ -213,6 +213,7 @@ __marimo__/
 *.pyc
 *.txt
 *.bak
+*.log.*
 !requirements*.txt
 GEMINI.md
 CLAUDE.md

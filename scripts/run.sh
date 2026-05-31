@@ -110,4 +110,4 @@ fi
 
 # Intentionally unquoted ARGS to allow multiple arguments to expand properly
 # shellcheck disable=SC2086
-exec "$BASE_DIR/venv/bin/python3" "$BASE_DIR/src/scraper/$TARGET" $ARGS
+exec "$BASE_DIR/venv/bin/python3" "$BASE_DIR/src/core/$TARGET" "$@"
