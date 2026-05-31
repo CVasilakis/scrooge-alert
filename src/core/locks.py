@@ -17,8 +17,10 @@ def acquire_lock(target_name: str):
     Raises:
         LockAcquisitionError: If the target is currently locked by another process.
     """
+    target_dir = os.path.join(LOGS_DIR, target_name)
+    os.makedirs(target_dir, exist_ok=True)
     lock_filename = f"{target_name}_scraper_running.lock"
-    lock_path = os.path.join(LOGS_DIR, lock_filename)
+    lock_path = os.path.join(target_dir, lock_filename)
     lock = FileLock(lock_path, timeout=LOCK_TIMEOUT)
 
     try:

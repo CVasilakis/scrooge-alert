@@ -225,7 +225,7 @@ class ScrapingOrchestrator:
                     target_logger.info("")
                     target_logger.error("🛑 RateLimitError: Max retries reached. Aborting scraping.")
                     target_logger.info("")
-                    save_traceback(target_logger, target_name=scraper.__class__.__name__, url=item.url, headers=scraper.get_current_headers())
+                    save_traceback(target_logger, target_name=target_logger.name.replace("scraper.", ""), url=item.url, headers=scraper.get_current_headers())
                     return e, True
                 else:
                     target_logger.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
@@ -249,7 +249,7 @@ class ScrapingOrchestrator:
                     target_logger.error(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
                     target_logger.error(f"    ↳ ❗ {e}")
                     target_logger.info("")
-                    save_traceback(target_logger, target_name=scraper.__class__.__name__, url=item.url, headers=scraper.get_current_headers())
+                    save_traceback(target_logger, target_name=target_logger.name.replace("scraper.", ""), url=item.url, headers=scraper.get_current_headers())
                     return e, False
                 else:
                     target_logger.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
@@ -305,8 +305,8 @@ class ScrapingOrchestrator:
                     data_manager.save_atomically()
 
             except LockAcquisitionError:
-                logging.info("")
-                logging.warning(f"🛑 Another instance of the {target} scraper is currently running. Aborting...")
+                target_logger.info("")
+                target_logger.warning(f"🛑 Another instance of the {target} scraper is currently running. Aborting...")
                 continue
 
         if not self.interrupted:

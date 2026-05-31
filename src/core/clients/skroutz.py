@@ -20,6 +20,7 @@ class SkroutzClient(BaseScraperClient):
             client_identifier="chrome120",  # type: ignore
             random_tls_extension_order=True
         )
+        self.logger = logging.getLogger("scraper.skroutz")
 
     def get_current_headers(self) -> Dict[str, str]:
         """Retrieves the current HTTP headers.
@@ -60,7 +61,7 @@ class SkroutzClient(BaseScraperClient):
         match = re.search(r'/s/(\d+)', parsed_url.path)
 
         if not match:
-            logging.warning(f"❗️ {product_name}: Failed to parse product ID from URL: {product_url}")
+            self.logger.warning(f"❗️ {product_name}: Failed to parse product ID from URL: {product_url}")
             return None
 
         product_id = match.group(1)
@@ -78,7 +79,7 @@ class SkroutzClient(BaseScraperClient):
             raise ScraperError("Empty response or no status code received from server")
 
         if response.status_code in (404, 410):
-            logging.warning(f"❗ {product_name}: Product not found or removed (HTTP {response.status_code}).")
+            self.logger.warning(f"❗ {product_name}: Product not found or removed (HTTP {response.status_code}).")
             return None
         elif response.status_code in (401, 403, 429):
             raise RateLimitError(f"Blocked or rate limited (HTTP {response.status_code})")
@@ -93,7 +94,7 @@ class SkroutzClient(BaseScraperClient):
             raise ScraperParseError(f"No JSON response: {e}")
 
         if response_data.get("price_min") is None:
-            logging.warning(f"❗️ {product_name}: Not available")
+            self.logger.warning(f"❗️ {product_name}: Not available")
             return None
 
         price_str = str(response_data["price_min"])
