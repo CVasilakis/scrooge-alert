@@ -11,55 +11,90 @@ class NonEmptyFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         return bool(record.getMessage().strip())
 
-def setup_logging(quiet: bool = False) -> None:
-    """Configures the application's logging level and format.
+def setup_global_logging(quiet: bool = False) -> None:
+    """Configures the global fallback logging level and format.
 
-    If 'quiet' is True, terminal output is silenced and logs are written
-    to a daily rotating file ('logs/skroutz.log').
-    Otherwise, logs are output to the terminal.
+    This is used by CLI tools (ping, status) and startup messages. 
+    It logs strictly to the terminal.
 
     Args:
-        quiet (bool): If True, logs to file silently. Otherwise, logs to terminal.
+        quiet (bool): If True, silences the global logger entirely.
     """
-    # Ensure the logs directory exists regardless of quiet mode for the lock file
     os.makedirs(LOGS_DIR, exist_ok=True)
+    
+    level = logging.CRITICAL if quiet else logging.INFO
+    
+    # Remove all handlers associated with the root logger object to reset it
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
 
-    if quiet:
-
-        log_format = '[%(asctime)s] %(message)s'
-        date_format = '%Y-%m-%d %H:%M:%S'
-
-        log_path = os.path.join(LOGS_DIR, "skroutz.log")
-
-        # Configure rotating log handler (rotates at midnight, keeps 7 days)
-        rotating_handler = TimedRotatingFileHandler(
-            log_path, when="midnight", interval=1, backupCount=7, encoding='utf-8'
-        )
-        rotating_handler.addFilter(NonEmptyFilter())
-
-        # Configure logging to save all messages (INFO level) to the file, and nothing to terminal
-        logging.basicConfig(
-            level=logging.INFO,
-            format=log_format,
-            datefmt=date_format,
-            handlers=[rotating_handler]
-        )
-    else:
-        logging.basicConfig(level=logging.INFO, format='%(message)s')
+    logging.basicConfig(level=level, format='%(message)s')
 
     logging.getLogger('apprise').setLevel(logging.CRITICAL)
     logging.getLogger('urllib3').setLevel(logging.CRITICAL)
 
-def save_traceback(url: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> None:
-    """Saves the current exception traceback to an error log file.
+def get_target_logger(target_name: str, quiet: bool = False) -> logging.Logger:
+    """Creates or retrieves a configured logger for a specific scraper target.
+
+    If 'quiet' is True, logs are written to a daily rotating file 
+    ('logs/{target_name}/output.log').
+    Otherwise, logs are output to the terminal via the root logger.
 
     Args:
+        target_name (str): The identifier for the scraper (e.g., 'skroutz').
+        quiet (bool): If True, logs to file silently. Otherwise, logs to terminal.
+
+    Returns:
+        logging.Logger: The configured logger instance.
+    """
+    logger = logging.getLogger(f"scraper.{target_name}")
+    logger.setLevel(logging.INFO)
+    
+    # Prevent the logger from passing messages to the root logger when in quiet mode
+    # so we don't accidentally print to terminal
+    logger.propagate = not quiet
+
+    # If handlers already exist, return the logger to prevent duplicate logs
+    if logger.handlers:
+        return logger
+
+    if quiet:
+        log_format = '[%(asctime)s] %(message)s'
+        date_format = '%Y-%m-%d %H:%M:%S'
+
+        target_logs_dir = os.path.join(LOGS_DIR, target_name)
+        os.makedirs(target_logs_dir, exist_ok=True)
+        log_path = os.path.join(target_logs_dir, "output.log")
+
+        rotating_handler = TimedRotatingFileHandler(
+            log_path, when="midnight", interval=1, backupCount=7, encoding='utf-8'
+        )
+        rotating_handler.addFilter(NonEmptyFilter())
+        rotating_handler.setFormatter(logging.Formatter(log_format, datefmt=date_format))
+        
+        logger.addHandler(rotating_handler)
+
+    return logger
+
+def save_traceback(logger: logging.Logger, target_name: Optional[str] = None, url: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> None:
+    """Saves the current exception traceback to a target-specific error log file.
+
+    Args:
+        logger (logging.Logger): The logger instance to log the error summary to.
+        target_name (Optional[str]): The identifier for the scraper. If None, saves to root logs dir.
         url (Optional[str]): The URL associated with the error, if any.
         headers (Optional[Dict[str, str]]): HTTP headers associated with the error, if any.
     """
-
-    os.makedirs(LOGS_DIR, exist_ok=True)
-    log_path = os.path.join(LOGS_DIR, "errors.txt")
+    if target_name:
+        target_logs_dir = os.path.join(LOGS_DIR, target_name)
+    else:
+        target_logs_dir = LOGS_DIR
+        
+    os.makedirs(target_logs_dir, exist_ok=True)
+    
+    log_path = os.path.join(target_logs_dir, "errors.txt")
+    logger.error(f"🛑 An error occurred! Check {log_path} for details.")
+    
     time_now = datetime.datetime.now().strftime("%Y-%m-%d (%H:%M:%S)")
     with open(log_path, "a", newline='') as log_file:
         log_file.write(f"\n\nAn error occurred at {time_now}:\n")

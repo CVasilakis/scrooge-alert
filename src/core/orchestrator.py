@@ -14,11 +14,11 @@ from clients.factory import ScraperFactory
 from storage.factory import DataManagerFactory
 from storage.base import BaseDataManager
 from notifier import Notifier
-from logger import save_traceback
+from logger import save_traceback, get_target_logger
 from tui_bar import ProgressStrategy, SilentProgressStrategy
 
 class ScrapingOrchestrator:
-    def __init__(self, targets_to_run: list, data_manager_factory: DataManagerFactory, scraper_factory: ScraperFactory, notifier: Notifier, config_dir: str, progress_strategy: Optional[ProgressStrategy] = None):
+    def __init__(self, targets_to_run: list, data_manager_factory: DataManagerFactory, scraper_factory: ScraperFactory, notifier: Notifier, config_dir: str, quiet: bool = False, progress_strategy: Optional[ProgressStrategy] = None):
         """Initializes the ScrapingOrchestrator.
 
         Args:
@@ -27,6 +27,7 @@ class ScrapingOrchestrator:
             scraper_factory (ScraperFactory): The factory to create web scrapers.
             notifier (Notifier): The service used to send notifications.
             config_dir (str): The directory for saving user data and configuration.
+            quiet (bool): Whether to log to file silently.
             progress_strategy (Optional[ProgressStrategy]): The strategy for displaying progress.
         """
         self.targets_to_run = targets_to_run
@@ -34,6 +35,7 @@ class ScrapingOrchestrator:
         self.scraper_factory = scraper_factory
         self.notifier = notifier
         self.config_dir = config_dir
+        self.quiet = quiet
         self.interrupted = False
         self.progress_strategy = progress_strategy or SilentProgressStrategy()
 
@@ -73,11 +75,12 @@ class ScrapingOrchestrator:
             actual_delay = time.time() - start_time
             self.progress_strategy.complete(actual_delay)
 
-    def check_for_old_entries(self, hours: int) -> None:
+    def check_for_old_entries(self, hours: int, target_logger: logging.Logger) -> None:
         """Checks if any product hasn't been successfully scraped recently.
 
         Args:
             hours (int): The threshold in hours to consider an entry 'old'.
+            target_logger (logging.Logger): The logger for the current target.
         """
         for target in self.targets_to_run:
             try:
@@ -98,11 +101,11 @@ class ScrapingOrchestrator:
                         if (current_time - timestamp) > datetime.timedelta(hours=hours):
                             # Ensure backwards compatibility for naming where possible
                             name = getattr(item, 'name', 'Unknown')
-                            logging.warning(f"❗ Old entry found for {name}: {item.url} (Last check: {item.last_checked})")
+                            target_logger.warning(f"❗ Old entry found for {name}: {item.url} (Last check: {item.last_checked})")
                             self.notifier.notify_old_entries(name, hours, item.url)
                     except ValueError:
                         name = getattr(item, 'name', 'Unknown')
-                        logging.warning(f"❗ Invalid timestamp format found for {name}: {item.last_checked}. Resetting clock.")
+                        target_logger.warning(f"❗ Invalid timestamp format found for {name}: {item.last_checked}. Resetting clock.")
                         data_manager.update_item(
                             url=item.url,
                             last_price=getattr(item, 'last_price', 0.0),
@@ -113,29 +116,30 @@ class ScrapingOrchestrator:
             if needs_save:
                 data_manager.save_atomically()
 
-    def _handle_successful_scrape(self, item: BaseTrackedItem, result, data_manager: BaseDataManager) -> None:
+    def _handle_successful_scrape(self, item: BaseTrackedItem, result, data_manager: BaseDataManager, target_logger: logging.Logger) -> None:
         """Processes a successful product scrape, sending notifications if necessary.
 
         Args:
             item (BaseTrackedItem): The product that was scraped.
             result (ScrapeResult): The result containing the current price and currency.
             data_manager (BaseDataManager): The data manager responsible for saving the updates.
+            target_logger (logging.Logger): The logger for the current target.
         """
         # Assume Product structure for current skroutz implementation compatibility
         name = getattr(item, 'name', 'Unknown')
         target_price = getattr(item, 'target_price', 0.0)
 
         if result.price < target_price:
-            logging.info(f"🎉 {name}: {result.price} {result.currency} (Target: {target_price} {result.currency})")
+            target_logger.info(f"🎉 {name}: {result.price} {result.currency} (Target: {target_price} {result.currency})")
             if self.notifier.has_services:
                 if self.notifier.notify_low_price(name, target_price, result.price, item.url, result.currency):
-                    logging.info("    ↳ 📨 Notification sent to configured URL(s).")
+                    target_logger.info("    ↳ 📨 Notification sent to configured URL(s).")
                 else:
-                    logging.warning("    ↳ 🔕 Notification failed to send to one or more configured URL(s).")
+                    target_logger.warning("    ↳ 🔕 Notification failed to send to one or more configured URL(s).")
             else:
-                logging.info("    ↳ 🔕 No notification sent (no URL(s) configured in .env).")
+                target_logger.info("    ↳ 🔕 No notification sent (no URL(s) configured in .env).")
         else:
-            logging.info(f"✅ {name}: {result.price} {result.currency} (Target: {target_price} {result.currency})")
+            target_logger.info(f"✅ {name}: {result.price} {result.currency} (Target: {target_price} {result.currency})")
 
         data_manager.update_item(
             url=item.url,
@@ -143,13 +147,14 @@ class ScrapingOrchestrator:
             last_checked=datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
         )
 
-    def _process_product(self, row: dict, index: int, data_manager: BaseDataManager) -> tuple[Exception | None, bool]:
+    def _process_product(self, row: dict, index: int, data_manager: BaseDataManager, target_logger: logging.Logger) -> tuple[Exception | None, bool]:
         """Processes a single product from the configuration, attempting to scrape it.
 
         Args:
             row (dict): The dictionary representation of the product.
             index (int): The index of the product in the list.
             data_manager (BaseDataManager): The data manager.
+            target_logger (logging.Logger): The logger for the current target.
 
         Returns:
             tuple[Exception | None, bool]: A tuple containing:
@@ -161,27 +166,27 @@ class ScrapingOrchestrator:
         target_price = getattr(item, 'target_price', 0.0)
 
         if item.skip:
-            logging.info("")
-            logging.info(f"🔕 {name}: Skipped (skip field set to true)")
+            target_logger.info("")
+            target_logger.info(f"🔕 {name}: Skipped (skip field set to true)")
             return None, False
 
         if index >= 0:
-            logging.info("")
+            target_logger.info("")
 
         self._sleep_with_jitter(MIN_DELAY_SECONDS)
         if self.interrupted:
             return None, False
 
         if not item.url:
-            logging.warning(f"❗ {name}: URL is missing, skipping product.")
+            target_logger.warning(f"❗ {name}: URL is missing, skipping product.")
             return None, False
 
         if target_price < 0:
-            logging.warning(f"❗ {name}: Invalid target price '{row.get('target_price')}', skipping product.")
+            target_logger.warning(f"❗ {name}: Invalid target price '{row.get('target_price')}', skipping product.")
             return None, False
 
         if 'target_price' not in row:
-            logging.warning(f"❗ {name}: Target price is missing, defaulting to 0.0.")
+            target_logger.warning(f"❗ {name}: Target price is missing, defaulting to 0.0.")
 
         scraper = self.scraper_factory.get_scraper(item.url)
 
@@ -196,60 +201,60 @@ class ScrapingOrchestrator:
                     break
 
                 if result is not None:
-                    self._handle_successful_scrape(item, result, data_manager)
+                    self._handle_successful_scrape(item, result, data_manager, target_logger)
                     break
                 else:
                     break
 
             except ScraperParseError as e:
                 if attempt == MAX_RETRIES - 1:
-                    logging.error(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    logging.error(f"    ↳ ❗ {e}")
-                    logging.info("")
+                    target_logger.error(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
+                    target_logger.error(f"    ↳ ❗ {e}")
+                    target_logger.info("")
                     return e, False
                 else:
-                    logging.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    logging.warning(f"    ↳ ❗ {e}")
-                    logging.info("")
+                    target_logger.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
+                    target_logger.warning(f"    ↳ ❗ {e}")
+                    target_logger.info("")
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except RateLimitError as e:
                 if attempt == MAX_RETRIES - 1:
-                    logging.error(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    logging.error(f"    ↳ ❗ {e}")
-                    logging.info("")
-                    logging.error("🛑 RateLimitError: Max retries reached. Aborting scraping.")
-                    logging.info("")
-                    save_traceback(url=item.url, headers=scraper.get_current_headers())
+                    target_logger.error(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
+                    target_logger.error(f"    ↳ ❗ {e}")
+                    target_logger.info("")
+                    target_logger.error("🛑 RateLimitError: Max retries reached. Aborting scraping.")
+                    target_logger.info("")
+                    save_traceback(target_logger, target_name=scraper.__class__.__name__, url=item.url, headers=scraper.get_current_headers())
                     return e, True
                 else:
-                    logging.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    logging.warning(f"    ↳ ❗ {e}")
-                    logging.info("")
+                    target_logger.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
+                    target_logger.warning(f"    ↳ ❗ {e}")
+                    target_logger.info("")
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except ServerError as e:
                 if attempt == MAX_RETRIES - 1:
-                    logging.error(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    logging.error(f"    ↳ ❗ {e}")
-                    logging.info("")
+                    target_logger.error(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
+                    target_logger.error(f"    ↳ ❗ {e}")
+                    target_logger.info("")
                     return e, False
                 else:
-                    logging.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    logging.warning(f"    ↳ ❗ {e}")
-                    logging.info("")
+                    target_logger.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
+                    target_logger.warning(f"    ↳ ❗ {e}")
+                    target_logger.info("")
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except Exception as e:
                 if attempt == MAX_RETRIES - 1:
-                    logging.error(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    logging.error(f"    ↳ ❗ {e}")
-                    logging.info("")
-                    save_traceback(url=item.url, headers=scraper.get_current_headers())
+                    target_logger.error(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
+                    target_logger.error(f"    ↳ ❗ {e}")
+                    target_logger.info("")
+                    save_traceback(target_logger, target_name=scraper.__class__.__name__, url=item.url, headers=scraper.get_current_headers())
                     return e, False
                 else:
-                    logging.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    logging.warning(f"    ↳ ❗ {e}")
-                    logging.info("")
+                    target_logger.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
+                    target_logger.warning(f"    ↳ ❗ {e}")
+                    target_logger.info("")
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
 
@@ -271,6 +276,8 @@ class ScrapingOrchestrator:
         for target in self.targets_to_run:
             if abort_scraping or self.interrupted:
                 break
+                
+            target_logger = get_target_logger(target, self.quiet)
 
             try:
                 data_manager = self.data_manager_factory.get_manager(target)
@@ -288,7 +295,7 @@ class ScrapingOrchestrator:
                         if abort_scraping or self.interrupted:
                             break
 
-                        product_error, product_abort = self._process_product(row, index, data_manager)
+                        product_error, product_abort = self._process_product(row, index, data_manager, target_logger)
                         if product_error:
                             failed_items.append((data_manager.parse_item(row), product_error))
                         abort_scraping = abort_scraping or product_abort
@@ -303,7 +310,11 @@ class ScrapingOrchestrator:
                 continue
 
         if not self.interrupted:
-            self.check_for_old_entries(OLD_ENTRY_HOURS)
+            # We use the global logger here as it spans across targets, or pick the first target's logger 
+            # if we wanted it isolated. For simplicity and consistency with old behavior, 
+            # we'll pass the root logger or skip checking old entries if we want strict isolation.
+            # We'll pass the root logger since old entries checking spans all targets.
+            self.check_for_old_entries(OLD_ENTRY_HOURS, logging.root)
 
         if not self.interrupted and failed_items:
             self.notifier.notify_errors(failed_items)

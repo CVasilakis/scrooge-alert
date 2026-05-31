@@ -12,7 +12,7 @@ from exceptions import StorageFileError
 from updater import InteractiveUpdateChecker, SilentUpdateChecker
 from storage.factory import DataManagerFactory
 from notifier import Notifier
-from logger import setup_logging, save_traceback
+from logger import setup_global_logging, save_traceback
 from clients.factory import ScraperFactory
 from orchestrator import ScrapingOrchestrator
 from tui_bar import InteractiveProgressStrategy, SilentProgressStrategy
@@ -29,7 +29,7 @@ def main() -> None:
     parser.add_argument('--skroutz', action='store_true', help='Run the Skroutz scraper')
     args, _ = parser.parse_known_args()
 
-    setup_logging(args.quiet)
+    setup_global_logging(args.quiet)
 
     logging.info("")
     logging.info("Starting Scrooge Alert...")
@@ -76,16 +76,14 @@ def main() -> None:
     try:
         scraper_factory = ScraperFactory()
         try:
-            orchestrator = ScrapingOrchestrator(targets_to_run, data_manager_factory, scraper_factory, notifier, CONFIG_DIR, progress_strategy)
+            orchestrator = ScrapingOrchestrator(targets_to_run, data_manager_factory, scraper_factory, notifier, CONFIG_DIR, args.quiet, progress_strategy)
             orchestrator.run()
         finally:
             scraper_factory.close_all()
 
     except Exception:
         logging.info("")
-        logging.error("🛑 A fatal error occurred! Check logs/errors.txt for details.")
-        logging.info("")
-        save_traceback()
+        save_traceback(logging.root)
         notifier.notify_crash()
         sys.exit(EXIT_CODE_ERROR)
 

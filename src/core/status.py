@@ -11,7 +11,7 @@ from exceptions import StorageFileError
 from storage.factory import DataManagerFactory
 from updater import InteractiveUpdateChecker
 from utils import get_systemd_properties, is_linger_enabled
-from logger import setup_logging
+from logger import setup_global_logging
 
 def main():
     """Main entry point for checking the status of the Scrooge Alert service.
@@ -24,7 +24,7 @@ def main():
     GREEN = '\033[0;32m'
     YELLOW = '\033[0;33m'
 
-    setup_logging()
+    setup_global_logging()
 
     logging.info("")
     logging.info("Checking Scrooge Alert Status...")

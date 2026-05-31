@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from env import print_env_status
 from notifier import Notifier
-from logger import setup_logging
+from logger import setup_global_logging
 
 def main():
     """Main entry point for sending a test notification.
@@ -15,7 +15,7 @@ def main():
     This function initializes the notifier with URLs from the environment and sends
     a test message, reporting the success or failure of each configured service.
     """
-    setup_logging()
+    setup_global_logging()
 
     logging.info("")
     logging.info("Sending Scrooge Alert Test Notification...")
