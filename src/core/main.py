@@ -55,10 +55,10 @@ def main() -> None:
     for target in targets_to_run:
         try:
             manager = data_manager_factory.get_manager(target)
-            total, faulty = manager.validate_storage()
+            total, faulty_indices = manager.validate_storage()
             logging.info(f"✅ Loaded {total} items from {target} config")
-            if faulty > 0:
-                logging.warning(f"    ↳ ❗ Detected {faulty} misconfigured item(s) in {target} config")
+            if faulty_indices:
+                logging.warning(f"    ↳ ❗ Detected {len(faulty_indices)} misconfigured item(s) at JSON index: {', '.join(map(str, faulty_indices))}")
         except StorageFileError as e:
             logging.error(f"🛑 {e}!", extra={"pad_bottom": 1})
             sys.exit(EXIT_CODE_PRODUCTS_ERROR)

@@ -41,11 +41,11 @@ class BaseDataManager(ABC):
         pass
 
     @abstractmethod
-    def validate_storage(self) -> tuple[int, int]:
+    def validate_storage(self) -> tuple[int, list[int]]:
         """Validates the storage file and counts items.
         
         Returns:
-            tuple[int, int]: A tuple containing the total number of items and the number of faulty items.
+            tuple[int, list[int]]: A tuple containing the total number of items and a list of 1-based indices of faulty items.
             
         Raises:
             StorageFileError: If the file is missing, unreadable, or contains invalid data.

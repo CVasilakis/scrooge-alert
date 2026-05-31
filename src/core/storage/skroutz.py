@@ -113,14 +113,11 @@ class SkroutzDataManager(BaseDataManager):
         """Returns the list of products as dictionaries."""
         return self.products_data.get("products", [])
 
-    def validate_storage(self) -> tuple[int, int]:
+    def validate_storage(self) -> tuple[int, list[int]]:
         """Validates the skroutz.json file and counts products.
 
         Returns:
-            tuple[int, int]: A tuple containing the total number of products and the number of faulty products.
-
-        Raises:
-            StorageFileError: If the file is missing, unreadable, or contains invalid JSON.
+            tuple[int, list[int]]: A tuple containing the total number of products and a list of 1-based indices of faulty products.
         """
         if not os.path.exists(CONFIG_DIR):
             os.makedirs(CONFIG_DIR)
@@ -139,7 +136,7 @@ class SkroutzDataManager(BaseDataManager):
 
                 products = data.get("products", [])
                 num_products = len(products)
-                faulty_count = sum(1 for p in products if not all(k in p for k in ("name", "url", "target_price")))
-                return num_products, faulty_count
+                faulty_indices = [i + 1 for i, p in enumerate(products) if not all(k in p for k in ("name", "url", "target_price"))]
+                return num_products, faulty_indices
         except (json.JSONDecodeError, OSError):
             raise StorageFileError("The config/skroutz.json file contains invalid JSON format")
