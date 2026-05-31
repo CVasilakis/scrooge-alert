@@ -6,7 +6,7 @@ import time
 import sys
 from typing import Optional
 
-from lock_manager import ScraperLockManager
+from locks import acquire_lock
 from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT
 from exceptions import RateLimitError, ServerError, ScraperParseError, LockAcquisitionError
 from models.base import BaseTrackedItem
@@ -283,7 +283,7 @@ class ScrapingOrchestrator:
                 continue
 
             try:
-                with ScraperLockManager.acquire(target):
+                with acquire_lock(target):
                     for index, row in enumerate(target_items):
                         if abort_scraping or self.interrupted:
                             break
