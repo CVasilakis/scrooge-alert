@@ -5,7 +5,7 @@ import logging
 # Ensure the script directory is in the python path to allow imports when running as a module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from validators import EnvValidator
+from env import print_env_status
 from notifier import Notifier
 from logger import setup_logging
 
@@ -21,7 +21,7 @@ def main():
     logging.info("Sending Scrooge Alert Test Notification...")
     logging.info("")
 
-    EnvValidator.print_env_status(fatal_on_error=True, show_invalid_details=True)
+    print_env_status(fatal_on_error=True, show_invalid_details=True)
 
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
     notifier = Notifier(notification_urls)

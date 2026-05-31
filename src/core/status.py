@@ -6,7 +6,7 @@ import logging
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from constants import EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, CONFIG_DIR
-from validators import EnvValidator
+from env import print_env_status
 from exceptions import StorageFileError
 from storage.factory import DataManagerFactory
 from updater import InteractiveUpdateChecker
@@ -47,7 +47,7 @@ def main():
         except ValueError:
             continue
 
-    EnvValidator.print_env_status(fatal_on_error=False)
+    print_env_status(fatal_on_error=False)
 
     timer_props = get_systemd_properties('skroutz-scraper.timer', 'ActiveState,NextElapseUSecRealtime')
     service_props = get_systemd_properties('skroutz-scraper.service', 'ActiveState,Result,ExecMainStartTimestamp,ExecMainStatus')

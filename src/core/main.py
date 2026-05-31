@@ -7,7 +7,7 @@ import logging
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from constants import CONFIG_DIR, EXIT_CODE_ERROR, EXIT_CODE_PRODUCTS_ERROR
-from validators import EnvValidator
+from env import print_env_status
 from exceptions import StorageFileError
 from updater import InteractiveUpdateChecker, SilentUpdateChecker
 from storage.factory import DataManagerFactory
@@ -68,7 +68,7 @@ def main() -> None:
         except ValueError:
             continue
 
-    EnvValidator.print_env_status(fatal_on_error=False)
+    print_env_status(fatal_on_error=False)
 
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
     notifier = Notifier(notification_urls)
