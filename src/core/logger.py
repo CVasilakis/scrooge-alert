@@ -4,7 +4,30 @@ import traceback
 import os
 from typing import Optional, Dict
 from logging.handlers import TimedRotatingFileHandler
+from rich.console import Console
+from rich.padding import Padding
+from rich.text import Text
 from constants import LOGS_DIR
+
+console = Console()
+
+class RichConsoleHandler(logging.Handler):
+    """Custom handler that uses Rich for console output and supports padding."""
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            
+            pad_top = getattr(record, "pad_top", 0)
+            pad_bottom = getattr(record, "pad_bottom", 0)
+            
+            text_msg = Text(msg)
+            
+            if pad_top > 0 or pad_bottom > 0:
+                console.print(Padding(text_msg, (pad_top, 0, pad_bottom, 0)))
+            else:
+                console.print(text_msg)
+        except Exception:
+            self.handleError(record)
 
 class NonEmptyFilter(logging.Filter):
     """Filter that prevents empty or whitespace-only log messages from being recorded."""
@@ -24,11 +47,14 @@ def setup_global_logging(quiet: bool = False) -> None:
     
     level = logging.CRITICAL if quiet else logging.INFO
     
-    # Remove all handlers associated with the root logger object to reset it
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
 
-    logging.basicConfig(level=level, format='%(message)s')
+    rich_handler = RichConsoleHandler()
+    rich_handler.setFormatter(logging.Formatter('%(message)s'))
+    
+    logging.root.setLevel(level)
+    logging.root.addHandler(rich_handler)
 
     logging.getLogger('apprise').setLevel(logging.CRITICAL)
     logging.getLogger('urllib3').setLevel(logging.CRITICAL)
@@ -93,7 +119,7 @@ def save_traceback(logger: logging.Logger, target_name: Optional[str] = None, ur
     os.makedirs(target_logs_dir, exist_ok=True)
     
     log_path = os.path.join(target_logs_dir, "errors.txt")
-    logger.error(f"🛑 An error occurred! Check {log_path} for details.")
+    logger.error(f"🛑 An error occurred! Check {log_path} for details.", extra={"pad_top": 1})
     
     time_now = datetime.datetime.now().strftime("%Y-%m-%d (%H:%M:%S)")
     with open(log_path, "a", newline='') as log_file:

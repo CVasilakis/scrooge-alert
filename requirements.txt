@@ -3,3 +3,4 @@ apprise
 filelock
 python-dotenv
 typing_extensions
+rich

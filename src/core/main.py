@@ -31,9 +31,7 @@ def main() -> None:
 
     setup_global_logging(args.quiet)
 
-    logging.info("")
-    logging.info("Starting Scrooge Alert...")
-    logging.info("")
+    logging.info("Starting Scrooge Alert...", extra={"pad_top": 1, "pad_bottom": 1})
 
     if args.quiet:
         update_checker = SilentUpdateChecker()
@@ -62,8 +60,7 @@ def main() -> None:
             if faulty > 0:
                 logging.warning(f"    ↳ ❗ Detected {faulty} misconfigured item(s) in {target} config")
         except StorageFileError as e:
-            logging.error(f"🛑 {e}!")
-            logging.info("")
+            logging.error(f"🛑 {e}!", extra={"pad_bottom": 1})
             sys.exit(EXIT_CODE_PRODUCTS_ERROR)
         except ValueError:
             continue
@@ -82,7 +79,6 @@ def main() -> None:
             scraper_factory.close_all()
 
     except Exception:
-        logging.info("")
         save_traceback(logging.root)
         notifier.notify_crash()
         sys.exit(EXIT_CODE_ERROR)

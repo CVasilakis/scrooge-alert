@@ -47,10 +47,13 @@ class ScrapingOrchestrator:
             _frame: The current stack frame (unused).
         """
         sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
-        logging.info("")
-        logging.info("")
-        logging.info(f"🛑 Received signal {sig_name}. Gracefully shutting down...")
-        logging.info("")
+
+        was_active = False
+        if hasattr(self.progress_strategy, 'cancel'):
+            was_active = self.progress_strategy.cancel()
+
+        pad_top = 0 if was_active else 1
+        logging.info(f"🛑 Received signal {sig_name}. Gracefully shutting down...", extra={"pad_top": pad_top, "pad_bottom": 1})
         self.interrupted = True
 
     def _sleep_with_jitter(self, base_delay: float, attempt: int = 0) -> None:
@@ -64,6 +67,7 @@ class ScrapingOrchestrator:
         total_delay = base_delay + (RETRY_DELAY_MULTIPLIER * attempt) + jitter
 
         start_time = time.time()
+        self.progress_strategy.start(total_delay)
         while time.time() - start_time < total_delay:
             if self.interrupted:
                 break
@@ -166,12 +170,8 @@ class ScrapingOrchestrator:
         target_price = getattr(item, 'target_price', 0.0)
 
         if item.skip:
-            target_logger.info("")
-            target_logger.info(f"🔕 {name}: Skipped (skip field set to true)")
+            target_logger.info(f"🔕 {name}: Skipped (skip field set to true)", extra={"pad_top": 1, "pad_bottom": 0})
             return None, False
-
-        if index >= 0:
-            target_logger.info("")
 
         self._sleep_with_jitter(MIN_DELAY_SECONDS)
         if self.interrupted:
@@ -209,52 +209,43 @@ class ScrapingOrchestrator:
             except ScraperParseError as e:
                 if attempt == MAX_RETRIES - 1:
                     target_logger.error(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    target_logger.error(f"    ↳ ❗ {e}")
-                    target_logger.info("")
+                    target_logger.error(f"    ↳ ❗ {e}", extra={"pad_bottom": 1})
                     return e, False
                 else:
                     target_logger.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    target_logger.warning(f"    ↳ ❗ {e}")
-                    target_logger.info("")
+                    target_logger.warning(f"    ↳ ❗ {e}", extra={"pad_bottom": 1})
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except RateLimitError as e:
                 if attempt == MAX_RETRIES - 1:
                     target_logger.error(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    target_logger.error(f"    ↳ ❗ {e}")
-                    target_logger.info("")
-                    target_logger.error("🛑 RateLimitError: Max retries reached. Aborting scraping.")
-                    target_logger.info("")
+                    target_logger.error(f"    ↳ ❗ {e}", extra={"pad_bottom": 1})
+                    target_logger.error("🛑 RateLimitError: Max retries reached. Aborting scraping.", extra={"pad_bottom": 1})
                     save_traceback(target_logger, target_name=target_logger.name.replace("scraper.", ""), url=item.url, headers=scraper.get_current_headers())
                     return e, True
                 else:
                     target_logger.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    target_logger.warning(f"    ↳ ❗ {e}")
-                    target_logger.info("")
+                    target_logger.warning(f"    ↳ ❗ {e}", extra={"pad_bottom": 1})
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except ServerError as e:
                 if attempt == MAX_RETRIES - 1:
                     target_logger.error(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    target_logger.error(f"    ↳ ❗ {e}")
-                    target_logger.info("")
+                    target_logger.error(f"    ↳ ❗ {e}", extra={"pad_bottom": 1})
                     return e, False
                 else:
                     target_logger.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    target_logger.warning(f"    ↳ ❗ {e}")
-                    target_logger.info("")
+                    target_logger.warning(f"    ↳ ❗ {e}", extra={"pad_bottom": 1})
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except Exception as e:
                 if attempt == MAX_RETRIES - 1:
                     target_logger.error(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    target_logger.error(f"    ↳ ❗ {e}")
-                    target_logger.info("")
+                    target_logger.error(f"    ↳ ❗ {e}", extra={"pad_bottom": 1})
                     save_traceback(target_logger, target_name=target_logger.name.replace("scraper.", ""), url=item.url, headers=scraper.get_current_headers())
                     return e, False
                 else:
                     target_logger.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    target_logger.warning(f"    ↳ ❗ {e}")
-                    target_logger.info("")
+                    target_logger.warning(f"    ↳ ❗ {e}", extra={"pad_bottom": 1})
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
 
@@ -314,8 +305,7 @@ class ScrapingOrchestrator:
                     self.notifier.notify_errors(failed_items)
 
             except LockAcquisitionError:
-                target_logger.info("")
-                target_logger.warning(f"🛑 Another instance of the {target} scraper is currently running. Aborting...")
+                target_logger.warning(f"🛑 Another instance of the {target} scraper is currently running. Aborting...", extra={"pad_top": 1})
                 continue
 
         if self.interrupted:
@@ -323,5 +313,3 @@ class ScrapingOrchestrator:
 
         if any_rate_limited:
             sys.exit(EXIT_CODE_RATE_LIMIT_ERROR)
-
-        logging.info("")
