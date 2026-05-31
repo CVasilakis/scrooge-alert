@@ -75,46 +75,46 @@ class ScrapingOrchestrator:
             actual_delay = time.time() - start_time
             self.progress_strategy.complete(actual_delay)
 
-    def check_for_old_entries(self, hours: int, target_logger: logging.Logger) -> None:
-        """Checks if any product hasn't been successfully scraped recently.
+    def check_for_old_entries(self, target: str, hours: int, target_logger: logging.Logger) -> None:
+        """Checks if any product hasn't been successfully scraped recently for a specific target.
 
         Args:
+            target (str): The specific target to check.
             hours (int): The threshold in hours to consider an entry 'old'.
             target_logger (logging.Logger): The logger for the current target.
         """
-        for target in self.targets_to_run:
-            try:
-                data_manager = self.data_manager_factory.get_manager(target)
-            except ValueError:
+        try:
+            data_manager = self.data_manager_factory.get_manager(target)
+        except ValueError:
+            return
+
+        needs_save = False
+        for row in data_manager.get_items():
+            item = data_manager.parse_item(row)
+            if item.skip:
                 continue
 
-            needs_save = False
-            for row in data_manager.get_items():
-                item = data_manager.parse_item(row)
-                if item.skip:
-                    continue
-
-                if item.last_checked:
-                    try:
-                        timestamp = datetime.datetime.strptime(item.last_checked, "%d-%m-%Y %H:%M:%S")
-                        current_time = datetime.datetime.now()
-                        if (current_time - timestamp) > datetime.timedelta(hours=hours):
-                            # Ensure backwards compatibility for naming where possible
-                            name = getattr(item, 'name', 'Unknown')
-                            target_logger.warning(f"❗ Old entry found for {name}: {item.url} (Last check: {item.last_checked})")
-                            self.notifier.notify_old_entries(name, hours, item.url)
-                    except ValueError:
+            if item.last_checked:
+                try:
+                    timestamp = datetime.datetime.strptime(item.last_checked, "%d-%m-%Y %H:%M:%S")
+                    current_time = datetime.datetime.now()
+                    if (current_time - timestamp) > datetime.timedelta(hours=hours):
+                        # Ensure backwards compatibility for naming where possible
                         name = getattr(item, 'name', 'Unknown')
-                        target_logger.warning(f"❗ Invalid timestamp format found for {name}: {item.last_checked}. Resetting clock.")
-                        data_manager.update_item(
-                            url=item.url,
-                            last_price=getattr(item, 'last_price', 0.0),
-                            last_checked=datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-                        )
-                        needs_save = True
+                        target_logger.warning(f"❗ Old entry found for {name}: {item.url} (Last check: {item.last_checked})")
+                        self.notifier.notify_old_entries(name, hours, item.url)
+                except ValueError:
+                    name = getattr(item, 'name', 'Unknown')
+                    target_logger.warning(f"❗ Invalid timestamp format found for {name}: {item.last_checked}. Resetting clock.")
+                    data_manager.update_item(
+                        url=item.url,
+                        last_price=getattr(item, 'last_price', 0.0),
+                        last_checked=datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+                    )
+                    needs_save = True
 
-            if needs_save:
-                data_manager.save_atomically()
+        if needs_save:
+            data_manager.save_atomically()
 
     def _handle_successful_scrape(self, item: BaseTrackedItem, result, data_manager: BaseDataManager, target_logger: logging.Logger) -> None:
         """Processes a successful product scrape, sending notifications if necessary.
@@ -269,11 +269,12 @@ class ScrapingOrchestrator:
         signal.signal(signal.SIGINT, self.signal_handler)
         signal.signal(signal.SIGTERM, self.signal_handler)
 
-        failed_items = []
         abort_scraping = False
-        needs_save = False
 
         for target in self.targets_to_run:
+            failed_items = []
+            needs_save = False
+
             if abort_scraping or self.interrupted:
                 break
                 
@@ -304,20 +305,16 @@ class ScrapingOrchestrator:
                 if needs_save:
                     data_manager.save_atomically()
 
+                if not self.interrupted:
+                    self.check_for_old_entries(target, OLD_ENTRY_HOURS, target_logger)
+
+                if not self.interrupted and failed_items:
+                    self.notifier.notify_errors(failed_items)
+
             except LockAcquisitionError:
                 target_logger.info("")
                 target_logger.warning(f"🛑 Another instance of the {target} scraper is currently running. Aborting...")
                 continue
-
-        if not self.interrupted:
-            # We use the global logger here as it spans across targets, or pick the first target's logger 
-            # if we wanted it isolated. For simplicity and consistency with old behavior, 
-            # we'll pass the root logger or skip checking old entries if we want strict isolation.
-            # We'll pass the root logger since old entries checking spans all targets.
-            self.check_for_old_entries(OLD_ENTRY_HOURS, logging.root)
-
-        if not self.interrupted and failed_items:
-            self.notifier.notify_errors(failed_items)
 
         if self.interrupted:
             sys.exit(EXIT_CODE_INTERRUPT)
