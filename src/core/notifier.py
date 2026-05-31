@@ -22,10 +22,20 @@ class Notifier:
                         self.has_services = True
 
     def _extract_site(self, url: str) -> str:
-        """Extracts a human-readable site name from a product URL."""
-        if url and 'skroutz' in url.lower():
-            return 'Skroutz'
-        return "Unknown Site"
+        """Extracts a human-readable site name from a product URL dynamically."""
+        if not url:
+            return "Unknown Site"
+        try:
+            from urllib.parse import urlparse
+            domain = urlparse(url).netloc.lower()
+            if domain.startswith('www.'):
+                domain = domain[4:]
+            if not domain:
+                return "Unknown Site"
+            # Return the main domain name capitalized (e.g. 'skroutz.gr' -> 'Skroutz')
+            return domain.split('.')[0].capitalize()
+        except Exception:
+            return "Unknown Site"
 
     def notify(self, title: str, body: str) -> bool:
         """Sends a notification with the given title and body.

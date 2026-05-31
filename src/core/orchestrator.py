@@ -269,15 +269,16 @@ class ScrapingOrchestrator:
         signal.signal(signal.SIGINT, self.signal_handler)
         signal.signal(signal.SIGTERM, self.signal_handler)
 
-        abort_scraping = False
+        any_rate_limited = False
 
         for target in self.targets_to_run:
             failed_items = []
             needs_save = False
+            abort_target = False
 
-            if abort_scraping or self.interrupted:
+            if self.interrupted:
                 break
-                
+
             target_logger = get_target_logger(target, self.quiet)
 
             try:
@@ -293,13 +294,14 @@ class ScrapingOrchestrator:
             try:
                 with acquire_lock(target):
                     for index, row in enumerate(target_items):
-                        if abort_scraping or self.interrupted:
+                        if abort_target or self.interrupted:
                             break
 
                         product_error, product_abort = self._process_product(row, index, data_manager, target_logger)
                         if product_error:
                             failed_items.append((data_manager.parse_item(row), product_error))
-                        abort_scraping = abort_scraping or product_abort
+                        abort_target = abort_target or product_abort
+                        any_rate_limited = any_rate_limited or product_abort
                         needs_save = True
 
                 if needs_save:
@@ -319,7 +321,7 @@ class ScrapingOrchestrator:
         if self.interrupted:
             sys.exit(EXIT_CODE_INTERRUPT)
 
-        if abort_scraping:
+        if any_rate_limited:
             sys.exit(EXIT_CODE_RATE_LIMIT_ERROR)
 
         logging.info("")
