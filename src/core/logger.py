@@ -119,7 +119,7 @@ def save_traceback(logger: logging.Logger, target_name: Optional[str] = None, ur
     os.makedirs(target_logs_dir, exist_ok=True)
     
     log_path = os.path.join(target_logs_dir, "errors.txt")
-    logger.error(f"🛑 An error occurred! Check {log_path} for details.", extra={"pad_top": 1})
+    logger.critical(f"🛑 An error occurred! Check {log_path} for details.", extra={"pad_top": 1})
     
     time_now = datetime.datetime.now().strftime("%Y-%m-%d (%H:%M:%S)")
     with open(log_path, "a", newline='') as log_file:

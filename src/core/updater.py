@@ -1,6 +1,4 @@
-import logging
 import subprocess
-from abc import ABC, abstractmethod
 
 from constants import BASE_DIR
 from exceptions import UpdateCheckError
@@ -30,32 +28,3 @@ def check_for_updates() -> bool:
     except Exception as e:
         raise UpdateCheckError(f"Could not check for updates: {e}")
 
-class UpdateCheckerStrategy(ABC):
-    @abstractmethod
-    def check(self) -> None:
-        """Executes the update check strategy."""
-        pass
-
-class InteractiveUpdateChecker(UpdateCheckerStrategy):
-    def check(self) -> None:
-        """Checks for updates and prints the result to standard output interactively."""
-        print("⏳ Checking for updates...", end="", flush=True)
-
-        try:
-            has_update = check_for_updates()
-            print("\r" + " " * 30 + "\r", end="", flush=True)
-            if has_update:
-                logging.info("✨ A new version is available! Run ./update.sh to update.")
-                logging.info("")
-            else:
-                logging.info("✅ You are running the latest version.")
-        except UpdateCheckError as e:
-            print("\r" + " " * 30 + "\r", end="", flush=True)
-            logging.warning("❗ Could not check for script updates:")
-            logging.warning(f"    ↳ {e}")
-            logging.info("")
-
-class SilentUpdateChecker(UpdateCheckerStrategy):
-    def check(self) -> None:
-        """A no-op update checker strategy for silent execution."""
-        pass

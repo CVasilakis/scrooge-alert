@@ -7,7 +7,7 @@ import sys
 from typing import Optional
 
 from locks import acquire_lock
-from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT
+from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, EXIT_CODE_SKIPPED
 from exceptions import RateLimitError, ServerError, ScraperParseError, LockAcquisitionError
 from models.base import BaseTrackedItem
 from clients.factory import ScraperFactory
@@ -15,10 +15,10 @@ from storage.factory import DataManagerFactory
 from storage.base import BaseDataManager
 from notifier import Notifier
 from logger import save_traceback, get_target_logger
-from tui_bar import ProgressStrategy, SilentProgressStrategy
+from tui import ExecutionStrategy, SilentExecutionStrategy
 
 class ScrapingOrchestrator:
-    def __init__(self, targets_to_run: list, data_manager_factory: DataManagerFactory, scraper_factory: ScraperFactory, notifier: Notifier, config_dir: str, quiet: bool = False, progress_strategy: Optional[ProgressStrategy] = None):
+    def __init__(self, targets_to_run: list, data_manager_factory: DataManagerFactory, scraper_factory: ScraperFactory, notifier: Notifier, config_dir: str, quiet: bool = False, ui_strategy: Optional[ExecutionStrategy] = None):
         """Initializes the ScrapingOrchestrator.
 
         Args:
@@ -28,7 +28,7 @@ class ScrapingOrchestrator:
             notifier (Notifier): The service used to send notifications.
             config_dir (str): The directory for saving user data and configuration.
             quiet (bool): Whether to log to file silently.
-            progress_strategy (Optional[ProgressStrategy]): The strategy for displaying progress.
+            ui_strategy (Optional[ExecutionStrategy]): The strategy for the UI console output.
         """
         self.targets_to_run = targets_to_run
         self.data_manager_factory = data_manager_factory
@@ -37,7 +37,7 @@ class ScrapingOrchestrator:
         self.config_dir = config_dir
         self.quiet = quiet
         self.interrupted = False
-        self.progress_strategy = progress_strategy or SilentProgressStrategy()
+        self.ui_strategy = ui_strategy or SilentExecutionStrategy()
 
     def signal_handler(self, signum, _frame):
         """Handles termination signals gracefully.
@@ -49,8 +49,9 @@ class ScrapingOrchestrator:
         sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
 
         was_active = False
-        if hasattr(self.progress_strategy, 'cancel'):
-            was_active = self.progress_strategy.cancel()
+        if hasattr(self.ui_strategy, 'cancel_sleep'):
+            was_active = self.ui_strategy.cancel_sleep()
+        self.ui_strategy.complete_target()
 
         pad_top = 0 if was_active else 1
         logging.info(f"🛑 Received signal {sig_name}. Gracefully shutting down...", extra={"pad_top": pad_top, "pad_bottom": 1})
@@ -67,17 +68,17 @@ class ScrapingOrchestrator:
         total_delay = base_delay + (RETRY_DELAY_MULTIPLIER * attempt) + jitter
 
         start_time = time.time()
-        self.progress_strategy.start(total_delay)
+        self.ui_strategy.start_sleep(total_delay)
         while time.time() - start_time < total_delay:
             if self.interrupted:
                 break
             remaining = max(0.0, total_delay - (time.time() - start_time))
-            self.progress_strategy.display_progress(remaining)
+            self.ui_strategy.update_sleep(remaining)
             time.sleep(0.1)
 
         if not self.interrupted:
             actual_delay = time.time() - start_time
-            self.progress_strategy.complete(actual_delay)
+            self.ui_strategy.complete_sleep(actual_delay)
 
     def check_for_old_entries(self, target: str, hours: int, target_logger: logging.Logger) -> None:
         """Checks if any product hasn't been successfully scraped recently for a specific target.
@@ -103,13 +104,12 @@ class ScrapingOrchestrator:
                     timestamp = datetime.datetime.strptime(item.last_checked, "%d-%m-%Y %H:%M:%S")
                     current_time = datetime.datetime.now()
                     if (current_time - timestamp) > datetime.timedelta(hours=hours):
-                        # Ensure backwards compatibility for naming where possible
                         name = getattr(item, 'name', 'Unknown')
-                        target_logger.warning(f"❗ Old entry found for {name}: {item.url} (Last check: {item.last_checked})")
+                        self.ui_strategy.log_warning(name, "Old entry found", f"Last check: {item.last_checked}")
                         self.notifier.notify_old_entries(name, hours, item.url)
                 except ValueError:
                     name = getattr(item, 'name', 'Unknown')
-                    target_logger.warning(f"❗ Invalid timestamp format found for {name}: {item.last_checked}. Resetting clock.")
+                    self.ui_strategy.log_warning(name, "Invalid timestamp format", f"Resetting clock for: {item.last_checked}")
                     data_manager.update_item(
                         url=item.url,
                         last_price=getattr(item, 'last_price', 0.0),
@@ -129,21 +129,24 @@ class ScrapingOrchestrator:
             data_manager (BaseDataManager): The data manager responsible for saving the updates.
             target_logger (logging.Logger): The logger for the current target.
         """
-        # Assume Product structure for current skroutz implementation compatibility
         name = getattr(item, 'name', 'Unknown')
         target_price = getattr(item, 'target_price', 0.0)
 
+        price_str = f"{result.price} {result.currency}"
+        target_str = f"(Target: {target_price} {result.currency})"
+
         if result.price < target_price:
-            target_logger.info(f"🎉 {name}: {result.price} {result.currency} (Target: {target_price} {result.currency})")
+            note = ""
             if self.notifier.has_services:
                 if self.notifier.notify_low_price(name, target_price, result.price, item.url, result.currency):
-                    target_logger.info("    ↳ 📨 Notification sent to configured URL(s).")
+                    note = "Notification sent to configured URL(s)."
                 else:
-                    target_logger.warning("    ↳ 🔕 Notification failed to send to one or more configured URL(s).")
+                    note = "Notification failed to send to configured URL(s)."
             else:
-                target_logger.info("    ↳ 🔕 No notification sent (no URL(s) configured in .env).")
+                note = "No notification sent (.env not configured)."
+            self.ui_strategy.log_result("🎉", name, f"{price_str} {target_str}", note)
         else:
-            target_logger.info(f"✅ {name}: {result.price} {result.currency} (Target: {target_price} {result.currency})")
+            self.ui_strategy.log_result("✅", name, f"{price_str} {target_str}")
 
         data_manager.update_item(
             url=item.url,
@@ -170,7 +173,7 @@ class ScrapingOrchestrator:
         target_price = getattr(item, 'target_price', 0.0)
 
         if item.skip:
-            target_logger.info(f"🔕 {name}: Skipped (skip field set to true)", extra={"pad_top": 1, "pad_bottom": 0})
+            self.ui_strategy.log_result("🔕", name, "Skipped", "skip field set to true")
             return None, False
 
         self._sleep_with_jitter(MIN_DELAY_SECONDS)
@@ -178,15 +181,15 @@ class ScrapingOrchestrator:
             return None, False
 
         if not item.url:
-            target_logger.warning(f"❗ {name}: URL is missing, skipping product.")
+            self.ui_strategy.log_warning(name, "Missing URL", "Skipping product")
             return None, False
 
         if target_price < 0:
-            target_logger.warning(f"❗ {name}: Invalid target price '{row.get('target_price')}', skipping product.")
+            self.ui_strategy.log_warning(name, "Invalid target price", f"Value '{row.get('target_price')}'. Skipping product")
             return None, False
 
         if 'target_price' not in row:
-            target_logger.warning(f"❗ {name}: Target price is missing, defaulting to 0.0.")
+            self.ui_strategy.log_warning(name, "Missing target price", "Defaulting to 0.0")
 
         scraper = self.scraper_factory.get_scraper(item.url)
 
@@ -195,7 +198,11 @@ class ScrapingOrchestrator:
                 break
 
             try:
-                result = scraper.scrape_product(item.url, name)
+                self.ui_strategy.start_scraping(name)
+                try:
+                    result = scraper.scrape_product(item.url, name)
+                finally:
+                    self.ui_strategy.complete_scraping()
 
                 if self.interrupted:
                     break
@@ -208,44 +215,36 @@ class ScrapingOrchestrator:
 
             except ScraperParseError as e:
                 if attempt == MAX_RETRIES - 1:
-                    target_logger.error(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    target_logger.error(f"    ↳ ❗ {e}", extra={"pad_bottom": 1})
+                    self.ui_strategy.log_error(name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
                     return e, False
                 else:
-                    target_logger.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    target_logger.warning(f"    ↳ ❗ {e}", extra={"pad_bottom": 1})
+                    self.ui_strategy.log_warning(name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except RateLimitError as e:
                 if attempt == MAX_RETRIES - 1:
-                    target_logger.error(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    target_logger.error(f"    ↳ ❗ {e}", extra={"pad_bottom": 1})
-                    target_logger.error("🛑 RateLimitError: Max retries reached. Aborting scraping.", extra={"pad_bottom": 1})
+                    self.ui_strategy.log_error(name, f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e}")
+                    self.ui_strategy.log_error(name, "Rate limit block", "Max retries reached. Aborting scraping.")
                     save_traceback(target_logger, target_name=target_logger.name.replace("scraper.", ""), url=item.url, headers=scraper.get_current_headers())
                     return e, True
                 else:
-                    target_logger.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    target_logger.warning(f"    ↳ ❗ {e}", extra={"pad_bottom": 1})
+                    self.ui_strategy.log_warning(name, f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e}")
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except ServerError as e:
                 if attempt == MAX_RETRIES - 1:
-                    target_logger.error(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    target_logger.error(f"    ↳ ❗ {e}", extra={"pad_bottom": 1})
+                    self.ui_strategy.log_error(name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
                     return e, False
                 else:
-                    target_logger.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    target_logger.warning(f"    ↳ ❗ {e}", extra={"pad_bottom": 1})
+                    self.ui_strategy.log_warning(name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except Exception as e:
                 if attempt == MAX_RETRIES - 1:
-                    target_logger.error(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    target_logger.error(f"    ↳ ❗ {e}", extra={"pad_bottom": 1})
+                    self.ui_strategy.log_error(name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
                     save_traceback(target_logger, target_name=target_logger.name.replace("scraper.", ""), url=item.url, headers=scraper.get_current_headers())
                     return e, False
                 else:
-                    target_logger.warning(f"{name}: Attempt {attempt + 1} FAILED ({type(e).__name__})!")
-                    target_logger.warning(f"    ↳ ❗ {e}", extra={"pad_bottom": 1})
+                    self.ui_strategy.log_warning(name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
 
@@ -261,6 +260,7 @@ class ScrapingOrchestrator:
         signal.signal(signal.SIGTERM, self.signal_handler)
 
         any_rate_limited = False
+        skipped_count = 0
 
         for target in self.targets_to_run:
             failed_items = []
@@ -281,6 +281,8 @@ class ScrapingOrchestrator:
             target_items = data_manager.get_items()
             if not target_items:
                 continue
+
+            self.ui_strategy.start_target(target, target_logger)
 
             try:
                 with acquire_lock(target):
@@ -305,11 +307,18 @@ class ScrapingOrchestrator:
                     self.notifier.notify_errors(failed_items)
 
             except LockAcquisitionError:
-                target_logger.warning(f"🛑 Another instance of the {target} scraper is currently running. Aborting...", extra={"pad_top": 1})
+                self.ui_strategy.log_error("System", "Another instance is running. Aborting...")
+                self.ui_strategy.complete_target()
+                skipped_count += 1
                 continue
+            
+            self.ui_strategy.complete_target()
 
         if self.interrupted:
             sys.exit(EXIT_CODE_INTERRUPT)
 
         if any_rate_limited:
             sys.exit(EXIT_CODE_RATE_LIMIT_ERROR)
+
+        if skipped_count > 0 and skipped_count == len(self.targets_to_run):
+            sys.exit(EXIT_CODE_SKIPPED)
