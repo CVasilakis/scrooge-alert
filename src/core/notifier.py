@@ -1,4 +1,5 @@
 import apprise
+from urllib.parse import urlparse
 from typing import TYPE_CHECKING
 from constants import APPRISE_PLACEHOLDERS
 
@@ -26,7 +27,6 @@ class Notifier:
         if not url:
             return "Unknown Site"
         try:
-            from urllib.parse import urlparse
             domain = urlparse(url).netloc.lower()
             if domain.startswith('www.'):
                 domain = domain[4:]

@@ -7,8 +7,8 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 from rich.markup import escape
-
 from rich.spinner import Spinner
+from rich.progress_bar import ProgressBar
 
 class ExecutionStrategy(ABC):
     @abstractmethod
@@ -101,8 +101,6 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
         return f" [dim default][{len(self.notes)}][/dim default]"
 
     def _generate_panel(self) -> Panel:
-        from rich.progress_bar import ProgressBar
-
         display_table = Table(show_header=False, box=None, padding=(0, 2))
         display_table.add_column("Icon", justify="center")
         display_table.add_column("Name", style="bold")
