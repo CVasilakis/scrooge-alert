@@ -13,6 +13,7 @@ from exceptions import ScraperError, RateLimitError, ServerError, ScraperParseEr
 from constants import DEFAULT_HEADERS_POOL
 
 class SkroutzClient(BaseScraperClient):
+    """Client for scraping product information from Skroutz."""
     def __init__(self):
         """Initializes the Skroutz client, picking a random header and setting up a TLS session."""
         self.current_headers = random.choice(DEFAULT_HEADERS_POOL)

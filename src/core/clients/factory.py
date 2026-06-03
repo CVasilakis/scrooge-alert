@@ -3,6 +3,7 @@ from clients.base import BaseScraperClient
 from clients.skroutz import SkroutzClient
 
 class ScraperFactory:
+    """Factory for creating and managing scraper client instances."""
     def __init__(self):
         """Initializes the ScraperFactory with an empty cache of scrapers."""
         self._scrapers = {}

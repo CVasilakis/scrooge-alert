@@ -3,11 +3,13 @@ from typing import Any, Dict
 
 @dataclass
 class ScrapeResult:
+    """Represents the result of a successful price scrape."""
     price: float
     currency: str
 
 @dataclass
 class BaseTrackedItem:
+    """Base class for any item tracked by the scraper."""
     url: str = ""
     skip: bool = False
     last_checked: str = ""

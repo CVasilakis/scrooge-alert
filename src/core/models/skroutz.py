@@ -4,6 +4,7 @@ from .base import BaseTrackedItem
 
 @dataclass
 class Product(BaseTrackedItem):
+    """Represents a product tracked on Skroutz."""
     name: str = "Unknown"
     target_price: float = 0.0
     last_price: float = 0.0

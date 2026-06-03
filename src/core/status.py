@@ -75,8 +75,11 @@ def main():
 
     config_notes = []
     def get_config_note_ref(note: str) -> str:
+        """Adds a config note and returns its formatted reference."""
         config_notes.append(note)
         return f" [dim default][{len(config_notes)}][/dim default]"
+
+    config_icons = []
 
     with console.status("[bold green]Running diagnostics...[/bold green]", spinner="dots"):
         # 1. Update Check
@@ -88,12 +91,13 @@ def main():
                 update_val = f"[yellow]Update available!{ref}[/yellow]"
             else:
                 update_icon = "✅"
-                update_val = "[green]Up to date[/green]"
+                update_val = "Up to date"
         except UpdateCheckError as e:
             update_icon = "❗"
             ref = get_config_note_ref(str(e))
             update_val = f"[red]Update check failed{ref}[/red]"
 
+        config_icons.append(update_icon)
         config_table.add_row(update_icon, "Software Version", update_val)
 
         # 2. Config Checks
@@ -101,16 +105,19 @@ def main():
             try:
                 manager = data_manager_factory.get_manager(target)
                 total, faulty_indices = manager.validate_storage()
-                val_str = f"[green]{total} items loaded[/green]"
+                val_str = f"{total} items loaded"
                 if faulty_indices:
                     faulty_count = len(faulty_indices)
                     ref = get_config_note_ref(f"Problematic items found at JSON index: {', '.join(map(str, faulty_indices))}.")
                     val_str += f", [yellow]{faulty_count} misconfigured{ref}[/yellow]"
+                    config_icons.append("🟡")
                     config_table.add_row("🟡", f"{target.capitalize()} Config", val_str)
                 else:
+                    config_icons.append("✅")
                     config_table.add_row("✅", f"{target.capitalize()} Config", val_str)
             except StorageFileError as e:
                 ref = get_config_note_ref(str(e))
+                config_icons.append("❗")
                 config_table.add_row("❗", f"{target.capitalize()} Config", f"[red]Failed{ref}[/red]")
             except ValueError:
                 continue
@@ -128,28 +135,39 @@ def main():
                         valid_urls.append(u)
                     else:
                         invalid_urls.append(u)
-            val_str = f"[green]{len(valid_urls)} valid URL(s)[/green]"
+            val_str = f"{len(valid_urls)} valid URL(s)"
             if not invalid_urls:
-                config_table.add_row("✅", ".env File", f"[green]{len(valid_urls)} valid URL(s)[/green]")
+                config_icons.append("✅")
+                config_table.add_row("✅", ".env File", f"{len(valid_urls)} valid URL(s)")
             else:
                 ref = get_config_note_ref("Run ./scripts/run.sh --ping for more details on invalid URLs.")
-                config_table.add_row("🟡", ".env File", f"[green]{len(valid_urls)} valid URL(s)[/green], [yellow]{len(invalid_urls)} invalid{ref}[/yellow]")
+                config_icons.append("🟡")
+                config_table.add_row("🟡", ".env File", f"{len(valid_urls)} valid URL(s), [yellow]{len(invalid_urls)} invalid{ref}[/yellow]")
         except EnvFileError as e:
             ref = get_config_note_ref(str(e))
+            config_icons.append("❗")
             config_table.add_row("❗", ".env File", f"[red]Not configured{ref}[/red]")
+
+    if "❗" in config_icons:
+        panel_color = "red"
+    elif "🟡" in config_icons:
+        panel_color = "yellow"
+    else:
+        panel_color = "green"
 
     if config_notes:
         config_notes_group = [""]
         for i, note in enumerate(config_notes, 1):
             config_notes_group.append(f"  [{i}] {escape(note)}")
-        console.print(Panel(Group(config_table, Text.from_markup("\n".join(config_notes_group), style="dim")), title="[bold]Configuration Status[/bold]", border_style="blue", width=75))
+        console.print(Panel(Group(config_table, Text.from_markup("\n".join(config_notes_group), style="dim")), title="[bold]Configuration Check[/bold]", border_style=panel_color, width=75))
     else:
-        console.print(Panel(config_table, title="[bold]Configuration Status[/bold]", border_style="blue", width=75))
+        console.print(Panel(config_table, title="[bold]Configuration Check[/bold]", border_style=panel_color, width=75))
 
     # --- Systemd Service Panels ---
     for target in registered_scrapers:
         service_notes = []
         def get_service_note_ref(note: str) -> str:
+            """Adds a service note and returns its formatted reference."""
             service_notes.append(note)
             return f" [dim default][{len(service_notes)}][/dim default]"
 
@@ -164,7 +182,7 @@ def main():
             service_table.add_row("❗", "Background service not installed.")
 
             console.print()
-            console.print(Panel(service_table, title=f"[bold]{target.capitalize()} Service Status[/bold]", border_style="cyan", width=75))
+            console.print(Panel(service_table, title=f"[bold]{target.capitalize()} Service Status[/bold]", border_style="red", width=75))
             continue
 
         timer_active_val = timer_props.get("ActiveState") == "active"
@@ -241,20 +259,29 @@ def main():
         service_table.add_column("Property", style="bold")
         service_table.add_column("Value")
 
+        icons = [timer_icon, next_exec_icon]
         service_table.add_row(timer_icon, "Systemd Timer Active", timer_active)
         if last_exec_time != "[red]Never[/red]":
+            icons.extend([last_exec_icon, completed_icon])
             service_table.add_row(last_exec_icon, "Last Execution Time", last_exec_time)
             service_table.add_row(completed_icon, "Last Execution Status", completed_str)
         service_table.add_row(next_exec_icon, "Next Scheduled Execution", next_exec)
+
+        if "❗" in icons:
+            panel_color = "red"
+        elif "🟡" in icons:
+            panel_color = "yellow"
+        else:
+            panel_color = "green"
 
         console.print()
         if service_notes:
             service_notes_group = [""]
             for i, note in enumerate(service_notes, 1):
                 service_notes_group.append(f"  [{i}] {escape(note)}")
-            console.print(Panel(Group(service_table, Text.from_markup("\n".join(service_notes_group), style="dim")), title=f"[bold]{target.capitalize()} Service Status[/bold]", border_style="cyan", width=75))
+            console.print(Panel(Group(service_table, Text.from_markup("\n".join(service_notes_group), style="dim")), title=f"[bold]{target.capitalize()} Service Status[/bold]", border_style=panel_color, width=75))
         else:
-            console.print(Panel(service_table, title=f"[bold]{target.capitalize()} Service Status[/bold]", border_style="cyan", width=75))
+            console.print(Panel(service_table, title=f"[bold]{target.capitalize()} Service Status[/bold]", border_style=panel_color, width=75))
 
     console.print()
 

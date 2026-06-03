@@ -1,6 +1,5 @@
 import json
 import os
-import logging
 from urllib.parse import urlparse
 from typing import Dict, Any, List
 from .base import BaseDataManager
@@ -9,6 +8,7 @@ from exceptions import StorageFileError
 from constants import CONFIG_DIR
 
 class SkroutzDataManager(BaseDataManager):
+    """Data manager for handling Skroutz-specific products and configuration."""
     def __init__(self, products_path: str):
         """Initializes the SkroutzDataManager.
 
@@ -100,10 +100,7 @@ class SkroutzDataManager(BaseDataManager):
                 json.dump(self.products_data, file, indent=2)
             os.replace(temp_file_path, self.products_path)
         except OSError as e:
-            logging.info("")
-            logging.error("🛑 Failed to update config/skroutz.json file!")
-            logging.error(f"    ↳  {e}")
-            logging.info("")
+            raise StorageFileError(str(e))
 
     def parse_item(self, data: Dict[str, Any]) -> Product:
         """Parses a dictionary into a Product."""

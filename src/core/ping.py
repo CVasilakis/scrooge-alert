@@ -62,6 +62,7 @@ def main():
 
     notes = []
     def get_note_ref(note: str) -> str:
+        """Adds a note and returns its formatted reference."""
         notes.append(note)
         return f" [dim default][{len(notes)}][/dim default]"
 
@@ -84,9 +85,12 @@ def main():
                 else:
                     invalid_urls.append(u)
 
+    icons = []
+
     for iu in invalid_urls:
         ref = get_note_ref("Apprise could not instantiate this endpoint.")
-        table.add_row("❗", "Invalid URL", f"[yellow]{escape(obfuscate_invalid_url(iu))}{ref}[/yellow]")
+        icons.append("❗")
+        table.add_row("❗", "Invalid URL", f"{escape(obfuscate_invalid_url(iu))}{ref}")
 
     if valid_urls:
         notifier = Notifier(",".join(valid_urls))
@@ -95,21 +99,34 @@ def main():
 
         for identifier, success in results:
             if success:
-                table.add_row("✅", "Success", f"[green]{escape(identifier)}[/green]")
+                icons.append("✅")
+                table.add_row("✅", "Success", f"{escape(identifier)}")
             else:
                 ref = get_note_ref("Failed to deliver the test message.")
-                table.add_row("🛑", "Delivery Failed", f"[red]{escape(identifier)}{ref}[/red]")
+                icons.append("🛑")
+                table.add_row("🛑", "Delivery Failed", f"{escape(identifier)}{ref}")
 
     if not valid_urls and not invalid_urls:
-        table.add_row("🛑", "Not Configured", f"[red]{env_error_msg or 'No notification URLs found.'}[/red]")
+        icons.append("🛑")
+        table.add_row("🛑", "Not Configured", f"{env_error_msg or 'No notification URLs found.'}")
+
+    has_success = "✅" in icons
+    has_error = "❗" in icons or "🛑" in icons
+
+    if has_success and has_error:
+        panel_color = "yellow"
+    elif has_success:
+        panel_color = "green"
+    else:
+        panel_color = "red"
 
     if notes:
         notes_group = [""]
         for i, note in enumerate(notes, 1):
             notes_group.append(f"  [{i}] {escape(note)}")
-        console.print(Panel(Group(table, Text.from_markup("\n".join(notes_group), style="dim")), title="[bold]Test Notification[/bold]", border_style="blue", width=75))
+        console.print(Panel(Group(table, Text.from_markup("\n".join(notes_group), style="dim")), title="[bold]Notification Check Results[/bold]", border_style=panel_color, width=75))
     else:
-        console.print(Panel(table, title="[bold]Test Notification[/bold]", border_style="blue", width=75))
+        console.print(Panel(table, title="[bold]Notification Check Results[/bold]", border_style=panel_color, width=75))
 
     console.print()
 

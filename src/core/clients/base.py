@@ -3,6 +3,7 @@ from typing import Dict, Optional
 from models.base import ScrapeResult
 
 class BaseScraperClient(ABC):
+    """Abstract base class for scraping clients."""
     @abstractmethod
     def get_current_headers(self) -> Dict[str, str]:
         """Retrieves the current HTTP headers being used by the client.

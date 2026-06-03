@@ -4,6 +4,7 @@ from .base import BaseDataManager
 from .skroutz import SkroutzDataManager
 
 class DataManagerFactory:
+    """Factory for creating and managing DataManager instances."""
     def __init__(self, config_dir: str):
         """Initializes the DataManagerFactory with a configuration directory.
 

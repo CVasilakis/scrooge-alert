@@ -3,6 +3,7 @@ from typing import Dict, Any, List
 from models.base import BaseTrackedItem
 
 class BaseDataManager(ABC):
+    """Abstract base class for managing data storage and retrieval."""
     @abstractmethod
     def load(self) -> Dict[str, Any]:
         """Loads data from the storage.
@@ -43,10 +44,10 @@ class BaseDataManager(ABC):
     @abstractmethod
     def validate_storage(self) -> tuple[int, list[int]]:
         """Validates the storage file and counts items.
-        
+
         Returns:
             tuple[int, list[int]]: A tuple containing the total number of items and a list of 1-based indices of faulty items.
-            
+
         Raises:
             StorageFileError: If the file is missing, unreadable, or contains invalid data.
         """
@@ -55,7 +56,7 @@ class BaseDataManager(ABC):
     @abstractmethod
     def get_items(self) -> List[Dict[str, Any]]:
         """Returns the list of items as dictionaries from the loaded data.
-        
+
         Returns:
             List[Dict[str, Any]]: The list of item data dictionaries.
         """

@@ -27,4 +27,3 @@ def check_for_updates() -> bool:
             raise UpdateCheckError("No remote output received")
     except Exception as e:
         raise UpdateCheckError(f"Could not check for updates: {e}")
-

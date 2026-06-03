@@ -14,14 +14,15 @@ console = Console()
 class RichConsoleHandler(logging.Handler):
     """Custom handler that uses Rich for console output and supports padding."""
     def emit(self, record):
+        """Emits a formatted log record."""
         try:
             msg = self.format(record)
-            
+
             pad_top = getattr(record, "pad_top", 0)
             pad_bottom = getattr(record, "pad_bottom", 0)
-            
+
             text_msg = Text(msg)
-            
+
             if pad_top > 0 or pad_bottom > 0:
                 console.print(Padding(text_msg, (pad_top, 0, pad_bottom, 0)))
             else:
@@ -32,27 +33,28 @@ class RichConsoleHandler(logging.Handler):
 class NonEmptyFilter(logging.Filter):
     """Filter that prevents empty or whitespace-only log messages from being recorded."""
     def filter(self, record: logging.LogRecord) -> bool:
+        """Filters a log record to ensure it is not empty."""
         return bool(record.getMessage().strip())
 
 def setup_global_logging(quiet: bool = False) -> None:
     """Configures the global fallback logging level and format.
 
-    This is used by CLI tools (ping, status) and startup messages. 
+    This is used by CLI tools (ping, status) and startup messages.
     It logs strictly to the terminal.
 
     Args:
         quiet (bool): If True, silences the global logger entirely.
     """
     os.makedirs(LOGS_DIR, exist_ok=True)
-    
+
     level = logging.CRITICAL if quiet else logging.INFO
-    
+
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
 
     rich_handler = RichConsoleHandler()
     rich_handler.setFormatter(logging.Formatter('%(message)s'))
-    
+
     logging.root.setLevel(level)
     logging.root.addHandler(rich_handler)
 
@@ -62,7 +64,7 @@ def setup_global_logging(quiet: bool = False) -> None:
 def get_target_logger(target_name: str, quiet: bool = False) -> logging.Logger:
     """Creates or retrieves a configured logger for a specific scraper target.
 
-    If 'quiet' is True, logs are written to a daily rotating file 
+    If 'quiet' is True, logs are written to a daily rotating file
     ('logs/{target_name}/output.log').
     Otherwise, logs are output to the terminal via the root logger.
 
@@ -75,7 +77,7 @@ def get_target_logger(target_name: str, quiet: bool = False) -> logging.Logger:
     """
     logger = logging.getLogger(f"scraper.{target_name}")
     logger.setLevel(logging.INFO)
-    
+
     # Prevent the logger from passing messages to the root logger when in quiet mode
     # so we don't accidentally print to terminal
     logger.propagate = not quiet
@@ -97,12 +99,12 @@ def get_target_logger(target_name: str, quiet: bool = False) -> logging.Logger:
         )
         rotating_handler.addFilter(NonEmptyFilter())
         rotating_handler.setFormatter(logging.Formatter(log_format, datefmt=date_format))
-        
+
         logger.addHandler(rotating_handler)
 
     return logger
 
-def save_traceback(logger: logging.Logger, target_name: Optional[str] = None, url: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> None:
+def save_traceback(logger: logging.Logger, target_name: Optional[str] = None, url: Optional[str] = None, headers: Optional[Dict[str, str]] = None, log_to_console: bool = True) -> None:
     """Saves the current exception traceback to a target-specific error log file.
 
     Args:
@@ -110,17 +112,19 @@ def save_traceback(logger: logging.Logger, target_name: Optional[str] = None, ur
         target_name (Optional[str]): The identifier for the scraper. If None, saves to root logs dir.
         url (Optional[str]): The URL associated with the error, if any.
         headers (Optional[Dict[str, str]]): HTTP headers associated with the error, if any.
+        log_to_console (bool): If True, logs the critical error message to the logger.
     """
     if target_name:
         target_logs_dir = os.path.join(LOGS_DIR, target_name)
     else:
         target_logs_dir = LOGS_DIR
-        
+
     os.makedirs(target_logs_dir, exist_ok=True)
-    
+
     log_path = os.path.join(target_logs_dir, "errors.txt")
-    logger.critical(f"🛑 An error occurred! Check {log_path} for details.", extra={"pad_top": 1})
-    
+    if log_to_console:
+        logger.critical(f"🛑 An error occurred! Check {log_path} for details.", extra={"pad_top": 1})
+
     time_now = datetime.datetime.now().strftime("%Y-%m-%d (%H:%M:%S)")
     with open(log_path, "a", newline='') as log_file:
         log_file.write(f"\n\nAn error occurred at {time_now}:\n")

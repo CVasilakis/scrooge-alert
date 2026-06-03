@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from models.base import BaseTrackedItem
 
 class Notifier:
+    """Handles sending notifications via configured Apprise URLs."""
     def __init__(self, notification_urls: str):
         """Initializes the Notifier with a list of notification URLs.
 

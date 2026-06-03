@@ -8,7 +8,7 @@ from typing import Optional
 
 from locks import acquire_lock
 from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, EXIT_CODE_SKIPPED
-from exceptions import RateLimitError, ServerError, ScraperParseError, LockAcquisitionError
+from exceptions import RateLimitError, ServerError, ScraperParseError, LockAcquisitionError, StorageFileError
 from models.base import BaseTrackedItem
 from clients.factory import ScraperFactory
 from storage.factory import DataManagerFactory
@@ -18,6 +18,7 @@ from logger import save_traceback, get_target_logger
 from tui import ExecutionStrategy, SilentExecutionStrategy
 
 class ScrapingOrchestrator:
+    """Orchestrates the scraping process across multiple targets and manages execution flow."""
     def __init__(self, targets_to_run: list, data_manager_factory: DataManagerFactory, scraper_factory: ScraperFactory, notifier: Notifier, config_dir: str, quiet: bool = False, ui_strategy: Optional[ExecutionStrategy] = None):
         """Initializes the ScrapingOrchestrator.
 
@@ -48,13 +49,10 @@ class ScrapingOrchestrator:
         """
         sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
 
-        was_active = False
-        if hasattr(self.ui_strategy, 'cancel_sleep'):
-            was_active = self.ui_strategy.cancel_sleep()
+        msg = f"Received signal {sig_name}"
+        self.ui_strategy.log_interrupt(msg)
         self.ui_strategy.complete_target()
 
-        pad_top = 0 if was_active else 1
-        logging.info(f"🛑 Received signal {sig_name}. Gracefully shutting down...", extra={"pad_top": pad_top, "pad_bottom": 1})
         self.interrupted = True
 
     def _sleep_with_jitter(self, base_delay: float, attempt: int = 0) -> None:
@@ -118,7 +116,10 @@ class ScrapingOrchestrator:
                     needs_save = True
 
         if needs_save:
-            data_manager.save_atomically()
+            try:
+                data_manager.save_atomically()
+            except StorageFileError as e:
+                self.ui_strategy.log_error("Storage", f"Failed to update config/{target}.json file!", str(e))
 
     def _handle_successful_scrape(self, item: BaseTrackedItem, result, data_manager: BaseDataManager, target_logger: logging.Logger) -> None:
         """Processes a successful product scrape, sending notifications if necessary.
@@ -225,7 +226,9 @@ class ScrapingOrchestrator:
                 if attempt == MAX_RETRIES - 1:
                     self.ui_strategy.log_error(name, f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e}")
                     self.ui_strategy.log_error(name, "Rate limit block", "Max retries reached. Aborting scraping.")
-                    save_traceback(target_logger, target_name=target_logger.name.replace("scraper.", ""), url=item.url, headers=scraper.get_current_headers())
+                    target_name = target_logger.name.replace("scraper.", "")
+                    save_traceback(target_logger, target_name=target_name, url=item.url, headers=scraper.get_current_headers(), log_to_console=False)
+                    self.ui_strategy.log_error("System", "An error occurred!", f"Check logs/{target_name}/errors.txt for details.")
                     return e, True
                 else:
                     self.ui_strategy.log_warning(name, f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e}")
@@ -241,7 +244,9 @@ class ScrapingOrchestrator:
             except Exception as e:
                 if attempt == MAX_RETRIES - 1:
                     self.ui_strategy.log_error(name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
-                    save_traceback(target_logger, target_name=target_logger.name.replace("scraper.", ""), url=item.url, headers=scraper.get_current_headers())
+                    target_name = target_logger.name.replace("scraper.", "")
+                    save_traceback(target_logger, target_name=target_name, url=item.url, headers=scraper.get_current_headers(), log_to_console=False)
+                    self.ui_strategy.log_error("System", "An error occurred!", f"Check logs/{target_name}/errors.txt for details.")
                     return e, False
                 else:
                     self.ui_strategy.log_warning(name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
@@ -298,7 +303,10 @@ class ScrapingOrchestrator:
                         needs_save = True
 
                 if needs_save:
-                    data_manager.save_atomically()
+                    try:
+                        data_manager.save_atomically()
+                    except StorageFileError as e:
+                        self.ui_strategy.log_error("Storage", f"Failed to update config/{target}.json file!", str(e))
 
                 if not self.interrupted:
                     self.check_for_old_entries(target, OLD_ENTRY_HOURS, target_logger)
@@ -311,7 +319,7 @@ class ScrapingOrchestrator:
                 self.ui_strategy.complete_target()
                 skipped_count += 1
                 continue
-            
+
             self.ui_strategy.complete_target()
 
         if self.interrupted:
