@@ -27,7 +27,13 @@ class BaseScraperClient(ABC):
             product_name (str): The name of the product (used for logging).
 
         Returns:
-            Optional[ScrapeResult]: The result of the scrape, or None if the product was not found/available.
+            ScrapeResult: The result of the scrape.
+
+        Raises:
+            ProductNotFoundError: If the product is not found.
+            ProductUnavailableError: If the product is found but price is unavailable.
+            InvalidURLError: If the provided URL is invalid.
+            ScraperError: For other scraping-related errors.
         """
         pass
 

@@ -8,7 +8,7 @@ from typing import Optional
 
 from locks import acquire_lock
 from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, EXIT_CODE_SKIPPED
-from exceptions import RateLimitError, ServerError, ScraperParseError, LockAcquisitionError, StorageFileError
+from exceptions import RateLimitError, ServerError, ScraperParseError, LockAcquisitionError, StorageFileError, ProductNotFoundError, ProductUnavailableError, InvalidURLError
 from models.base import BaseTrackedItem
 from clients.factory import ScraperFactory
 from storage.factory import DataManagerFactory
@@ -208,12 +208,12 @@ class ScrapingOrchestrator:
                 if self.interrupted:
                     break
 
-                if result is not None:
-                    self._handle_successful_scrape(item, result, data_manager, target_logger)
-                    break
-                else:
-                    break
+                self._handle_successful_scrape(item, result, data_manager, target_logger)
+                break
 
+            except (ProductNotFoundError, ProductUnavailableError, InvalidURLError) as e:
+                self.ui_strategy.log_warning(name, f"Skipping ({type(e).__name__})", str(e))
+                break
             except ScraperParseError as e:
                 if attempt == MAX_RETRIES - 1:
                     self.ui_strategy.log_error(name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")

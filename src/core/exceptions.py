@@ -14,6 +14,18 @@ class ScraperParseError(ScraperError):
     """Raised when the scraper fails to parse the response data."""
     pass
 
+class ProductNotFoundError(ScraperError):
+    """Raised when a product is not found or has been removed."""
+    pass
+
+class ProductUnavailableError(ScraperError):
+    """Raised when a product is found but has no price available."""
+    pass
+
+class InvalidURLError(ScraperError):
+    """Raised when the provided URL is invalid or unparsable."""
+    pass
+
 class EnvFileError(Exception):
     """Raised when there is an issue with the environment configuration."""
     pass

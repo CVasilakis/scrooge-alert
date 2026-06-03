@@ -9,7 +9,7 @@ import tls_client
 
 from clients.base import BaseScraperClient
 from models.base import ScrapeResult
-from exceptions import ScraperError, RateLimitError, ServerError, ScraperParseError
+from exceptions import ScraperError, RateLimitError, ServerError, ScraperParseError, ProductNotFoundError, ProductUnavailableError, InvalidURLError
 from constants import DEFAULT_HEADERS_POOL
 
 class SkroutzClient(BaseScraperClient):
@@ -49,9 +49,12 @@ class SkroutzClient(BaseScraperClient):
             product_name (str): The name of the product.
 
         Returns:
-            Optional[ScrapeResult]: The scraped price and currency, or None if unavailable.
+            ScrapeResult: The scraped price and currency.
 
         Raises:
+            ProductNotFoundError: If the product is not found.
+            ProductUnavailableError: If the product is found but price is unavailable.
+            InvalidURLError: If the provided URL is invalid.
             ScraperError: For generic scraping errors (e.g. empty response, unexpected HTTP code).
             RateLimitError: If the server blocks the request or limits the rate.
             ServerError: For server-side HTTP errors (5xx).
@@ -62,8 +65,7 @@ class SkroutzClient(BaseScraperClient):
         match = re.search(r'/s/(\d+)', parsed_url.path)
 
         if not match:
-            self.logger.warning(f"❗️ {product_name}: Failed to parse product ID from URL: {product_url}")
-            return None
+            raise InvalidURLError(f"Failed to parse product ID from URL: {product_url}")
 
         product_id = match.group(1)
         api_link = f"https://{domain}/s/{product_id}/filter_products.json?"
@@ -80,8 +82,7 @@ class SkroutzClient(BaseScraperClient):
             raise ScraperError("Empty response or no status code received from server")
 
         if response.status_code in (404, 410):
-            self.logger.warning(f"❗ {product_name}: Product not found or removed (HTTP {response.status_code}).")
-            return None
+            raise ProductNotFoundError(f"Product not found or removed (HTTP {response.status_code}).")
         elif response.status_code in (401, 403, 429):
             raise RateLimitError(f"Blocked or rate limited (HTTP {response.status_code})")
         elif 500 <= response.status_code < 600:
@@ -95,8 +96,7 @@ class SkroutzClient(BaseScraperClient):
             raise ScraperParseError(f"No JSON response: {e}")
 
         if response_data.get("price_min") is None:
-            self.logger.warning(f"❗️ {product_name}: Not available")
-            return None
+            raise ProductUnavailableError("Not available")
 
         price_str = str(response_data["price_min"])
         price_str = re.sub(r'[^\d.,]', '', price_str)

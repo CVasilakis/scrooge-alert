@@ -167,6 +167,7 @@ def main() -> None:
                 manager.validate_storage()
             except StorageFileError as e:
                 get_target_logger(target, True).error(f"❗ Config check failed: {e}")
+                logging.critical(f"Config check failed for {target}: {e}")
                 sys.exit(EXIT_CODE_PRODUCTS_ERROR)
             except ValueError:
                 continue
