@@ -18,11 +18,8 @@ from clients.factory import ScraperFactory
 from orchestrator import ScrapingOrchestrator
 from tui import InteractiveExecutionStrategy, SilentExecutionStrategy
 
-from rich.console import Console, Group
-from rich.table import Table
-from rich.panel import Panel
-from rich.text import Text
-from rich.markup import escape
+from rich.console import Console
+from panel import StatusPanelBuilder
 
 def main() -> None:
     """Main entry point for the Scrooge Alert application.
@@ -52,34 +49,20 @@ def main() -> None:
         console = Console()
         console.print()
 
-        init_table = Table(show_header=False, box=None, padding=(0, 2))
-        init_table.add_column("Icon", justify="center")
-        init_table.add_column("Property", style="bold")
-        init_table.add_column("Value")
-
-        init_notes = []
-        def get_init_note_ref(note: str) -> str:
-            """Adds an initialization note and returns its formatted reference."""
-            init_notes.append(note)
-            return f" [dim default][{len(init_notes)}][/dim default]"
-
-        init_icons = []
+        init_panel = StatusPanelBuilder("Configuration Check")
 
         with console.status("[bold green]Starting Scrooge Alert...[/bold green]", spinner="dots"):
             # Update Check
             try:
                 has_update = check_for_updates()
                 if has_update:
-                    ref = get_init_note_ref("Run ./update.sh to install the latest version.")
-                    init_icons.append("🟡")
-                    init_table.add_row("🟡", "Software Version", f"[yellow]Update available!{ref}[/yellow]")
+                    ref = init_panel.add_note_ref("Run ./update.sh to install the latest version.")
+                    init_panel.add_row("🟡", "Software Version", f"[yellow]Update available!{ref}[/yellow]")
                 else:
-                    init_icons.append("✅")
-                    init_table.add_row("✅", "Software Version", "Up to date")
+                    init_panel.add_row("✅", "Software Version", "Up to date")
             except UpdateCheckError as e:
-                ref = get_init_note_ref(str(e))
-                init_icons.append("❗")
-                init_table.add_row("❗", "Software Version", f"[red]Update check failed{ref}[/red]")
+                ref = init_panel.add_note_ref(str(e))
+                init_panel.add_row("❗", "Software Version", f"[red]Update check failed{ref}[/red]")
 
             # Config Check
             init_fatal_error = None
@@ -89,17 +72,14 @@ def main() -> None:
                     total, faulty_indices = manager.validate_storage()
                     val_str = f"{total} items loaded"
                     if faulty_indices:
-                        ref = get_init_note_ref(f"Problematic items found at JSON index: {', '.join(map(str, faulty_indices))}.")
+                        ref = init_panel.add_note_ref(f"Problematic items found at JSON index: {', '.join(map(str, faulty_indices))}.")
                         val_str += f", [yellow]{len(faulty_indices)} misconfigured{ref}[/yellow]"
-                        init_icons.append("🟡")
-                        init_table.add_row("🟡", f"{target.capitalize()} Config", val_str)
+                        init_panel.add_row("🟡", f"{target.capitalize()} Config", val_str)
                     else:
-                        init_icons.append("✅")
-                        init_table.add_row("✅", f"{target.capitalize()} Config", val_str)
+                        init_panel.add_row("✅", f"{target.capitalize()} Config", val_str)
                 except StorageFileError as e:
-                    ref = get_init_note_ref(str(e))
-                    init_icons.append("❗")
-                    init_table.add_row("❗", f"{target.capitalize()} Config", f"[red]Failed{ref}[/red]")
+                    ref = init_panel.add_note_ref(str(e))
+                    init_panel.add_row("❗", f"{target.capitalize()} Config", f"[red]Failed{ref}[/red]")
                     init_fatal_error = EXIT_CODE_PRODUCTS_ERROR
                     break
                 except ValueError:
@@ -127,32 +107,15 @@ def main() -> None:
 
                 if valid_urls or invalid_urls:
                     if not invalid_urls:
-                        init_icons.append("✅")
-                        init_table.add_row("✅", ".env File", f"{len(valid_urls)} valid URL(s)")
+                        init_panel.add_row("✅", ".env File", f"{len(valid_urls)} valid URL(s)")
                     else:
-                        ref = get_init_note_ref("Run ./scripts/run.sh --ping for more details on invalid URLs.")
-                        init_icons.append("🟡")
-                        init_table.add_row("🟡", ".env File", f"{len(valid_urls)} valid URL(s), [yellow]{len(invalid_urls)} invalid{ref}[/yellow]")
+                        ref = init_panel.add_note_ref("Run ./scripts/run.sh --ping for more details on invalid URLs.")
+                        init_panel.add_row("🟡", ".env File", f"{len(valid_urls)} valid URL(s), [yellow]{len(invalid_urls)} invalid{ref}[/yellow]")
                 else:
-                    ref = get_init_note_ref(env_error_msg or "No notification URLs found.")
-                    init_icons.append("❗")
-                    init_table.add_row("❗", ".env File", f"[red]Not configured{ref}[/red]")
+                    ref = init_panel.add_note_ref(env_error_msg or "No notification URLs found.")
+                    init_panel.add_row("❗", ".env File", f"[red]Not configured{ref}[/red]")
 
-        if "❗" in init_icons:
-            panel_color = "red"
-        elif "🟡" in init_icons:
-            panel_color = "yellow"
-        else:
-            panel_color = "green"
-
-        if init_notes:
-            init_notes_group = [""]
-            for i, note in enumerate(init_notes, 1):
-                init_notes_group.append(f"  [{i}] {escape(note)}")
-            console.print(Panel(Group(init_table, Text.from_markup("\n".join(init_notes_group), style="dim")), title="[bold]Configuration Check[/bold]", border_style=panel_color, width=75))
-        else:
-            console.print(Panel(init_table, title="[bold]Configuration Check[/bold]", border_style=panel_color, width=75))
-
+        init_panel.render(console)
         console.print()
 
         if init_fatal_error:

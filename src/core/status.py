@@ -12,12 +12,11 @@ from exceptions import StorageFileError, EnvFileError, UpdateCheckError
 from storage.factory import DataManagerFactory
 from updater import check_for_updates
 from logger import setup_global_logging
+from panel import StatusPanelBuilder
 
-from rich.console import Console, Group
+from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from rich.text import Text
-from rich.markup import escape
 
 def get_systemd_properties(unit: str, properties: str) -> dict:
     """Retrieves specified properties for a given systemd user unit.
@@ -68,37 +67,20 @@ def main():
         registered_scrapers = ['skroutz'] # Default fallback
 
     # --- Configuration Checks Panel ---
-    config_table = Table(show_header=False, box=None, padding=(0, 2))
-    config_table.add_column("Icon", justify="center")
-    config_table.add_column("Property", style="bold")
-    config_table.add_column("Value")
-
-    config_notes = []
-    def get_config_note_ref(note: str) -> str:
-        """Adds a config note and returns its formatted reference."""
-        config_notes.append(note)
-        return f" [dim default][{len(config_notes)}][/dim default]"
-
-    config_icons = []
+    config_panel = StatusPanelBuilder("Configuration Check")
 
     with console.status("[bold green]Running diagnostics...[/bold green]", spinner="dots"):
         # 1. Update Check
         try:
             has_update = check_for_updates()
             if has_update:
-                update_icon = "🟡"
-                ref = get_config_note_ref("Run ./update.sh to install the latest version.")
-                update_val = f"[yellow]Update available!{ref}[/yellow]"
+                ref = config_panel.add_note_ref("Run ./update.sh to install the latest version.")
+                config_panel.add_row("🟡", "Software Version", f"[yellow]Update available!{ref}[/yellow]")
             else:
-                update_icon = "✅"
-                update_val = "Up to date"
+                config_panel.add_row("✅", "Software Version", "Up to date")
         except UpdateCheckError as e:
-            update_icon = "❗"
-            ref = get_config_note_ref(str(e))
-            update_val = f"[red]Update check failed{ref}[/red]"
-
-        config_icons.append(update_icon)
-        config_table.add_row(update_icon, "Software Version", update_val)
+            ref = config_panel.add_note_ref(str(e))
+            config_panel.add_row("❗", "Software Version", f"[red]Update check failed{ref}[/red]")
 
         # 2. Config Checks
         for target in registered_scrapers:
@@ -108,17 +90,14 @@ def main():
                 val_str = f"{total} items loaded"
                 if faulty_indices:
                     faulty_count = len(faulty_indices)
-                    ref = get_config_note_ref(f"Problematic items found at JSON index: {', '.join(map(str, faulty_indices))}.")
+                    ref = config_panel.add_note_ref(f"Problematic items found at JSON index: {', '.join(map(str, faulty_indices))}.")
                     val_str += f", [yellow]{faulty_count} misconfigured{ref}[/yellow]"
-                    config_icons.append("🟡")
-                    config_table.add_row("🟡", f"{target.capitalize()} Config", val_str)
+                    config_panel.add_row("🟡", f"{target.capitalize()} Config", val_str)
                 else:
-                    config_icons.append("✅")
-                    config_table.add_row("✅", f"{target.capitalize()} Config", val_str)
+                    config_panel.add_row("✅", f"{target.capitalize()} Config", val_str)
             except StorageFileError as e:
-                ref = get_config_note_ref(str(e))
-                config_icons.append("❗")
-                config_table.add_row("❗", f"{target.capitalize()} Config", f"[red]Failed{ref}[/red]")
+                ref = config_panel.add_note_ref(str(e))
+                config_panel.add_row("❗", f"{target.capitalize()} Config", f"[red]Failed{ref}[/red]")
             except ValueError:
                 continue
 
@@ -135,42 +114,19 @@ def main():
                         valid_urls.append(u)
                     else:
                         invalid_urls.append(u)
-            val_str = f"{len(valid_urls)} valid URL(s)"
             if not invalid_urls:
-                config_icons.append("✅")
-                config_table.add_row("✅", ".env File", f"{len(valid_urls)} valid URL(s)")
+                config_panel.add_row("✅", ".env File", f"{len(valid_urls)} valid URL(s)")
             else:
-                ref = get_config_note_ref("Run ./scripts/run.sh --ping for more details on invalid URLs.")
-                config_icons.append("🟡")
-                config_table.add_row("🟡", ".env File", f"{len(valid_urls)} valid URL(s), [yellow]{len(invalid_urls)} invalid{ref}[/yellow]")
+                ref = config_panel.add_note_ref("Run ./scripts/run.sh --ping for more details on invalid URLs.")
+                config_panel.add_row("🟡", ".env File", f"{len(valid_urls)} valid URL(s), [yellow]{len(invalid_urls)} invalid{ref}[/yellow]")
         except EnvFileError as e:
-            ref = get_config_note_ref(str(e))
-            config_icons.append("❗")
-            config_table.add_row("❗", ".env File", f"[red]Not configured{ref}[/red]")
+            ref = config_panel.add_note_ref(str(e))
+            config_panel.add_row("❗", ".env File", f"[red]Not configured{ref}[/red]")
 
-    if "❗" in config_icons:
-        panel_color = "red"
-    elif "🟡" in config_icons:
-        panel_color = "yellow"
-    else:
-        panel_color = "green"
-
-    if config_notes:
-        config_notes_group = [""]
-        for i, note in enumerate(config_notes, 1):
-            config_notes_group.append(f"  [{i}] {escape(note)}")
-        console.print(Panel(Group(config_table, Text.from_markup("\n".join(config_notes_group), style="dim")), title="[bold]Configuration Check[/bold]", border_style=panel_color, width=75))
-    else:
-        console.print(Panel(config_table, title="[bold]Configuration Check[/bold]", border_style=panel_color, width=75))
+    config_panel.render(console)
 
     # --- Systemd Service Panels ---
     for target in registered_scrapers:
-        service_notes = []
-        def get_service_note_ref(note: str) -> str:
-            """Adds a service note and returns its formatted reference."""
-            service_notes.append(note)
-            return f" [dim default][{len(service_notes)}][/dim default]"
-
         timer_props = get_systemd_properties(f'{target}-scraper.timer', 'ActiveState,NextElapseUSecRealtime')
         service_props = get_systemd_properties(f'{target}-scraper.service', 'ActiveState,Result,ExecMainStartTimestamp,ExecMainStatus')
 
@@ -184,6 +140,8 @@ def main():
             console.print()
             console.print(Panel(service_table, title=f"[bold]{target.capitalize()} Service Status[/bold]", border_style="red", width=75))
             continue
+
+        service_panel = StatusPanelBuilder(f"{target.capitalize()} Service Status")
 
         timer_active_val = timer_props.get("ActiveState") == "active"
         timer_icon = "✅" if timer_active_val else "❗"
@@ -205,7 +163,7 @@ def main():
 
         next_exec = timer_props.get("NextElapseUSecRealtime", "")
         if is_currently_running:
-            ref = get_service_note_ref("Script is currently running in the background.")
+            ref = service_panel.add_note_ref("Script is currently running in the background.")
             next_exec = f"[green]Running Now{ref}[/green]"
             next_exec_icon = "✅"
         elif not next_exec or next_exec in ("n/a", "0"):
@@ -217,9 +175,9 @@ def main():
         if not last_exec_time:
             last_exec_time = "[red]Never[/red]"
             if is_pending_first_execution:
-                ref = get_service_note_ref("Timer is pending its first execution.")
+                ref = service_panel.add_note_ref("Timer is pending its first execution.")
             else:
-                ref = get_service_note_ref("The background service has not been executed yet.")
+                ref = service_panel.add_note_ref("The background service has not been executed yet.")
             completed_str = f"[red]Not executed yet{ref}[/red]"
             last_exec_icon = "❗"
             completed_icon = "❗"
@@ -231,57 +189,37 @@ def main():
                 completed_str = "[green]OK[/green]"
             elif skipped:
                 completed_icon = "🟡"
-                ref = get_service_note_ref("Another instance is already running.")
+                ref = service_panel.add_note_ref("Another instance is already running.")
                 completed_str = f"[yellow]Skipped{ref}[/yellow]"
             elif products_error:
                 completed_icon = "❗"
-                ref = get_service_note_ref(f"Issue with the config/{target}.json file.")
+                ref = service_panel.add_note_ref(f"Issue with the config/{target}.json file.")
                 completed_str = f"[red]Failed{ref}[/red]"
             elif env_error:
                 completed_icon = "❗"
-                ref = get_service_note_ref("Issue with the .env file.")
+                ref = service_panel.add_note_ref("Issue with the .env file.")
                 completed_str = f"[red]Failed{ref}[/red]"
             elif rate_limit_error:
                 completed_icon = "❗"
-                ref = get_service_note_ref("Blocked by server due to rate limits.")
+                ref = service_panel.add_note_ref("Blocked by server due to rate limits.")
                 completed_str = f"[red]Failed{ref}[/red]"
             elif interrupted:
                 completed_icon = "🟡"
-                ref = get_service_note_ref("Process was terminated by the user or system.")
+                ref = service_panel.add_note_ref("Process was terminated by the user or system.")
                 completed_str = f"[yellow]Interrupted{ref}[/yellow]"
             else:
                 completed_icon = "❗"
-                ref = get_service_note_ref(error_details)
+                ref = service_panel.add_note_ref(error_details)
                 completed_str = f"[red]Failed{ref}[/red]"
 
-        service_table = Table(show_header=False, box=None, padding=(0, 2))
-        service_table.add_column("Icon", justify="center")
-        service_table.add_column("Property", style="bold")
-        service_table.add_column("Value")
-
-        icons = [timer_icon, next_exec_icon]
-        service_table.add_row(timer_icon, "Systemd Timer Active", timer_active)
+        service_panel.add_row(timer_icon, "Systemd Timer Active", timer_active)
         if last_exec_time != "[red]Never[/red]":
-            icons.extend([last_exec_icon, completed_icon])
-            service_table.add_row(last_exec_icon, "Last Execution Time", last_exec_time)
-            service_table.add_row(completed_icon, "Last Execution Status", completed_str)
-        service_table.add_row(next_exec_icon, "Next Scheduled Execution", next_exec)
-
-        if "❗" in icons:
-            panel_color = "red"
-        elif "🟡" in icons:
-            panel_color = "yellow"
-        else:
-            panel_color = "green"
+            service_panel.add_row(last_exec_icon, "Last Execution Time", last_exec_time)
+            service_panel.add_row(completed_icon, "Last Execution Status", completed_str)
+        service_panel.add_row(next_exec_icon, "Next Scheduled Execution", next_exec)
 
         console.print()
-        if service_notes:
-            service_notes_group = [""]
-            for i, note in enumerate(service_notes, 1):
-                service_notes_group.append(f"  [{i}] {escape(note)}")
-            console.print(Panel(Group(service_table, Text.from_markup("\n".join(service_notes_group), style="dim")), title=f"[bold]{target.capitalize()} Service Status[/bold]", border_style=panel_color, width=75))
-        else:
-            console.print(Panel(service_table, title=f"[bold]{target.capitalize()} Service Status[/bold]", border_style=panel_color, width=75))
+        service_panel.render(console)
 
     console.print()
 

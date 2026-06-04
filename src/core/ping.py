@@ -9,11 +9,9 @@ from env import check_env_file, APPRISE_PLACEHOLDERS
 from notifier import Notifier
 from logger import setup_global_logging
 from exceptions import EnvFileError
+from panel import StatusPanelBuilder
 
-from rich.console import Console, Group
-from rich.table import Table
-from rich.panel import Panel
-from rich.text import Text
+from rich.console import Console
 from rich.markup import escape
 
 def obfuscate_invalid_url(url: str) -> str:
@@ -55,16 +53,7 @@ def main():
     console = Console()
     console.print()
 
-    table = Table(show_header=False, box=None, padding=(0, 2))
-    table.add_column("Icon", justify="center")
-    table.add_column("Status", style="bold")
-    table.add_column("Endpoint")
-
-    notes = []
-    def get_note_ref(note: str) -> str:
-        """Adds a note and returns its formatted reference."""
-        notes.append(note)
-        return f" [dim default][{len(notes)}][/dim default]"
+    panel = StatusPanelBuilder("Notification Check Results")
 
     env_error_msg = ""
     try:
@@ -85,12 +74,9 @@ def main():
                 else:
                     invalid_urls.append(u)
 
-    icons = []
-
     for iu in invalid_urls:
-        ref = get_note_ref("Apprise could not instantiate this endpoint.")
-        icons.append("❗")
-        table.add_row("❗", "Invalid URL", f"{escape(obfuscate_invalid_url(iu))}{ref}")
+        ref = panel.add_note_ref("Apprise could not instantiate this endpoint.")
+        panel.add_row("❗", "Invalid URL", f"{escape(obfuscate_invalid_url(iu))}{ref}")
 
     if valid_urls:
         notifier = Notifier(",".join(valid_urls))
@@ -99,19 +85,17 @@ def main():
 
         for identifier, success in results:
             if success:
-                icons.append("✅")
-                table.add_row("✅", "Success", f"{escape(identifier)}")
+                panel.add_row("✅", "Success", f"{escape(identifier)}")
             else:
-                ref = get_note_ref("Failed to deliver the test message.")
-                icons.append("🛑")
-                table.add_row("🛑", "Delivery Failed", f"{escape(identifier)}{ref}")
+                ref = panel.add_note_ref("Failed to deliver the test message.")
+                panel.add_row("🛑", "Delivery Failed", f"{escape(identifier)}{ref}")
 
     if not valid_urls and not invalid_urls:
-        icons.append("🛑")
-        table.add_row("🛑", "Not Configured", f"{env_error_msg or 'No notification URLs found.'}")
+        panel.add_row("🛑", "Not Configured", f"{env_error_msg or 'No notification URLs found.'}")
 
-    has_success = "✅" in icons
-    has_error = "❗" in icons or "🛑" in icons
+    # Custom color logic: yellow when mixed success/error results
+    has_success = "✅" in panel.icons
+    has_error = "❗" in panel.icons or "🛑" in panel.icons
 
     if has_success and has_error:
         panel_color = "yellow"
@@ -120,13 +104,7 @@ def main():
     else:
         panel_color = "red"
 
-    if notes:
-        notes_group = [""]
-        for i, note in enumerate(notes, 1):
-            notes_group.append(f"  [{i}] {escape(note)}")
-        console.print(Panel(Group(table, Text.from_markup("\n".join(notes_group), style="dim")), title="[bold]Notification Check Results[/bold]", border_style=panel_color, width=75))
-    else:
-        console.print(Panel(table, title="[bold]Notification Check Results[/bold]", border_style=panel_color, width=75))
+    panel.render(console, panel_color=panel_color)
 
     console.print()
 
