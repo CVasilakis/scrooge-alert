@@ -132,7 +132,7 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
         if self.is_sleeping:
             grid = Table.grid(padding=(0, 1))
             grid.add_row(
-                ProgressBar(total=self.sleep_total, completed=self.sleep_remaining, width=30, style="grey37", complete_style="cyan"),
+                ProgressBar(total=self.sleep_total, completed=self.sleep_remaining, width=30, style="grey37", complete_style="cyan", finished_style="cyan"),
                 f"[cyan]{self.sleep_remaining:.1f}s[/cyan]"
             )
             display_table.add_row("⏳", "Sleeping", grid)

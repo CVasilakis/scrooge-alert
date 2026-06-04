@@ -38,21 +38,22 @@ class ScrapingOrchestrator:
         self.config_dir = config_dir
         self.quiet = quiet
         self.interrupted = False
+        self._interrupt_message = ""
         self.ui_strategy = ui_strategy or SilentExecutionStrategy()
 
     def signal_handler(self, signum, _frame):
         """Handles termination signals gracefully.
+
+        Only sets the interrupted flag and stores the message. All UI cleanup
+        is deferred to the main loop to avoid race conditions with the Rich
+        Live display's background refresh thread.
 
         Args:
             signum (int): The signal number received.
             _frame: The current stack frame (unused).
         """
         sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
-
-        msg = f"Received signal {sig_name}"
-        self.ui_strategy.log_interrupt(msg)
-        self.ui_strategy.complete_target()
-
+        self._interrupt_message = f"Received signal {sig_name}"
         self.interrupted = True
 
     def _sleep_with_jitter(self, base_delay: float, attempt: int = 0) -> None:
@@ -65,17 +66,17 @@ class ScrapingOrchestrator:
         jitter = random.uniform(RANDOM_DELAY_MIN, RANDOM_DELAY_MAX)
         total_delay = base_delay + (RETRY_DELAY_MULTIPLIER * attempt) + jitter
 
-        start_time = time.time()
+        start_time = time.monotonic()
         self.ui_strategy.start_sleep(total_delay)
-        while time.time() - start_time < total_delay:
+        while time.monotonic() - start_time < total_delay:
             if self.interrupted:
                 break
-            remaining = max(0.0, total_delay - (time.time() - start_time))
+            remaining = max(0.0, total_delay - (time.monotonic() - start_time))
             self.ui_strategy.update_sleep(remaining)
-            time.sleep(0.1)
+            time.sleep(0.05)
 
         if not self.interrupted:
-            actual_delay = time.time() - start_time
+            actual_delay = time.monotonic() - start_time
             self.ui_strategy.complete_sleep(actual_delay)
 
     def check_for_old_entries(self, target: str, hours: int, target_logger: logging.Logger) -> None:
@@ -320,6 +321,8 @@ class ScrapingOrchestrator:
                 skipped_count += 1
                 continue
 
+            if self.interrupted:
+                self.ui_strategy.log_interrupt(self._interrupt_message)
             self.ui_strategy.complete_target()
 
         if self.interrupted:
