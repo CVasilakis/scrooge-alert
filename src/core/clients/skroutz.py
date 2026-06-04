@@ -1,5 +1,4 @@
 import re
-import logging
 import random
 from urllib.parse import urlparse
 from typing import Optional, Dict
@@ -10,18 +9,97 @@ import tls_client
 from clients.base import BaseScraperClient
 from models.base import ScrapeResult
 from exceptions import ScraperError, RateLimitError, ServerError, ScraperParseError, ProductNotFoundError, ProductUnavailableError, InvalidURLError
-from constants import DEFAULT_HEADERS_POOL
 
 class SkroutzClient(BaseScraperClient):
     """Client for scraping product information from Skroutz."""
+    
+    # Headers impersonating a real browser to avoid being blocked by anti-bot measures.
+    # The scraper rotates through these profiles randomly on retries.
+    HEADERS_POOL: list[Dict[str, str]] = [
+        {
+            'authority': 'www.skroutz.gr',
+            'accept': 'application/json, text/plain, */*',
+            'accept-language': 'en-US,en;q=0.9',
+            'dnt': '1',
+            'referer': 'https://www.skroutz.gr/search?keyphrase=home',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'x-requested-with': 'XMLHttpRequest',
+        },
+        {
+            'authority': 'www.skroutz.gr',
+            'accept': 'application/json, text/plain, */*',
+            'accept-language': 'el-GR,el;q=0.9,en-US;q=0.8,en;q=0.7',
+            'dnt': '1',
+            'referer': 'https://www.skroutz.gr/search?keyphrase=camera',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'x-requested-with': 'XMLHttpRequest',
+        },
+        {
+            'authority': 'www.skroutz.gr',
+            'accept': 'application/json, text/plain, */*',
+            'accept-language': 'ro-RO,ro;q=0.9,en-US;q=0.8,en;q=0.7',
+            'dnt': '1',
+            'referer': 'https://www.skroutz.gr/search?keyphrase=fantasy',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"macOS"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'x-requested-with': 'XMLHttpRequest',
+        },
+        {
+            'authority': 'www.skroutz.gr',
+            'accept': 'application/json, text/plain, */*',
+            'accept-language': 'bg-BG,bg;q=0.9,en-US;q=0.8,en;q=0.7',
+            'dnt': '1',
+            'referer': 'https://www.skroutz.gr/search?keyphrase=harry+potter',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"macOS"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'x-requested-with': 'XMLHttpRequest',
+        },
+        {
+            'authority': 'www.skroutz.gr',
+            'accept': 'application/json, text/plain, */*',
+            'accept-language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
+            'dnt': '1',
+            'referer': 'https://www.skroutz.gr/c/11/home-garden.html',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'x-requested-with': 'XMLHttpRequest',
+        }
+    ]
+
     def __init__(self):
         """Initializes the Skroutz client, picking a random header and setting up a TLS session."""
-        self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
+        self.current_headers = random.choice(self.HEADERS_POOL)
         self.session = tls_client.Session(
             client_identifier="chrome120",  # type: ignore
             random_tls_extension_order=True
         )
-        self.logger = logging.getLogger("scraper.skroutz")
 
     def get_current_headers(self) -> Dict[str, str]:
         """Retrieves the current HTTP headers.
@@ -33,7 +111,7 @@ class SkroutzClient(BaseScraperClient):
 
     def refresh_identity(self) -> None:
         """Refreshes the client's identity by selecting new headers and recreating the session."""
-        self.current_headers = random.choice(DEFAULT_HEADERS_POOL)
+        self.current_headers = random.choice(self.HEADERS_POOL)
         if hasattr(self, 'session'):
             self.session.close()
         self.session = tls_client.Session(
