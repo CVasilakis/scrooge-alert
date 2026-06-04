@@ -33,17 +33,17 @@ def main() -> None:
     """
     parser = argparse.ArgumentParser(description='Scrooge Alert scraper')
     parser.add_argument('--quiet', action='store_true', help='Run script with no console output')
-    parser.add_argument('--skroutz', action='store_true', help='Run the Skroutz scraper')
+
+    registered_scrapers = ScraperFactory.registered_targets()
+    for scraper in registered_scrapers:
+        parser.add_argument(f'--{scraper}', action='store_true', help=f'Run the {scraper.capitalize()} scraper')
+
     args, _ = parser.parse_known_args()
 
     setup_global_logging(args.quiet)
 
     data_manager_factory = DataManagerFactory(CONFIG_DIR)
-    registered_scrapers = ['skroutz']
-    targets_to_run = []
-
-    if args.skroutz:
-        targets_to_run.append('skroutz')
+    targets_to_run = [s for s in registered_scrapers if getattr(args, s, False)]
 
     if not targets_to_run:
         targets_to_run = registered_scrapers

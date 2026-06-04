@@ -4,6 +4,14 @@ from models.base import BaseTrackedItem
 
 class BaseDataManager(ABC):
     """Abstract base class for managing data storage and retrieval."""
+    def __init__(self, filepath: str) -> None:
+        """Initializes the data manager with a file path.
+
+        Args:
+            filepath (str): The path to the storage file.
+        """
+        self.filepath = filepath
+
     @abstractmethod
     def load(self) -> Dict[str, Any]:
         """Loads data from the storage.

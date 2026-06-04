@@ -1,10 +1,37 @@
 import os
-from typing import Dict
+from typing import Dict, List, Tuple, Type
 from .base import BaseDataManager
-from .skroutz import SkroutzDataManager
+
 
 class DataManagerFactory:
-    """Factory for creating and managing DataManager instances."""
+    """Factory for creating and managing DataManager instances.
+
+    Uses a class-level registry so new data managers can be added without
+    modifying this file. To add a new data manager, implement BaseDataManager
+    and register it via the package's __init__.py.
+    """
+    _registry: Dict[str, Tuple[Type[BaseDataManager], str]] = {}
+
+    @classmethod
+    def register(cls, target_name: str, manager_class: Type[BaseDataManager], config_filename: str) -> None:
+        """Registers a data manager class for the given target.
+
+        Args:
+            target_name (str): The target identifier (e.g., 'skroutz').
+            manager_class (Type[BaseDataManager]): The data manager class to instantiate.
+            config_filename (str): The configuration filename (e.g., 'skroutz.json').
+        """
+        cls._registry[target_name] = (manager_class, config_filename)
+
+    @classmethod
+    def registered_targets(cls) -> List[str]:
+        """Returns a list of all registered data manager target identifiers.
+
+        Returns:
+            List[str]: The registered target names.
+        """
+        return list(cls._registry.keys())
+
     def __init__(self, config_dir: str):
         """Initializes the DataManagerFactory with a configuration directory.
 
@@ -27,10 +54,11 @@ class DataManagerFactory:
             ValueError: If the target is unsupported.
         """
         if target not in self._managers:
-            if target == 'skroutz':
-                path = os.path.join(self.config_dir, "skroutz.json")
-                self._managers[target] = SkroutzDataManager(path)
-            else:
+            if target not in self._registry:
                 raise ValueError(f"Unsupported storage target: {target}")
+
+            manager_class, config_filename = self._registry[target]
+            path = os.path.join(self.config_dir, config_filename)
+            self._managers[target] = manager_class(path)
 
         return self._managers[target]
