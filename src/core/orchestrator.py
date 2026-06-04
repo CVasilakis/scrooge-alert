@@ -1,13 +1,11 @@
-import logging
 import signal
 import datetime
 import random
 import time
-import sys
 from typing import Optional
 
 from locks import acquire_lock
-from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, EXIT_CODE_SKIPPED
+from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS
 from exceptions import RateLimitError, ServerError, ScraperParseError, LockAcquisitionError, StorageFileError, ProductNotFoundError, ProductUnavailableError, InvalidURLError
 from models.base import BaseTrackedItem
 from clients.factory import ScraperFactory
@@ -39,6 +37,8 @@ class ScrapingOrchestrator:
         self.quiet = quiet
         self.interrupted = False
         self._interrupt_message = ""
+        self._current_target = ""
+        self._current_logger = None
         self.ui_strategy = ui_strategy or SilentExecutionStrategy()
 
     def signal_handler(self, signum, _frame):
@@ -79,13 +79,12 @@ class ScrapingOrchestrator:
             actual_delay = time.monotonic() - start_time
             self.ui_strategy.complete_sleep(actual_delay)
 
-    def check_for_old_entries(self, target: str, hours: int, target_logger: logging.Logger) -> None:
+    def check_for_old_entries(self, target: str, hours: int) -> None:
         """Checks if any product hasn't been successfully scraped recently for a specific target.
 
         Args:
             target (str): The specific target to check.
             hours (int): The threshold in hours to consider an entry 'old'.
-            target_logger (logging.Logger): The logger for the current target.
         """
         try:
             data_manager = self.data_manager_factory.get_manager(target)
@@ -122,14 +121,13 @@ class ScrapingOrchestrator:
             except StorageFileError as e:
                 self.ui_strategy.log_error("Storage", f"Failed to update config/{target}.json file!", str(e))
 
-    def _handle_successful_scrape(self, item: BaseTrackedItem, result, data_manager: BaseDataManager, target_logger: logging.Logger) -> None:
+    def _handle_successful_scrape(self, item: BaseTrackedItem, result, data_manager: BaseDataManager) -> None:
         """Processes a successful product scrape, sending notifications if necessary.
 
         Args:
             item (BaseTrackedItem): The product that was scraped.
             result (ScrapeResult): The result containing the current price and currency.
             data_manager (BaseDataManager): The data manager responsible for saving the updates.
-            target_logger (logging.Logger): The logger for the current target.
         """
         name = getattr(item, 'name', 'Unknown')
         target_price = getattr(item, 'target_price', 0.0)
@@ -156,14 +154,12 @@ class ScrapingOrchestrator:
             last_checked=datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
         )
 
-    def _process_product(self, row: dict, index: int, data_manager: BaseDataManager, target_logger: logging.Logger) -> tuple[Exception | None, bool]:
+    def _process_product(self, row: dict, data_manager: BaseDataManager) -> tuple[Exception | None, bool]:
         """Processes a single product from the configuration, attempting to scrape it.
 
         Args:
             row (dict): The dictionary representation of the product.
-            index (int): The index of the product in the list.
             data_manager (BaseDataManager): The data manager.
-            target_logger (logging.Logger): The logger for the current target.
 
         Returns:
             tuple[Exception | None, bool]: A tuple containing:
@@ -209,7 +205,7 @@ class ScrapingOrchestrator:
                 if self.interrupted:
                     break
 
-                self._handle_successful_scrape(item, result, data_manager, target_logger)
+                self._handle_successful_scrape(item, result, data_manager)
                 break
 
             except (ProductNotFoundError, ProductUnavailableError, InvalidURLError) as e:
@@ -227,9 +223,9 @@ class ScrapingOrchestrator:
                 if attempt == MAX_RETRIES - 1:
                     self.ui_strategy.log_error(name, f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e}")
                     self.ui_strategy.log_error(name, "Rate limit block", "Max retries reached. Aborting scraping.")
-                    target_name = target_logger.name.replace("scraper.", "")
-                    save_traceback(target_logger, target_name=target_name, url=item.url, headers=scraper.get_current_headers(), log_to_console=False)
-                    self.ui_strategy.log_error("System", "An error occurred!", f"Check logs/{target_name}/errors.txt for details.")
+                    if self._current_logger:
+                        save_traceback(self._current_logger, target_name=self._current_target, url=item.url, headers=scraper.get_current_headers(), log_to_console=False)
+                    self.ui_strategy.log_error("System", "An error occurred!", f"Check logs/{self._current_target}/errors.txt for details.")
                     return e, True
                 else:
                     self.ui_strategy.log_warning(name, f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e}")
@@ -245,9 +241,9 @@ class ScrapingOrchestrator:
             except Exception as e:
                 if attempt == MAX_RETRIES - 1:
                     self.ui_strategy.log_error(name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
-                    target_name = target_logger.name.replace("scraper.", "")
-                    save_traceback(target_logger, target_name=target_name, url=item.url, headers=scraper.get_current_headers(), log_to_console=False)
-                    self.ui_strategy.log_error("System", "An error occurred!", f"Check logs/{target_name}/errors.txt for details.")
+                    if self._current_logger:
+                        save_traceback(self._current_logger, target_name=self._current_target, url=item.url, headers=scraper.get_current_headers(), log_to_console=False)
+                    self.ui_strategy.log_error("System", "An error occurred!", f"Check logs/{self._current_target}/errors.txt for details.")
                     return e, False
                 else:
                     self.ui_strategy.log_warning(name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
@@ -256,7 +252,7 @@ class ScrapingOrchestrator:
 
         return None, False
 
-    def run(self) -> None:
+    def run(self) -> int:
         """Starts the scraping orchestrator loop.
 
         Iterates through all configured targets, attempts to scrape their products,
@@ -276,7 +272,8 @@ class ScrapingOrchestrator:
             if self.interrupted:
                 break
 
-            target_logger = get_target_logger(target, self.quiet)
+            self._current_target = target
+            self._current_logger = get_target_logger(target, self.quiet)
 
             try:
                 data_manager = self.data_manager_factory.get_manager(target)
@@ -288,7 +285,7 @@ class ScrapingOrchestrator:
             if not target_items:
                 continue
 
-            self.ui_strategy.start_target(target, target_logger)
+            self.ui_strategy.start_target(target, self._current_logger)
 
             try:
                 with acquire_lock(target):
@@ -296,7 +293,7 @@ class ScrapingOrchestrator:
                         if abort_target or self.interrupted:
                             break
 
-                        product_error, product_abort = self._process_product(row, index, data_manager, target_logger)
+                        product_error, product_abort = self._process_product(row, data_manager)
                         if product_error:
                             failed_items.append((data_manager.parse_item(row), product_error))
                         abort_target = abort_target or product_abort
@@ -310,7 +307,7 @@ class ScrapingOrchestrator:
                         self.ui_strategy.log_error("Storage", f"Failed to update config/{target}.json file!", str(e))
 
                 if not self.interrupted:
-                    self.check_for_old_entries(target, OLD_ENTRY_HOURS, target_logger)
+                    self.check_for_old_entries(target, OLD_ENTRY_HOURS)
 
                 if not self.interrupted and failed_items:
                     self.notifier.notify_errors(failed_items)
@@ -326,10 +323,12 @@ class ScrapingOrchestrator:
             self.ui_strategy.complete_target()
 
         if self.interrupted:
-            sys.exit(EXIT_CODE_INTERRUPT)
+            return EXIT_CODE_INTERRUPT
 
         if any_rate_limited:
-            sys.exit(EXIT_CODE_RATE_LIMIT_ERROR)
+            return EXIT_CODE_RATE_LIMIT_ERROR
 
         if skipped_count > 0 and skipped_count == len(self.targets_to_run):
-            sys.exit(EXIT_CODE_SKIPPED)
+            return EXIT_CODE_SKIPPED
+
+        return EXIT_CODE_SUCCESS

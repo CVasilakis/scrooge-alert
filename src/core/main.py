@@ -150,9 +150,11 @@ def main() -> None:
         scraper_factory = ScraperFactory()
         try:
             orchestrator = ScrapingOrchestrator(targets_to_run, data_manager_factory, scraper_factory, notifier, CONFIG_DIR, args.quiet, ui_strategy)
-            orchestrator.run()
+            exit_code = orchestrator.run()
         finally:
             scraper_factory.close_all()
+            
+        sys.exit(exit_code)
 
     except Exception:
         if 'ui_strategy' in locals():

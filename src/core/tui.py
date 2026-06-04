@@ -236,7 +236,7 @@ class SilentExecutionStrategy(ExecutionStrategy):
     def log_result(self, icon: str, name: str, value: str, note: Optional[str] = None) -> None:
         """Logs an informational result to the target logger."""
         if self.target_logger:
-            clean_value = value.replace('[green]', '').replace('[/green]', '').replace('[red]', '').replace('[/red]', '')
+            clean_value = Text.from_markup(value).plain
             if note:
                 self.target_logger.info(f"{icon} {name}: {clean_value} ({note})")
             else:
