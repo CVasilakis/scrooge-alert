@@ -75,7 +75,7 @@ def main():
                     invalid_urls.append(u)
 
     for iu in invalid_urls:
-        ref = panel.add_note_ref("Apprise could not instantiate this endpoint.")
+        ref = panel.add_note_ref("Apprise flagged this endpoint as invalid.")
         panel.add_row("❗", "Invalid URL", f"{escape(obfuscate_invalid_url(iu))}{ref}")
 
     if valid_urls:

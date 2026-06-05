@@ -175,7 +175,7 @@ def main():
         if not last_exec_time:
             last_exec_time = "[red]Never[/red]"
             if is_pending_first_execution:
-                ref = service_panel.add_note_ref("Timer is pending its first execution.")
+                ref = service_panel.add_note_ref("Background service is pending its first execution.")
             else:
                 ref = service_panel.add_note_ref("The background service has not been executed yet.")
             completed_str = f"[red]Not executed yet{ref}[/red]"
@@ -189,7 +189,7 @@ def main():
                 completed_str = "[green]OK[/green]"
             elif skipped:
                 completed_icon = "🟡"
-                ref = service_panel.add_note_ref("Another instance is already running.")
+                ref = service_panel.add_note_ref("Another instance of the scraper was running.")
                 completed_str = f"[yellow]Skipped{ref}[/yellow]"
             elif products_error:
                 completed_icon = "❗"

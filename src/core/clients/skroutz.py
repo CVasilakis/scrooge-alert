@@ -12,7 +12,7 @@ from exceptions import ScraperError, RateLimitError, ServerError, ScraperParseEr
 
 class SkroutzClient(BaseScraperClient):
     """Client for scraping product information from Skroutz."""
-    
+
     # Headers impersonating a real browser to avoid being blocked by anti-bot measures.
     # The scraper rotates through these profiles randomly on retries.
     HEADERS_POOL: list[Dict[str, str]] = [

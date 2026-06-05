@@ -24,6 +24,6 @@ def check_for_updates() -> bool:
             remote_hash = remote_output.split()[0]
             return local_hash != remote_hash
         else:
-            raise UpdateCheckError("No remote output received")
+            raise UpdateCheckError("Failed to retrieve remote repository version information")
     except Exception as e:
         raise UpdateCheckError(f"Could not check for updates: {e}")

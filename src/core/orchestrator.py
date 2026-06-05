@@ -103,11 +103,11 @@ class ScrapingOrchestrator:
                     current_time = datetime.datetime.now()
                     if (current_time - timestamp) > datetime.timedelta(hours=hours):
                         name = getattr(item, 'name', 'Unknown')
-                        self.ui_strategy.log_warning(name, "Old entry found", f"Last check: {item.last_checked}")
+                        self.ui_strategy.log_warning(name, "Old entry found", f"Last time scraped: {item.last_checked}")
                         self.notifier.notify_old_entries(name, hours, item.url)
                 except ValueError:
                     name = getattr(item, 'name', 'Unknown')
-                    self.ui_strategy.log_warning(name, "Invalid timestamp format", f"Resetting clock for: {item.last_checked}")
+                    self.ui_strategy.log_warning(name, "Invalid timestamp format", "Resetting stored timestamp to the current system time.")
                     data_manager.update_item(
                         url=item.url,
                         last_price=getattr(item, 'last_price', 0.0),
@@ -139,9 +139,9 @@ class ScrapingOrchestrator:
             note = ""
             if self.notifier.has_services:
                 if self.notifier.notify_low_price(name, target_price, result.price, item.url, result.currency):
-                    note = "Notification sent to configured URL(s)."
+                    note = "Notification delivered to all valid apprise URL(s)."
                 else:
-                    note = "Notification failed to send to configured URL(s)."
+                    note = "Notification delivery failed for some apprise URL(s)."
             else:
                 note = "No notification sent (.env not configured)."
             self.ui_strategy.log_result("🎉", name, f"{price_str} {target_str}", note)
@@ -171,7 +171,7 @@ class ScrapingOrchestrator:
         target_price = getattr(item, 'target_price', 0.0)
 
         if item.skip:
-            self.ui_strategy.log_result("🔕", name, "Skipped", "skip field set to true")
+            self.ui_strategy.log_result("🔕", name, "Skipped", "The skip field was set to true in the configuration file.")
             return None, False
 
         self._sleep_with_jitter(MIN_DELAY_SECONDS)
@@ -179,15 +179,15 @@ class ScrapingOrchestrator:
             return None, False
 
         if not item.url:
-            self.ui_strategy.log_warning(name, "Missing URL", "Skipping product")
+            self.ui_strategy.log_warning(name, "Missing URL. Skipping product...")
             return None, False
 
         if target_price < 0:
-            self.ui_strategy.log_warning(name, "Invalid target price", f"Value '{row.get('target_price')}'. Skipping product")
+            self.ui_strategy.log_warning(name, "Invalid target price was provided.", f"Value '{row.get('target_price')}' is invalid. Skipping product")
             return None, False
 
         if 'target_price' not in row:
-            self.ui_strategy.log_warning(name, "Missing target price", "Defaulting to 0.0")
+            self.ui_strategy.log_warning(name, "Missing target price", "No notifications will be sent.")
 
         scraper = self.scraper_factory.get_scraper(item.url)
 
