@@ -51,7 +51,7 @@ def main() -> None:
 
         init_panel = StatusPanelBuilder("Configuration Check")
 
-        with console.status("[bold green]Starting Scrooge Alert...[/bold green]", spinner="dots"):
+        with console.status("[bold green]Checking for updates...[/bold green]", spinner="dots"):
             # Update Check
             try:
                 has_update = check_for_updates()
@@ -109,7 +109,7 @@ def main() -> None:
                     if not invalid_urls:
                         init_panel.add_row("✅", ".env File", f"{len(valid_urls)} valid URL(s)")
                     else:
-                        ref = init_panel.add_note_ref("Run ./scripts/run.sh --ping for more details on invalid URLs.")
+                        ref = init_panel.add_note_ref("Run ./scripts/run.sh --ping for more details.")
                         init_panel.add_row("🟡", ".env File", f"{len(valid_urls)} valid URL(s), [yellow]{len(invalid_urls)} invalid{ref}[/yellow]")
                 else:
                     ref = init_panel.add_note_ref(env_error_msg or "No notification URLs found.")
@@ -153,7 +153,7 @@ def main() -> None:
             exit_code = orchestrator.run()
         finally:
             scraper_factory.close_all()
-            
+
         sys.exit(exit_code)
 
     except Exception:

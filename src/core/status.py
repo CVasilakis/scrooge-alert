@@ -69,7 +69,7 @@ def main():
     # --- Configuration Checks Panel ---
     config_panel = StatusPanelBuilder("Configuration Check")
 
-    with console.status("[bold green]Running diagnostics...[/bold green]", spinner="dots"):
+    with console.status("[bold green]Checking for updates...[/bold green]", spinner="dots"):
         # 1. Update Check
         try:
             has_update = check_for_updates()
@@ -117,7 +117,7 @@ def main():
             if not invalid_urls:
                 config_panel.add_row("✅", ".env File", f"{len(valid_urls)} valid URL(s)")
             else:
-                ref = config_panel.add_note_ref("Run ./scripts/run.sh --ping for more details on invalid URLs.")
+                ref = config_panel.add_note_ref("Run ./scripts/run.sh --ping for more details.")
                 config_panel.add_row("🟡", ".env File", f"{len(valid_urls)} valid URL(s), [yellow]{len(invalid_urls)} invalid{ref}[/yellow]")
         except EnvFileError as e:
             ref = config_panel.add_note_ref(str(e))

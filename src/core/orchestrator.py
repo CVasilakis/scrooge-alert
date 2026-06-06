@@ -103,11 +103,11 @@ class ScrapingOrchestrator:
                     current_time = datetime.datetime.now()
                     if (current_time - timestamp) > datetime.timedelta(hours=hours):
                         name = getattr(item, 'name', 'Unknown')
-                        self.ui_strategy.log_warning(name, "Old entry found", f"Last time scraped: {item.last_checked}")
+                        self.ui_strategy.log_warning(name, "Stale item", f"Last time scraped: {item.last_checked}")
                         self.notifier.notify_old_entries(name, hours, item.url)
                 except ValueError:
                     name = getattr(item, 'name', 'Unknown')
-                    self.ui_strategy.log_warning(name, "Invalid timestamp format", "Resetting stored timestamp to the current system time.")
+                    self.ui_strategy.log_warning(name, "Corrupted timestamp detected", "Resetting stored timestamp to the current system time.")
                     data_manager.update_item(
                         url=item.url,
                         last_price=getattr(item, 'last_price', 0.0),
@@ -144,7 +144,7 @@ class ScrapingOrchestrator:
                     note = "Notification delivery failed for some apprise URL(s)."
             else:
                 note = "No notification sent (.env not configured)."
-            self.ui_strategy.log_result("🎉", name, f"{price_str} {target_str}", note)
+            self.ui_strategy.log_result("🎉", name, f"[bold green]{price_str}[/bold green] {target_str}", note)
         else:
             self.ui_strategy.log_result("✅", name, f"{price_str} {target_str}")
 
@@ -313,7 +313,7 @@ class ScrapingOrchestrator:
                     self.notifier.notify_errors(failed_items)
 
             except LockAcquisitionError:
-                self.ui_strategy.log_error("System", "Another instance is running. Aborting...")
+                self.ui_strategy.log_error("System", "Another instance is currently running. Aborting...")
                 self.ui_strategy.complete_target()
                 skipped_count += 1
                 continue

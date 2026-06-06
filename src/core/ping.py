@@ -85,7 +85,7 @@ def main():
 
         for identifier, success in results:
             if success:
-                panel.add_row("✅", "Success", f"{escape(identifier)}")
+                panel.add_row("✅", "Notification Delivered", f"{escape(identifier)}")
             else:
                 ref = panel.add_note_ref("Failed to deliver the test message.")
                 panel.add_row("🛑", "Delivery Failed", f"{escape(identifier)}{ref}")
