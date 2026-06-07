@@ -32,9 +32,16 @@ class ExecutionStrategy(ABC):
         """
         if notes is None:
             return []
+
+        def _ensure_period(s: str) -> str:
+            s_stripped = s.strip()
+            if s_stripped and not s_stripped.endswith('.'):
+                return s_stripped + '.'
+            return s_stripped
+
         if isinstance(notes, str):
-            return [notes] if notes else []
-        return [n for n in notes if n]
+            return [_ensure_period(notes)] if notes else []
+        return [_ensure_period(n) for n in notes if n]
 
     @abstractmethod
     def start_target(self, target_name: str, target_logger: logging.Logger) -> None:

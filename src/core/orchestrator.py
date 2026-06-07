@@ -103,7 +103,7 @@ class ScrapingOrchestrator:
                     current_time = datetime.datetime.now()
                     if (current_time - timestamp) > datetime.timedelta(hours=hours):
                         name = getattr(item, 'name', 'Unknown')
-                        self.ui_strategy.log_warning(name, "Stale item", f"Last time scraped: {item.last_checked}")
+                        self.ui_strategy.log_warning(name, "Stale item", f"Last time scraped: {item.last_checked}.")
                         self.notifier.notify_old_entries(name, hours, item.url)
                 except ValueError:
                     name = getattr(item, 'name', 'Unknown')
@@ -183,7 +183,7 @@ class ScrapingOrchestrator:
             return None, False
 
         if target_price < 0:
-            self.ui_strategy.log_warning(name, "Invalid target price was provided.", f"Value '{row.get('target_price')}' is invalid. Skipping product")
+            self.ui_strategy.log_warning(name, "Invalid target price was provided.", f"Value '{str(row.get('target_price'))[:22]}' is invalid. Skipping product.")
             return None, False
 
         if 'target_price' not in row:

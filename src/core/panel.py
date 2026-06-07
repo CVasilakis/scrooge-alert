@@ -59,7 +59,10 @@ class StatusPanelBuilder:
         Returns:
             str: The Rich markup string for the footnote reference.
         """
-        self.notes.append(note)
+        note_stripped = note.strip()
+        if note_stripped and not note_stripped.endswith('.'):
+            note_stripped += '.'
+        self.notes.append(note_stripped)
         return f" [dim default][{len(self.notes)}][/dim default]"
 
     def get_panel_color(self) -> str:
