@@ -137,8 +137,18 @@ def main() -> None:
         try:
             check_env_file()
         except EnvFileError as e:
+            for target in targets_to_run:
+                get_target_logger(target, True).error(f"❗ Env configuration failed: {e}")
             logging.critical(f"Env configuration failed: {e}")
             sys.exit(EXIT_CODE_ENV_ERROR)
+
+        notification_urls = os.environ.get("NOTIFICATION_URLS", "")
+        if notification_urls:
+            urls = [u.strip() for u in notification_urls.split(',') if u.strip()]
+            invalid_urls = [u for u in urls if any(p in u for p in APPRISE_PLACEHOLDERS) or not apprise.Apprise.instantiate(u)]
+            if invalid_urls:
+                for target in targets_to_run:
+                    get_target_logger(target, True).warning(f"❗ {len(invalid_urls)} invalid notification URL(s) detected in .env file.")
 
         ui_strategy = SilentExecutionStrategy()
 
