@@ -62,35 +62,40 @@ def main():
         env_error_msg = str(e)
 
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
-    valid_urls = []
-    invalid_urls = []
+    url_entries = []  # Preserves .env order as (url_str, is_valid) tuples
 
     if notification_urls:
         for u in notification_urls.split(','):
             u = u.strip()
             if u:
-                if not any(p in u for p in APPRISE_PLACEHOLDERS) and apprise.Apprise.instantiate(u):
-                    valid_urls.append(u)
-                else:
-                    invalid_urls.append(u)
+                is_valid = not any(p in u for p in APPRISE_PLACEHOLDERS) and bool(apprise.Apprise.instantiate(u))
+                url_entries.append((u, is_valid))
 
-    for iu in invalid_urls:
-        ref = panel.add_note_ref("Apprise flagged this endpoint as invalid.")
-        panel.add_row("❗", "Invalid URL", f"{escape(obfuscate_invalid_url(iu))}{ref}")
-
+    # Collect and test valid URLs
+    valid_urls = [url for url, is_valid in url_entries if is_valid]
+    test_results = []
     if valid_urls:
         notifier = Notifier(",".join(valid_urls))
         with console.status("[bold green]Sending test messages...[/bold green]", spinner="dots"):
-            results = notifier.notify_test()
+            test_results = notifier.notify_test()
 
-        for identifier, success in results:
+    # Print results in original .env order with sequential IDs
+    valid_idx = 0
+    for idx, (url, is_valid) in enumerate(url_entries, 1):
+        prefix = f"Apprise URL {idx}: "
+        if not is_valid:
+            ref = panel.add_note_ref("Apprise flagged this endpoint as invalid.")
+            panel.add_row("❗", "Invalid URL", f"{prefix}{escape(obfuscate_invalid_url(url))}{ref}")
+        else:
+            identifier, success = test_results[valid_idx]
+            valid_idx += 1
             if success:
-                panel.add_row("✅", "Notification Delivered", f"{escape(identifier)}")
+                panel.add_row("✅", "Notification sent", f"{prefix}{escape(identifier)}")
             else:
                 ref = panel.add_note_ref("Failed to deliver the test message.")
-                panel.add_row("🛑", "Delivery Failed", f"{escape(identifier)}{ref}")
+                panel.add_row("🛑", "Delivery Failed", f"{prefix}{escape(identifier)}{ref}")
 
-    if not valid_urls and not invalid_urls:
+    if not url_entries:
         panel.add_row("🛑", "Not Configured", f"{env_error_msg or 'No notification URLs found.'}")
 
     # Custom color logic: yellow when mixed success/error results
