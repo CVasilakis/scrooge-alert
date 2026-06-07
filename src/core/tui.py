@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import List, Optional, Union
 from rich.console import Console, Group
 from rich.live import Live
 from rich.table import Table
@@ -10,8 +10,32 @@ from rich.markup import escape
 from rich.spinner import Spinner
 from rich.progress_bar import ProgressBar
 
+# Accepts a single note string, a list of note strings, or None.
+Notes = Union[str, List[str], None]
+
+
 class ExecutionStrategy(ABC):
     """Abstract base class for execution UI and logging strategies."""
+
+    @staticmethod
+    def _normalize_notes(notes: Notes) -> List[str]:
+        """Normalizes the notes parameter into a flat list of strings.
+
+        Accepts None, a single string, or a list and always returns a
+        (possibly empty) list suitable for iteration.
+
+        Args:
+            notes (Notes): The raw notes value.
+
+        Returns:
+            List[str]: A list of note strings (empty when notes is None).
+        """
+        if notes is None:
+            return []
+        if isinstance(notes, str):
+            return [notes] if notes else []
+        return [n for n in notes if n]
+
     @abstractmethod
     def start_target(self, target_name: str, target_logger: logging.Logger) -> None:
         """Called when a new scraping target begins."""
@@ -28,17 +52,17 @@ class ExecutionStrategy(ABC):
         pass
 
     @abstractmethod
-    def log_result(self, icon: str, name: str, value: str, note: Optional[str] = None) -> None:
+    def log_result(self, icon: str, name: str, value: str, notes: Notes = None) -> None:
         """Logs a successful or informational result."""
         pass
 
     @abstractmethod
-    def log_warning(self, name: str, warning_str: str, note: Optional[str] = None) -> None:
+    def log_warning(self, name: str, warning_str: str, notes: Notes = None) -> None:
         """Logs a warning message for a specific product."""
         pass
 
     @abstractmethod
-    def log_error(self, name: str, error_str: str, note: Optional[str] = None) -> None:
+    def log_error(self, name: str, error_str: str, notes: Notes = None) -> None:
         """Logs an error message for a specific product."""
         pass
 
@@ -114,10 +138,27 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
             return name[:max_len - 3] + "..."
         return name
 
-    def _get_note_ref(self, note: str) -> str:
-        """Adds a footnote and returns its formatted reference string."""
-        self.notes.append(note)
-        return f" [dim default][{len(self.notes)}][/dim default]"
+    def _build_note_refs(self, notes: Notes) -> str:
+        """Registers one or more footnotes and returns their combined reference markup.
+
+        Each note is appended to the internal notes list and assigned a sequential
+        number. The returned string contains all references joined together
+        (e.g., ' [1] [2]').
+
+        Args:
+            notes (Notes): A single note string, a list, or None.
+
+        Returns:
+            str: The concatenated Rich markup references, or an empty string.
+        """
+        normalized = self._normalize_notes(notes)
+        if not normalized:
+            return ""
+        refs = []
+        for note in normalized:
+            self.notes.append(note)
+            refs.append(f"[dim default][{len(self.notes)}][/dim default]")
+        return " " + " ".join(refs)
 
     def _generate_panel(self) -> Panel:
         """Generates the rich panel to be rendered on the live display."""
@@ -171,24 +212,24 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
 
         return Panel(renderable, title=f"[bold]{self.target_name.capitalize()} Scraping[/bold]", border_style=panel_color, width=75)
 
-    def log_result(self, icon: str, name: str, value: str, note: Optional[str] = None) -> None:
+    def log_result(self, icon: str, name: str, value: str, notes: Notes = None) -> None:
         """Logs a standard result directly into the rich table."""
-        ref = self._get_note_ref(note) if note else ""
-        self.rows.append((icon, escape(self._truncate_name(name)), f"{value}{ref}"))
+        refs = self._build_note_refs(notes)
+        self.rows.append((icon, escape(self._truncate_name(name)), f"{value}{refs}"))
         if self.live:
             self.live.update(self._generate_panel())
 
-    def log_warning(self, name: str, warning_str: str, note: Optional[str] = None) -> None:
+    def log_warning(self, name: str, warning_str: str, notes: Notes = None) -> None:
         """Logs a warning entry to the live display."""
-        ref = self._get_note_ref(note) if note else ""
-        self.rows.append(("🟡", escape(self._truncate_name(name)), f"[yellow]{escape(warning_str)}{ref}[/yellow]"))
+        refs = self._build_note_refs(notes)
+        self.rows.append(("🟡", escape(self._truncate_name(name)), f"[yellow]{escape(warning_str)}{refs}[/yellow]"))
         if self.live:
             self.live.update(self._generate_panel())
 
-    def log_error(self, name: str, error_str: str, note: Optional[str] = None) -> None:
+    def log_error(self, name: str, error_str: str, notes: Notes = None) -> None:
         """Logs an error entry to the live display."""
-        ref = self._get_note_ref(note) if note else ""
-        self.rows.append(("❗", escape(self._truncate_name(name)), f"{escape(error_str)}{ref}"))
+        refs = self._build_note_refs(notes)
+        self.rows.append(("❗", escape(self._truncate_name(name)), f"{escape(error_str)}{refs}"))
         if self.live:
             self.live.update(self._generate_panel())
 
@@ -237,6 +278,23 @@ class SilentExecutionStrategy(ExecutionStrategy):
         """Initializes the silent strategy execution."""
         self.target_logger = None
 
+    @staticmethod
+    def _format_notes_suffix(notes_list: list[str]) -> str:
+        """Formats a list of note strings into a parenthesized suffix for log lines.
+
+        Each note is wrapped in its own parentheses and appended to the line,
+        e.g., ' (First note) (Second note)'.
+
+        Args:
+            notes_list (list[str]): The normalized list of note strings.
+
+        Returns:
+            str: The formatted suffix, or an empty string when the list is empty.
+        """
+        if not notes_list:
+            return ""
+        return " " + " ".join(f"({n})" for n in notes_list)
+
     def start_target(self, target_name: str, target_logger: logging.Logger) -> None:
         """Sets the underlying logger context to use for output."""
         self.target_logger = target_logger
@@ -249,30 +307,24 @@ class SilentExecutionStrategy(ExecutionStrategy):
         """Does nothing in silent mode."""
         pass
 
-    def log_result(self, icon: str, name: str, value: str, note: Optional[str] = None) -> None:
+    def log_result(self, icon: str, name: str, value: str, notes: Notes = None) -> None:
         """Logs an informational result to the target logger."""
         if self.target_logger:
             clean_value = Text.from_markup(value).plain
-            if note:
-                self.target_logger.info(f"{icon} {name}: {clean_value} ({note})")
-            else:
-                self.target_logger.info(f"{icon} {name}: {clean_value}")
+            suffix = self._format_notes_suffix(self._normalize_notes(notes))
+            self.target_logger.info(f"{icon} {name}: {clean_value}{suffix}")
 
-    def log_warning(self, name: str, warning_str: str, note: Optional[str] = None) -> None:
+    def log_warning(self, name: str, warning_str: str, notes: Notes = None) -> None:
         """Logs a warning to the target logger."""
         if self.target_logger:
-            if note:
-                self.target_logger.warning(f"❗ {name}: {warning_str} ({note})")
-            else:
-                self.target_logger.warning(f"❗ {name}: {warning_str}")
+            suffix = self._format_notes_suffix(self._normalize_notes(notes))
+            self.target_logger.warning(f"❗ {name}: {warning_str}{suffix}")
 
-    def log_error(self, name: str, error_str: str, note: Optional[str] = None) -> None:
+    def log_error(self, name: str, error_str: str, notes: Notes = None) -> None:
         """Logs an error to the target logger."""
         if self.target_logger:
-            if note:
-                self.target_logger.error(f"❗ {name}: {error_str} ({note})")
-            else:
-                self.target_logger.error(f"❗ {name}: {error_str}")
+            suffix = self._format_notes_suffix(self._normalize_notes(notes))
+            self.target_logger.error(f"❗ {name}: {error_str}{suffix}")
 
     def start_sleep(self, total_delay: float) -> None:
         """Does nothing in silent mode."""
