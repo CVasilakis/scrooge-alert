@@ -147,11 +147,27 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
         else:
             renderable = display_table
 
-        panel_color = "blue"
+        has_green = False
+        has_red = False
+        has_yellow = False
+
         for row in self.rows:
-            if row[0] in ("❗", "🛑"):
-                panel_color = "red"
-                break
+            icon = row[0]
+            if icon == "🎉":
+                has_green = True
+            elif icon in ("❗", "🛑"):
+                has_red = True
+            elif icon == "🟡":
+                has_yellow = True
+
+        if has_green:
+            panel_color = "green"
+        elif has_red:
+            panel_color = "red"
+        elif has_yellow:
+            panel_color = "yellow"
+        else:
+            panel_color = "blue"
 
         return Panel(renderable, title=f"[bold]{self.target_name.capitalize()} Scraping[/bold]", border_style=panel_color, width=75)
 
