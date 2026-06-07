@@ -1,7 +1,33 @@
+import os
 import subprocess
+import apprise
+from dotenv import load_dotenv
 
-from constants import BASE_DIR
-from exceptions import UpdateCheckError
+from constants import BASE_DIR, APPRISE_PLACEHOLDERS
+from exceptions import EnvFileError, UpdateCheckError
+
+def check_env_file() -> None:
+    """Validates the existence and contents of the .env file.
+
+    Raises:
+        EnvFileError: If the .env file is missing, unreadable, or missing valid NOTIFICATION_URLS.
+    """
+    env_path = os.path.join(BASE_DIR, '.env')
+    env_loaded = load_dotenv(dotenv_path=env_path)
+    env_exists = env_loaded or os.path.exists(env_path)
+
+    if not env_exists or not os.access(env_path, os.R_OK):
+        raise EnvFileError("No .env file found or unreadable")
+
+    notification_urls = os.environ.get("NOTIFICATION_URLS", "").strip()
+    if not notification_urls:
+        raise EnvFileError("No NOTIFICATION_URLS provided in .env file")
+
+    urls = [u.strip() for u in notification_urls.split(',') if u.strip()]
+
+    valid_urls = [u for u in urls if not any(p in u for p in APPRISE_PLACEHOLDERS) and apprise.Apprise.instantiate(u)]
+    if not valid_urls:
+        raise EnvFileError("NOTIFICATION_URLS contains no valid notification URL(s)")
 
 def check_for_updates() -> bool:
     """Checks if there are new commits in the remote repository.

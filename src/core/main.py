@@ -8,9 +8,8 @@ import apprise
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from constants import CONFIG_DIR, EXIT_CODE_ERROR, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR
-from env import APPRISE_PLACEHOLDERS, check_env_file
+from utils import APPRISE_PLACEHOLDERS, check_env_file, check_for_updates
 from exceptions import StorageFileError, EnvFileError, UpdateCheckError
-from updater import check_for_updates
 from storage.factory import DataManagerFactory
 from notifier import Notifier
 from logger import setup_global_logging, save_traceback, get_target_logger

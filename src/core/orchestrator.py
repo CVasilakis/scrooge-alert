@@ -171,7 +171,7 @@ class ScrapingOrchestrator:
         target_price = getattr(item, 'target_price', 0.0)
 
         if item.skip:
-            self.ui_strategy.log_result("🔕", name, "Skipped", "The skip field was set to true in the configuration file.")
+            self.ui_strategy.log_result("✅", name, "Skipped", "The skip field was set to true in the configuration file.")
             return None, False
 
         self._sleep_with_jitter(MIN_DELAY_SECONDS)
@@ -289,7 +289,7 @@ class ScrapingOrchestrator:
 
             try:
                 with acquire_lock(target):
-                    for index, row in enumerate(target_items):
+                    for row in target_items:
                         if abort_target or self.interrupted:
                             break
 

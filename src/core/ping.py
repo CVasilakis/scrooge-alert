@@ -5,7 +5,7 @@ import apprise
 # Ensure the script directory is in the python path to allow imports when running as a module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from env import check_env_file, APPRISE_PLACEHOLDERS
+from utils import check_env_file, APPRISE_PLACEHOLDERS
 from notifier import Notifier
 from logger import setup_global_logging
 from exceptions import EnvFileError

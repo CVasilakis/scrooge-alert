@@ -7,10 +7,9 @@ import apprise
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from constants import EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, CONFIG_DIR
-from env import check_env_file, APPRISE_PLACEHOLDERS
+from utils import check_env_file, APPRISE_PLACEHOLDERS, check_for_updates
 from exceptions import StorageFileError, EnvFileError, UpdateCheckError
 from storage.factory import DataManagerFactory
-from updater import check_for_updates
 from logger import setup_global_logging
 from panel import StatusPanelBuilder
 
