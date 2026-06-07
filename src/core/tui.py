@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import List, Optional, Union
+from typing import List, Union
 from rich.console import Console, Group
 from rich.live import Live
 from rich.table import Table
@@ -127,10 +127,13 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
             self.live.update(self._generate_panel())
 
     def complete_scraping(self) -> None:
-        """Clears the current scraping product from the live display."""
+        """Clears the scraping spinner state without refreshing the display.
+
+        The display update is deferred to the next state-changing call
+        (e.g., log_result, start_sleep) so the spinner row is replaced
+        atomically, avoiding a brief visual contraction of the panel.
+        """
         self.scraping_name = ""
-        if self.live:
-            self.live.update(self._generate_panel())
 
     def _truncate_name(self, name: str, max_len: int = 30) -> str:
         """Truncates a name string to fit within the live display panel."""
@@ -248,10 +251,13 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
             self.live.update(self._generate_panel())
 
     def complete_sleep(self, actual_delay: float) -> None:
-        """Completes the sleep state and removes the progress bar."""
+        """Clears the sleep progress bar state without refreshing the display.
+
+        The display update is deferred to the next state-changing call
+        (e.g., start_scraping, log_result) so the progress bar row is
+        replaced atomically, avoiding a brief visual contraction of the panel.
+        """
         self.is_sleeping = False
-        if self.live:
-            self.live.update(self._generate_panel())
 
 
     def complete_target(self) -> None:
