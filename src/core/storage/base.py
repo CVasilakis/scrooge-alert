@@ -62,6 +62,18 @@ class BaseDataManager(ABC):
         pass
 
     @abstractmethod
+    def is_valid_item(self, item: Dict[str, Any]) -> bool:
+        """Validates an individual item's data structure and content.
+
+        Args:
+            item (Dict[str, Any]): The item data dictionary to validate.
+
+        Returns:
+            bool: True if the item is valid, False otherwise.
+        """
+        pass
+
+    @abstractmethod
     def get_items(self) -> List[Dict[str, Any]]:
         """Returns the list of items as dictionaries from the loaded data.
 

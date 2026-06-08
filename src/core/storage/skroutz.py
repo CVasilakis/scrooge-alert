@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from urllib.parse import urlparse
 from typing import Dict, Any, List
 from .base import BaseDataManager
@@ -110,6 +111,41 @@ class SkroutzDataManager(BaseDataManager):
         """Returns the list of products as dictionaries."""
         return self.products_data.get("products", [])
 
+    def is_valid_item(self, item: Dict[str, Any]) -> bool:
+        """Validates a product item dictionary.
+
+        Args:
+            item (Dict[str, Any]): The item dictionary to validate.
+
+        Returns:
+            bool: True if the item contains required fields, valid URL, and valid price.
+        """
+        if not all(k in item for k in ("name", "url", "target_price")):
+            return False
+
+        url = item.get("url", "")
+        if not isinstance(url, str):
+            return False
+
+        parsed = urlparse(url)
+        if "skroutz.gr" not in parsed.netloc:
+            return False
+
+        if not re.search(r'/\d+/', parsed.path):
+            return False
+
+        try:
+            target_price_raw = item.get('target_price', 0.0)
+            if isinstance(target_price_raw, str):
+                target_price_raw = target_price_raw.strip('"').strip("'").replace(',', '.')
+            target_price = float(target_price_raw)
+            if target_price < 0:
+                return False
+        except (ValueError, TypeError):
+            return False
+
+        return True
+
     def validate_storage(self) -> tuple[int, list[int]]:
         """Validates the skroutz.json file and counts products.
 
@@ -133,7 +169,7 @@ class SkroutzDataManager(BaseDataManager):
 
                 products = data.get("products", [])
                 num_products = len(products)
-                faulty_indices = [i + 1 for i, p in enumerate(products) if not all(k in p for k in ("name", "url", "target_price"))]
+                faulty_indices = [i + 1 for i, p in enumerate(products) if not self.is_valid_item(p)]
                 return num_products, faulty_indices
         except (json.JSONDecodeError, OSError):
             raise StorageFileError("The config/skroutz.json file contains invalid JSON format")
