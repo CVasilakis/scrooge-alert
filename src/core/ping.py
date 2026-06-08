@@ -1,5 +1,6 @@
 import os
 import sys
+import signal
 import apprise
 
 # Ensure the script directory is in the python path to allow imports when running as a module
@@ -13,6 +14,8 @@ from panel import StatusPanelBuilder
 
 from rich.console import Console
 from rich.markup import escape
+
+from constants import EXIT_CODE_INTERRUPT
 
 def obfuscate_invalid_url(url: str) -> str:
     """Obfuscates an invalid URL for display."""
@@ -49,6 +52,9 @@ def main():
     This function initializes the notifier with URLs from the environment and sends
     a test message, reporting the success or failure of each configured service using rich UI.
     """
+    signal.signal(signal.SIGINT, _handle_signal)
+    signal.signal(signal.SIGTERM, _handle_signal)
+
     setup_global_logging()
     console = Console()
     console.print()
@@ -78,6 +84,10 @@ def main():
         notifier = Notifier(",".join(valid_urls))
         with console.status("[bold green]Sending test messages...[/bold green]", spinner="dots"):
             test_results = notifier.notify_test()
+
+    # Disable custom signal handling after the update/test phase is complete
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
     # Print results in original .env order with sequential IDs
     valid_idx = 0
@@ -112,6 +122,13 @@ def main():
     panel.render(console, panel_color=panel_color)
 
     console.print()
+
+def _handle_signal(signum, _frame):
+    """Handles termination signals by printing a clean message and exiting."""
+    sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
+    os.write(1, b"\033[2K\r")
+    Console().print(f"🛑 Interrupted! Received signal {sig_name}.\n")
+    sys.exit(EXIT_CODE_INTERRUPT)
 
 if __name__ == "__main__":
     main()

@@ -3,11 +3,12 @@ import sys
 import os
 import logging
 import apprise
+import signal
 
 # Ensure the script directory is in the python path to allow imports when running as a module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from constants import CONFIG_DIR, EXIT_CODE_ERROR, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR
+from constants import CONFIG_DIR, EXIT_CODE_ERROR, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_INTERRUPT
 from utils import APPRISE_PLACEHOLDERS, check_env_file, check_for_updates
 from exceptions import StorageFileError, EnvFileError, UpdateCheckError
 from storage.factory import DataManagerFactory
@@ -27,6 +28,12 @@ def main() -> None:
     checks for updates, loads products, and starts the scraping orchestrator.
     It delegates file locking and scraping execution to the ScrapingOrchestrator.
     """
+    def _handle_signal(signum, _frame):
+        sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
+        os.write(1, b"\033[2K\r")
+        Console().print(f"🛑 Interrupted! Received signal {sig_name}.\n")
+        sys.exit(EXIT_CODE_INTERRUPT)
+
     parser = argparse.ArgumentParser(description='Scrooge Alert scraper')
     parser.add_argument('--quiet', action='store_true', help='Run script with no console output')
 
@@ -45,6 +52,9 @@ def main() -> None:
         targets_to_run = registered_scrapers
 
     if not args.quiet:
+        signal.signal(signal.SIGINT, _handle_signal)
+        signal.signal(signal.SIGTERM, _handle_signal)
+
         console = Console()
         console.print()
 
@@ -113,6 +123,10 @@ def main() -> None:
                 else:
                     ref = init_panel.add_note_ref(env_error_msg or "No notification URLs found.")
                     init_panel.add_row("❗", ".env File", f"[red]Not configured{ref}[/red]")
+
+        # Restore default handlers immediately after the spinner vanishes
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
         init_panel.render(console)
         console.print()

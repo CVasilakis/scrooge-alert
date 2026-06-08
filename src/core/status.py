@@ -1,5 +1,6 @@
 import sys
 import os
+import signal
 import subprocess
 import apprise
 
@@ -48,6 +49,9 @@ def main():
     This function retrieves status information from systemd, validates configuration,
     checks for updates, and prints a formatted status report to the console using rich panels.
     """
+    signal.signal(signal.SIGINT, _handle_signal)
+    signal.signal(signal.SIGTERM, _handle_signal)
+
     setup_global_logging()
     console = Console()
 
@@ -121,6 +125,10 @@ def main():
         except EnvFileError as e:
             ref = config_panel.add_note_ref(str(e))
             config_panel.add_row("❗", ".env File", f"[red]Not configured{ref}[/red]")
+
+    # Disable custom signal handling after the update/test phase is complete
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
     config_panel.render(console)
 
@@ -221,6 +229,13 @@ def main():
         service_panel.render(console)
 
     console.print()
+
+def _handle_signal(signum, _frame):
+    """Handles termination signals by printing a clean message and exiting."""
+    sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
+    os.write(1, b"\033[2K\r")
+    Console().print(f"🛑 Interrupted! Received signal {sig_name}.\n")
+    sys.exit(EXIT_CODE_INTERRUPT)
 
 if __name__ == "__main__":
     main()
