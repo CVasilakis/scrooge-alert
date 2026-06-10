@@ -135,18 +135,29 @@ class ScrapingOrchestrator:
         price_str = f"{result.price} {result.currency}"
         target_str = f"(Target: {target_price} {result.currency})"
 
+        notes = []
+        original_invalid_price = getattr(item, '_original_invalid_price', None)
+        missing_target_price = getattr(item, '_missing_target_price', False)
+        
+        if original_invalid_price is not None:
+            val = str(original_invalid_price)[:15]
+            notes.append(f"Invalid target price '{val}'. Defaulting to 0.0 {result.currency}")
+        elif missing_target_price:
+            notes.append(f"Missing target price. Defaulting to 0.0 {result.currency}")
+
         if result.price < target_price:
-            note = ""
             if self.notifier.has_services:
                 if self.notifier.notify_low_price(name, target_price, result.price, item.url, result.currency):
-                    note = "Notification delivered to all valid apprise URL(s)."
+                    notes.append("Notification delivered to all valid apprise URL(s).")
                 else:
-                    note = "Notification delivery failed for some apprise URL(s)."
+                    notes.append("Notification delivery failed for some apprise URL(s).")
             else:
-                note = "No notification sent (.env not configured)."
-            self.ui_strategy.log_result("🎉", name, f"[bold green]{price_str}[/bold green] {target_str}", note)
+                notes.append("No notification sent (.env not configured).")
+            self.ui_strategy.log_result("🎉", name, f"[bold green]{price_str}[/bold green] {target_str}", notes)
+        elif target_price == 0.0:
+            self.ui_strategy.log_result("🟡", name, f"{price_str} [yellow]{target_str}[/yellow]", notes)
         else:
-            self.ui_strategy.log_result("✅", name, f"{price_str} {target_str}")
+            self.ui_strategy.log_result("✅", name, f"{price_str} {target_str}", notes)
 
         data_manager.update_item(
             url=item.url,
@@ -174,20 +185,21 @@ class ScrapingOrchestrator:
             self.ui_strategy.log_result("✅", name, "Skipped", "The skip field was set to true in the configuration file.")
             return None, False
 
+        if not data_manager.is_scrappable_item(row):
+            self.ui_strategy.log_warning(name, "Invalid URL. Skipping product...")
+            return None, False
+
+        if target_price < 0:
+            target_price = 0.0
+            setattr(item, 'target_price', 0.0)
+            setattr(item, '_original_invalid_price', row.get('target_price'))
+
         self._sleep_with_jitter(MIN_DELAY_SECONDS)
         if self.interrupted:
             return None, False
 
-        if not item.url:
-            self.ui_strategy.log_warning(name, "Missing URL. Skipping product...")
-            return None, False
-
-        if target_price < 0:
-            self.ui_strategy.log_warning(name, "Invalid target price was provided.", f"Value '{str(row.get('target_price'))[:22]}' is invalid. Skipping product.")
-            return None, False
-
         if 'target_price' not in row:
-            self.ui_strategy.log_warning(name, "Missing target price", "No notifications will be sent.")
+            setattr(item, '_missing_target_price', True)
 
         scraper = self.scraper_factory.get_scraper(item.url)
 
@@ -278,6 +290,7 @@ class ScrapingOrchestrator:
             try:
                 data_manager = self.data_manager_factory.get_manager(target)
                 data_manager.load()
+                data_manager.clean_storage()
             except ValueError:
                 continue
 

@@ -74,6 +74,23 @@ class BaseDataManager(ABC):
         pass
 
     @abstractmethod
+    def is_scrappable_item(self, item: Dict[str, Any]) -> bool:
+        """Checks if the item has a valid, properly formatted URL.
+
+        Args:
+            item (Dict[str, Any]): The item dictionary to check.
+
+        Returns:
+            bool: True if the item can be scraped, False otherwise.
+        """
+        pass
+
+    @abstractmethod
+    def clean_storage(self) -> None:
+        """Performs pre-scrape cleanup on the storage data (e.g., removing duplicates)."""
+        pass
+
+    @abstractmethod
     def get_items(self) -> List[Dict[str, Any]]:
         """Returns the list of items as dictionaries from the loaded data.
 
@@ -81,3 +98,27 @@ class BaseDataManager(ABC):
             List[Dict[str, Any]]: The list of item data dictionaries.
         """
         pass
+
+    def has_valid_target_price(self, item: Dict[str, Any]) -> bool:
+        """Universally checks if an item has a valid, non-negative target price.
+
+        Args:
+            item (Dict[str, Any]): The item dictionary to check.
+
+        Returns:
+            bool: True if the target price is valid, False otherwise.
+        """
+        if 'target_price' not in item:
+            return False
+
+        try:
+            target_price_raw = item.get('target_price', 0.0)
+            if isinstance(target_price_raw, str):
+                target_price_raw = target_price_raw.strip('"').strip("'").replace(',', '.')
+            target_price = float(target_price_raw)
+            if target_price < 0:
+                return False
+        except (ValueError, TypeError):
+            return False
+
+        return True

@@ -56,8 +56,67 @@ class SkroutzDataManager(BaseDataManager):
             'last_checked': last_checked
         }
 
+    def _clean_products(self, products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Removes duplicates based on URL rules and cleans URLs."""
+        from collections import defaultdict
+        groups = defaultdict(list)
+
+        for i, product in enumerate(products):
+            if "skip" not in product:
+                product["skip"] = False
+
+            url = str(product.get("url", ""))
+            # Group by clean URL if scrappable, otherwise fallback to string representation of raw url
+            clean_url = self._get_clean_url(url) if self.is_scrappable_item(product) else url
+            groups[clean_url].append((i, product))
+
+        items_to_keep = set()
+        for clean_url, group in groups.items():
+            if len(group) == 1:
+                items_to_keep.add(group[0][0])
+                continue
+
+            valid_indices = [i for i, p in group if self.is_valid_item(p)]
+            if valid_indices:
+                items_to_keep.add(valid_indices[0])
+            else:
+                scrappable_indices = [i for i, p in group if self.is_scrappable_item(p)]
+                if scrappable_indices:
+                    items_to_keep.add(scrappable_indices[0])
+                else:
+                    for i, p in group:
+                        items_to_keep.add(i)
+
+        cleaned_products = []
+        for i, product in enumerate(products):
+            if i in items_to_keep:
+                if self.is_scrappable_item(product):
+                    product["url"] = self._get_clean_url(str(product.get("url", "")))
+                cleaned_products.append(product)
+
+        return cleaned_products
+
+    def _save_to_disk(self, data: Dict[str, Any]) -> None:
+        """Writes data to the JSON file atomically."""
+        temp_file_path = self.products_path + ".tmp"
+        try:
+            with open(temp_file_path, mode='w') as file:
+                json.dump(data, file, indent=2)
+            os.replace(temp_file_path, self.products_path)
+        except OSError as e:
+            raise StorageFileError(str(e))
+
+    def clean_storage(self) -> None:
+        """Cleans up the configuration file before scraping."""
+        if "products" in self.products_data:
+            original_count = len(self.products_data["products"])
+            cleaned = self._clean_products(self.products_data["products"])
+            if len(cleaned) < original_count:
+                self.products_data["products"] = cleaned
+                self._save_to_disk(self.products_data)
+
     def save_atomically(self) -> None:
-        """Saves the products data back to the JSON file atomically."""
+        """Applies updates and saves the products data back to the JSON file atomically."""
         fresh_data: Dict[str, Any] = {}
         if os.path.exists(self.products_path):
             try:
@@ -69,39 +128,20 @@ class SkroutzDataManager(BaseDataManager):
             fresh_data = self.products_data
 
         if "products" in fresh_data:
-            seen_urls = set()
-            unique_products = []
             for product in fresh_data["products"]:
-                url = product.get("url")
+                url = str(product.get("url", ""))
                 clean_url = self._get_clean_url(url)
-
-                if clean_url in seen_urls:
-                    continue
-                seen_urls.add(clean_url)
-
-                product["url"] = clean_url
 
                 if clean_url in self.product_updates:
                     updates = self.product_updates[clean_url]
                     product["last_price"] = updates["last_price"]
                     product["last_checked"] = updates["last_checked"]
 
-                if "skip" not in product:
-                    product["skip"] = False
-
-                unique_products.append(product)
-
-            fresh_data["products"] = unique_products
+            # We also need to clean duplicates when saving to ensure any user edits during scraping are handled.
+            fresh_data["products"] = self._clean_products(fresh_data["products"])
 
         self.products_data = fresh_data
-
-        temp_file_path = self.products_path + ".tmp"
-        try:
-            with open(temp_file_path, mode='w') as file:
-                json.dump(self.products_data, file, indent=2)
-            os.replace(temp_file_path, self.products_path)
-        except OSError as e:
-            raise StorageFileError(str(e))
+        self._save_to_disk(self.products_data)
 
     def parse_item(self, data: Dict[str, Any]) -> Product:
         """Parses a dictionary into a Product."""
@@ -111,18 +151,8 @@ class SkroutzDataManager(BaseDataManager):
         """Returns the list of products as dictionaries."""
         return self.products_data.get("products", [])
 
-    def is_valid_item(self, item: Dict[str, Any]) -> bool:
-        """Validates a product item dictionary.
-
-        Args:
-            item (Dict[str, Any]): The item dictionary to validate.
-
-        Returns:
-            bool: True if the item contains required fields, valid URL, and valid price.
-        """
-        if not all(k in item for k in ("name", "url", "target_price")):
-            return False
-
+    def is_scrappable_item(self, item: Dict[str, Any]) -> bool:
+        """Checks if the item has a valid, properly formatted URL."""
         url = item.get("url", "")
         if not isinstance(url, str):
             return False
@@ -134,14 +164,24 @@ class SkroutzDataManager(BaseDataManager):
         if not re.search(r'/\d+/', parsed.path):
             return False
 
-        try:
-            target_price_raw = item.get('target_price', 0.0)
-            if isinstance(target_price_raw, str):
-                target_price_raw = target_price_raw.strip('"').strip("'").replace(',', '.')
-            target_price = float(target_price_raw)
-            if target_price < 0:
-                return False
-        except (ValueError, TypeError):
+        return True
+
+    def is_valid_item(self, item: Dict[str, Any]) -> bool:
+        """Validates a product item dictionary.
+
+        Args:
+            item (Dict[str, Any]): The item dictionary to validate.
+
+        Returns:
+            bool: True if the item contains required fields, valid URL, and valid price.
+        """
+        if "name" not in item:
+            return False
+
+        if not self.is_scrappable_item(item):
+            return False
+
+        if not self.has_valid_target_price(item):
             return False
 
         return True
