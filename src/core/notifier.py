@@ -111,7 +111,7 @@ class Notifier:
 
         for product, error in failed_items[:MAX_ERRORS_TO_SHOW]:
             error_type = type(error).__name__
-            item_name = getattr(product, 'name', 'Unknown Item')
+            item_name = product.name
             body_lines.append(f"- {item_name}: {error_type}")
 
         if len(failed_items) > MAX_ERRORS_TO_SHOW:

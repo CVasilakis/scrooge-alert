@@ -5,7 +5,7 @@ import time
 from typing import Optional
 
 from locks import acquire_lock
-from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS
+from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, TIMESTAMP_FORMAT
 from exceptions import RateLimitError, ServerError, ScraperParseError, LockAcquisitionError, StorageFileError, ProductNotFoundError, ProductUnavailableError, InvalidURLError
 from models.base import BaseTrackedItem
 from clients.factory import ScraperFactory
@@ -99,19 +99,17 @@ class ScrapingOrchestrator:
 
             if item.last_checked:
                 try:
-                    timestamp = datetime.datetime.strptime(item.last_checked, "%d-%m-%Y %H:%M:%S")
+                    timestamp = datetime.datetime.strptime(item.last_checked, TIMESTAMP_FORMAT)
                     current_time = datetime.datetime.now()
                     if (current_time - timestamp) > datetime.timedelta(hours=hours):
-                        name = getattr(item, 'name', 'Unknown')
-                        self.ui_strategy.log_warning(name, "Stale item", f"Last time scraped: {item.last_checked}.")
-                        self.notifier.notify_old_entries(name, hours, item.url)
+                        self.ui_strategy.log_warning(item.name, "Stale item", f"Last time scraped: {item.last_checked}.")
+                        self.notifier.notify_old_entries(item.name, hours, item.url)
                 except ValueError:
-                    name = getattr(item, 'name', 'Unknown')
-                    self.ui_strategy.log_warning(name, "Corrupted timestamp detected", "Resetting stored timestamp to the current system time.")
+                    self.ui_strategy.log_warning(item.name, "Corrupted timestamp detected", "Resetting stored timestamp to the current system time.")
                     data_manager.update_item(
                         item.url,
-                        last_price=getattr(item, 'last_price', 0.0),
-                        last_checked=datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+                        last_price=item.last_price,
+                        last_checked=datetime.datetime.now().strftime(TIMESTAMP_FORMAT)
                     )
                     needs_save = True
 
@@ -121,48 +119,45 @@ class ScrapingOrchestrator:
             except StorageFileError as e:
                 self.ui_strategy.log_error("Storage", f"Failed to update config/{target}.json file!", str(e))
 
-    def _handle_successful_scrape(self, item: BaseTrackedItem, result, data_manager: BaseDataManager) -> None:
+    def _handle_successful_scrape(self, item: BaseTrackedItem, result, data_manager: BaseDataManager, original_invalid_price=None, missing_target_price: bool = False) -> None:
         """Processes a successful product scrape, sending notifications if necessary.
 
         Args:
             item (BaseTrackedItem): The product that was scraped.
             result (ScrapeResult): The result containing the current price and currency.
             data_manager (BaseDataManager): The data manager responsible for saving the updates.
+            original_invalid_price: The raw value from the config if the target price was
+                unparseable, or None if it was valid.
+            missing_target_price (bool): True if the config entry had no target_price field.
         """
-        name = getattr(item, 'name', 'Unknown')
-        target_price = getattr(item, 'target_price', 0.0)
-
         price_str = f"{result.price} {result.currency}"
-        target_str = f"(Target: {target_price} {result.currency})"
+        target_str = f"(Target: {item.target_price} {result.currency})"
 
         notes = []
-        original_invalid_price = getattr(item, '_original_invalid_price', None)
-        missing_target_price = getattr(item, '_missing_target_price', False)
-
         if original_invalid_price is not None:
             val = str(original_invalid_price)[:15]
             notes.append(f"Invalid target price '{val}'. Defaulting to 0.0 {result.currency}")
         elif missing_target_price:
             notes.append(f"Missing target price. Defaulting to 0.0 {result.currency}")
 
-        if result.price < target_price:
+        if result.price < item.target_price:
             if self.notifier.has_services:
-                if self.notifier.notify_low_price(name, target_price, result.price, item.url, result.currency):
+                if self.notifier.notify_low_price(item.name, item.target_price, result.price, item.url, result.currency):
                     notes.append("Notification delivered to all valid apprise URL(s).")
                 else:
                     notes.append("Notification delivery failed for some apprise URL(s).")
             else:
                 notes.append("No notification sent (.env not configured).")
-            self.ui_strategy.log_result("🎉", name, f"[bold green]{price_str}[/bold green] {target_str}", notes)
-        elif target_price == 0.0:
-            self.ui_strategy.log_result("🟡", name, f"{price_str} [yellow]{target_str}[/yellow]", notes)
+            self.ui_strategy.log_result("🎉", item.name, f"[bold green]{price_str}[/bold green] {target_str}", notes)
+        elif item.target_price == 0.0:
+            self.ui_strategy.log_result("🟡", item.name, f"{price_str} [yellow]{target_str}[/yellow]", notes)
         else:
-            self.ui_strategy.log_result("✅", name, f"{price_str} {target_str}", notes)
+            self.ui_strategy.log_result("✅", item.name, f"{price_str} {target_str}", notes)
 
         data_manager.update_item(
             item.url,
             last_price=result.price,
-            last_checked=datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+            last_checked=datetime.datetime.now().strftime(TIMESTAMP_FORMAT)
         )
 
     def _process_product(self, row: dict, data_manager: BaseDataManager) -> tuple[Exception | None, bool]:
@@ -178,28 +173,28 @@ class ScrapingOrchestrator:
                 - abort_scraping: True if scraping should be aborted entirely (e.g., rate limit).
         """
         item = data_manager.parse_item(row)
-        name = getattr(item, 'name', 'Unknown')
-        target_price = getattr(item, 'target_price', 0.0)
 
         if item.skip:
-            self.ui_strategy.log_result("✅", name, "Skipped", "The skip field was set to true in the configuration file.")
+            self.ui_strategy.log_result("✅", item.name, "Skipped", "The skip field was set to true in the configuration file.")
             return None, False
 
         if not data_manager.is_scrappable_item(row):
-            self.ui_strategy.log_warning(name, "Invalid URL. Skipping product...")
+            self.ui_strategy.log_warning(item.name, "Invalid URL. Skipping product...")
             return None, False
 
-        if target_price < 0:
-            target_price = 0.0
-            setattr(item, 'target_price', 0.0)
-            setattr(item, '_original_invalid_price', row.get('target_price'))
+        # Detect and normalize invalid / missing target prices.
+        # These are passed explicitly to _handle_successful_scrape
+        # instead of being injected onto the item at runtime.
+        original_invalid_price = None
+        missing_target_price = 'target_price' not in row
+
+        if item.target_price < 0:
+            original_invalid_price = row.get('target_price')
+            item.target_price = 0.0
 
         self._sleep_with_jitter(MIN_DELAY_SECONDS)
         if self.interrupted:
             return None, False
-
-        if 'target_price' not in row:
-            setattr(item, '_missing_target_price', True)
 
         scraper = self.scraper_factory.get_scraper(item.url)
 
@@ -208,57 +203,57 @@ class ScrapingOrchestrator:
                 break
 
             try:
-                self.ui_strategy.start_scraping(name)
+                self.ui_strategy.start_scraping(item.name)
                 try:
-                    result = scraper.scrape_product(item.url, name)
+                    result = scraper.scrape_product(item.url, item.name)
                 finally:
                     self.ui_strategy.complete_scraping()
 
                 if self.interrupted:
                     break
 
-                self._handle_successful_scrape(item, result, data_manager)
+                self._handle_successful_scrape(item, result, data_manager, original_invalid_price, missing_target_price)
                 break
 
             except (ProductNotFoundError, ProductUnavailableError, InvalidURLError) as e:
-                self.ui_strategy.log_warning(name, f"Skipping ({type(e).__name__})", str(e))
+                self.ui_strategy.log_warning(item.name, f"Skipping ({type(e).__name__})", str(e))
                 break
             except ScraperParseError as e:
                 if attempt == MAX_RETRIES - 1:
-                    self.ui_strategy.log_error(name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
+                    self.ui_strategy.log_error(item.name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
                     return e, False
                 else:
-                    self.ui_strategy.log_warning(name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
+                    self.ui_strategy.log_warning(item.name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except RateLimitError as e:
                 if attempt == MAX_RETRIES - 1:
-                    self.ui_strategy.log_error(name, f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e}")
-                    self.ui_strategy.log_error(name, "Rate limit block", "Max retries reached. Aborting scraping.")
+                    self.ui_strategy.log_error(item.name, f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e}")
+                    self.ui_strategy.log_error(item.name, "Rate limit block", "Max retries reached. Aborting scraping.")
                     if self._current_logger:
                         save_traceback(self._current_logger, target_name=self._current_target, url=item.url, headers=scraper.get_current_headers(), log_to_console=False)
                     self.ui_strategy.log_error("System", "An error occurred!", f"Check logs/{self._current_target}/errors.txt for details.")
                     return e, True
                 else:
-                    self.ui_strategy.log_warning(name, f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e}")
+                    self.ui_strategy.log_warning(item.name, f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e}")
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except ServerError as e:
                 if attempt == MAX_RETRIES - 1:
-                    self.ui_strategy.log_error(name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
+                    self.ui_strategy.log_error(item.name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
                     return e, False
                 else:
-                    self.ui_strategy.log_warning(name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
+                    self.ui_strategy.log_warning(item.name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except Exception as e:
                 if attempt == MAX_RETRIES - 1:
-                    self.ui_strategy.log_error(name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
+                    self.ui_strategy.log_error(item.name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
                     if self._current_logger:
                         save_traceback(self._current_logger, target_name=self._current_target, url=item.url, headers=scraper.get_current_headers(), log_to_console=False)
                     self.ui_strategy.log_error("System", "An error occurred!", f"Check logs/{self._current_target}/errors.txt for details.")
                     return e, False
                 else:
-                    self.ui_strategy.log_warning(name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
+                    self.ui_strategy.log_warning(item.name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
                 scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
 

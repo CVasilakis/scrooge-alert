@@ -41,3 +41,7 @@ LOCK_TIMEOUT: int = 0
 
 # Multiplier used to increase the wait time exponentially on each retry attempt
 RETRY_DELAY_MULTIPLIER: int = 3
+
+# Timestamp format used for serializing and deserializing last_checked dates
+TIMESTAMP_FORMAT: str = "%d-%m-%Y %H:%M:%S"
+
