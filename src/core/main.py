@@ -65,7 +65,7 @@ def main() -> None:
             try:
                 has_update = check_for_updates()
                 if has_update:
-                    ref = init_panel.add_note_ref("Run ./update.sh to install the latest version.")
+                    ref = init_panel.add_note_ref("Run `./update.sh` to install the latest version.")
                     init_panel.add_row("🟡", "Software Version", f"[yellow]Update available!{ref}[/yellow]")
                 else:
                     init_panel.add_row("✅", "Software Version", "Up to date")
@@ -118,7 +118,7 @@ def main() -> None:
                     if not invalid_urls:
                         init_panel.add_row("✅", ".env File", f"{len(valid_urls)} valid URL(s)")
                     else:
-                        ref = init_panel.add_note_ref("Run ./scripts/run.sh --ping for more details.")
+                        ref = init_panel.add_note_ref("Run `./scripts/run.sh --ping` for more details.")
                         init_panel.add_row("🟡", ".env File", f"{len(valid_urls)} valid URL(s), [yellow]{len(invalid_urls)} invalid{ref}[/yellow]")
                 else:
                     ref = init_panel.add_note_ref(env_error_msg or "No notification URLs found.")

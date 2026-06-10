@@ -1,3 +1,4 @@
+import re
 from typing import Optional, List
 from rich.console import Console, Group
 from rich.table import Table
@@ -92,7 +93,9 @@ class StatusPanelBuilder:
         if self.notes:
             notes_lines = [""]
             for i, note in enumerate(self.notes, 1):
-                notes_lines.append(f"  [{i}] {escape(note)}")
+                escaped_note = escape(note)
+                escaped_note = re.sub(r'`([^`]+)`', r'[cyan]\1[/cyan]', escaped_note)
+                notes_lines.append(f"  [{i}] {escaped_note}")
             renderable = Group(self.table, Text.from_markup("\n".join(notes_lines), style="dim"))
         else:
             renderable = self.table

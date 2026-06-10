@@ -138,7 +138,7 @@ class ScrapingOrchestrator:
         notes = []
         original_invalid_price = getattr(item, '_original_invalid_price', None)
         missing_target_price = getattr(item, '_missing_target_price', False)
-        
+
         if original_invalid_price is not None:
             val = str(original_invalid_price)[:15]
             notes.append(f"Invalid target price '{val}'. Defaulting to 0.0 {result.currency}")

@@ -77,7 +77,7 @@ def main():
         try:
             has_update = check_for_updates()
             if has_update:
-                ref = config_panel.add_note_ref("Run ./update.sh to install the latest version.")
+                ref = config_panel.add_note_ref("Run `./update.sh` to install the latest version.")
                 config_panel.add_row("🟡", "Software Version", f"[yellow]Update available!{ref}[/yellow]")
             else:
                 config_panel.add_row("✅", "Software Version", "Up to date")
@@ -120,7 +120,7 @@ def main():
             if not invalid_urls:
                 config_panel.add_row("✅", ".env File", f"{len(valid_urls)} valid URL(s)")
             else:
-                ref = config_panel.add_note_ref("Run ./scripts/run.sh --ping for more details.")
+                ref = config_panel.add_note_ref("Run `./scripts/run.sh --ping` for more details.")
                 config_panel.add_row("🟡", ".env File", f"{len(valid_urls)} valid URL(s), [yellow]{len(invalid_urls)} invalid{ref}[/yellow]")
         except EnvFileError as e:
             ref = config_panel.add_note_ref(str(e))
@@ -200,11 +200,11 @@ def main():
                 completed_str = f"[yellow]Skipped{ref}[/yellow]"
             elif products_error:
                 completed_icon = "❗"
-                ref = service_panel.add_note_ref(f"Issue with the config/{target}.json file.")
+                ref = service_panel.add_note_ref(f"Issue with the `config/{target}.json` file.")
                 completed_str = f"[red]Failed{ref}[/red]"
             elif env_error:
                 completed_icon = "❗"
-                ref = service_panel.add_note_ref("Issue with the .env file.")
+                ref = service_panel.add_note_ref("Issue with the `.env` file.")
                 completed_str = f"[red]Failed{ref}[/red]"
             elif rate_limit_error:
                 completed_icon = "❗"
