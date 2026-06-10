@@ -3,8 +3,32 @@ import subprocess
 import apprise
 from dotenv import load_dotenv
 
+from typing import Optional
 from constants import BASE_DIR, APPRISE_PLACEHOLDERS
 from exceptions import EnvFileError, UpdateCheckError
+
+def parse_price(raw_value) -> Optional[float]:
+    """Parses a raw price value into a float.
+
+    Handles string inputs by stripping surrounding quotes and normalizing
+    comma decimal separators to periods. Returns None if the value cannot
+    be parsed into a valid number.
+
+    Args:
+        raw_value: The raw price value (str, int, float, or None).
+
+    Returns:
+        Optional[float]: The parsed price, or None if parsing fails.
+    """
+    if raw_value is None:
+        return None
+
+    try:
+        if isinstance(raw_value, str):
+            raw_value = raw_value.strip('"').strip("'").replace(',', '.')
+        return float(raw_value)
+    except (ValueError, TypeError):
+        return None
 
 def check_env_file() -> None:
     """Validates the existence and contents of the .env file.

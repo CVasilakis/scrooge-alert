@@ -1,36 +1,49 @@
 import json
 import os
 import re
+from collections import defaultdict
 from urllib.parse import urlparse
 from typing import Dict, Any, List
+
 from .base import BaseDataManager
 from models.skroutz import Product
 from exceptions import StorageFileError
-from constants import CONFIG_DIR
+
 
 class SkroutzDataManager(BaseDataManager):
     """Data manager for handling Skroutz-specific products and configuration."""
-    def __init__(self, products_path: str):
+    def __init__(self, filepath: str):
         """Initializes the SkroutzDataManager.
 
         Args:
-            products_path (str): The file path to the products JSON file.
+            filepath (str): The file path to the products JSON file.
         """
-        self.products_path = products_path
+        super().__init__(filepath)
         self.products_data: Dict[str, Any] = {}
         self.product_updates: Dict[str, Dict[str, Any]] = {}
+
+    def get_store_name(self) -> str:
+        """Returns the human-readable store name.
+
+        Returns:
+            str: ``"Skroutz"``.
+        """
+        return "Skroutz"
 
     def load(self) -> Dict[str, Any]:
         """Loads the products data from the JSON file.
 
         Returns:
             Dict[str, Any]: The parsed JSON data representing products.
+
+        Raises:
+            StorageFileError: If the file cannot be read or contains invalid JSON.
         """
         try:
-            with open(self.products_path, 'r') as file:
+            with open(self.filepath, 'r') as file:
                 self.products_data = json.load(file)
-        except (OSError, json.JSONDecodeError):
-            self.products_data = {"products": []}
+        except (OSError, json.JSONDecodeError) as e:
+            raise StorageFileError(f"Failed to load {self.filepath}: {e}")
 
         return self.products_data
 
@@ -48,17 +61,60 @@ class SkroutzDataManager(BaseDataManager):
         parsed = urlparse(url)
         return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
 
-    def update_item(self, url: str, last_price: float, last_checked: str) -> None:
-        """Caches updates for a product based on its clean URL."""
+    def update_item(self, url: str, **updates: Any) -> None:
+        """Caches updates for a product based on its clean URL.
+
+        Args:
+            url (str): The URL of the product to update.
+            **updates: Arbitrary field updates (e.g. ``last_price=12.5``,
+                ``last_checked="11-06-2026 01:00:00"``).
+        """
         clean_url = self._get_clean_url(url)
-        self.product_updates[clean_url] = {
-            'last_price': last_price,
-            'last_checked': last_checked
-        }
+        if clean_url in self.product_updates:
+            self.product_updates[clean_url].update(updates)
+        else:
+            self.product_updates[clean_url] = dict(updates)
+
+    def get_items(self) -> List[Dict[str, Any]]:
+        """Returns the list of products as dictionaries."""
+        return self.products_data.get("products", [])
+
+    def add_item(self, data: Dict[str, Any]) -> None:
+        """Adds a new product to the in-memory storage.
+
+        The item is appended to the products list. Call ``save``
+        afterwards to persist the change.
+
+        Args:
+            data (Dict[str, Any]): The product data dictionary to add.
+        """
+        if "products" not in self.products_data:
+            self.products_data["products"] = []
+        self.products_data["products"].append(data)
+
+    def remove_item(self, url: str) -> bool:
+        """Removes a product from the in-memory storage by its URL.
+
+        Matches against the cleaned (query-stripped) URL. Call ``save``
+        afterwards to persist the change.
+
+        Args:
+            url (str): The URL of the product to remove.
+
+        Returns:
+            bool: True if the product was found and removed, False otherwise.
+        """
+        clean_target = self._get_clean_url(url)
+        products = self.products_data.get("products", [])
+        original_len = len(products)
+        self.products_data["products"] = [
+            p for p in products
+            if self._get_clean_url(str(p.get("url", ""))) != clean_target
+        ]
+        return len(self.products_data["products"]) < original_len
 
     def _clean_products(self, products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Removes duplicates based on URL rules and cleans URLs."""
-        from collections import defaultdict
         groups = defaultdict(list)
 
         for i, product in enumerate(products):
@@ -96,16 +152,6 @@ class SkroutzDataManager(BaseDataManager):
 
         return cleaned_products
 
-    def _save_to_disk(self, data: Dict[str, Any]) -> None:
-        """Writes data to the JSON file atomically."""
-        temp_file_path = self.products_path + ".tmp"
-        try:
-            with open(temp_file_path, mode='w') as file:
-                json.dump(data, file, indent=2)
-            os.replace(temp_file_path, self.products_path)
-        except OSError as e:
-            raise StorageFileError(str(e))
-
     def clean_storage(self) -> None:
         """Cleans up the configuration file before scraping."""
         if "products" in self.products_data:
@@ -113,14 +159,19 @@ class SkroutzDataManager(BaseDataManager):
             cleaned = self._clean_products(self.products_data["products"])
             if len(cleaned) < original_count:
                 self.products_data["products"] = cleaned
-                self._save_to_disk(self.products_data)
+                self._save_json_atomically(self.products_data)
 
-    def save_atomically(self) -> None:
-        """Applies updates and saves the products data back to the JSON file atomically."""
+    def save(self) -> None:
+        """Applies pending updates and saves the products data back to the JSON file atomically.
+
+        Re-reads the file from disk to merge with any external edits made
+        during the scraping run, then applies cached updates and performs
+        a final duplicate cleanup before writing.
+        """
         fresh_data: Dict[str, Any] = {}
-        if os.path.exists(self.products_path):
+        if os.path.exists(self.filepath):
             try:
-                with open(self.products_path, 'r') as file:
+                with open(self.filepath, 'r') as file:
                     fresh_data = json.load(file)
             except json.JSONDecodeError:
                 fresh_data = self.products_data  # Fallback to in-memory data if corrupted
@@ -133,23 +184,18 @@ class SkroutzDataManager(BaseDataManager):
                 clean_url = self._get_clean_url(url)
 
                 if clean_url in self.product_updates:
-                    updates = self.product_updates[clean_url]
-                    product["last_price"] = updates["last_price"]
-                    product["last_checked"] = updates["last_checked"]
+                    for key, value in self.product_updates[clean_url].items():
+                        product[key] = value
 
             # We also need to clean duplicates when saving to ensure any user edits during scraping are handled.
             fresh_data["products"] = self._clean_products(fresh_data["products"])
 
         self.products_data = fresh_data
-        self._save_to_disk(self.products_data)
+        self._save_json_atomically(self.products_data)
 
     def parse_item(self, data: Dict[str, Any]) -> Product:
         """Parses a dictionary into a Product."""
         return Product.from_dict(data)
-
-    def get_items(self) -> List[Dict[str, Any]]:
-        """Returns the list of products as dictionaries."""
-        return self.products_data.get("products", [])
 
     def is_scrappable_item(self, item: Dict[str, Any]) -> bool:
         """Checks if the item has a valid, properly formatted URL."""
@@ -192,17 +238,18 @@ class SkroutzDataManager(BaseDataManager):
         Returns:
             tuple[int, list[int]]: A tuple containing the total number of products and a list of 1-based indices of faulty products.
         """
-        if not os.path.exists(CONFIG_DIR):
-            os.makedirs(CONFIG_DIR)
+        config_dir = os.path.dirname(self.filepath)
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir)
 
-        if not os.path.exists(self.products_path) or not os.path.isfile(self.products_path):
+        if not os.path.exists(self.filepath) or not os.path.isfile(self.filepath):
             raise StorageFileError("The config/skroutz.json file is missing or not a file")
 
-        if not os.access(self.products_path, os.R_OK | os.W_OK):
+        if not os.access(self.filepath, os.R_OK | os.W_OK):
             raise StorageFileError("The config/skroutz.json file has wrong permissions")
 
         try:
-            with open(self.products_path, 'r') as f:
+            with open(self.filepath, 'r') as f:
                 data = json.load(f)
                 if not isinstance(data, dict) or not isinstance(data.get("products"), list):
                     raise StorageFileError("The config/skroutz.json file contains invalid JSON format")

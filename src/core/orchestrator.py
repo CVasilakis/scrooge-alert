@@ -109,7 +109,7 @@ class ScrapingOrchestrator:
                     name = getattr(item, 'name', 'Unknown')
                     self.ui_strategy.log_warning(name, "Corrupted timestamp detected", "Resetting stored timestamp to the current system time.")
                     data_manager.update_item(
-                        url=item.url,
+                        item.url,
                         last_price=getattr(item, 'last_price', 0.0),
                         last_checked=datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
                     )
@@ -117,7 +117,7 @@ class ScrapingOrchestrator:
 
         if needs_save:
             try:
-                data_manager.save_atomically()
+                data_manager.save()
             except StorageFileError as e:
                 self.ui_strategy.log_error("Storage", f"Failed to update config/{target}.json file!", str(e))
 
@@ -160,7 +160,7 @@ class ScrapingOrchestrator:
             self.ui_strategy.log_result("✅", name, f"{price_str} {target_str}", notes)
 
         data_manager.update_item(
-            url=item.url,
+            item.url,
             last_price=result.price,
             last_checked=datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
         )
@@ -293,6 +293,9 @@ class ScrapingOrchestrator:
                 data_manager.clean_storage()
             except ValueError:
                 continue
+            except StorageFileError as e:
+                self.ui_strategy.log_error("Storage", f"Failed to load config/{target}.json file!", str(e))
+                continue
 
             target_items = data_manager.get_items()
             if not target_items:
@@ -315,7 +318,7 @@ class ScrapingOrchestrator:
 
                 if needs_save:
                     try:
-                        data_manager.save_atomically()
+                        data_manager.save()
                     except StorageFileError as e:
                         self.ui_strategy.log_error("Storage", f"Failed to update config/{target}.json file!", str(e))
 

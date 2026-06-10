@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Dict, Any
 from .base import BaseTrackedItem
+from utils import parse_price
 
 @dataclass
 class Product(BaseTrackedItem):
@@ -19,13 +20,9 @@ class Product(BaseTrackedItem):
         Returns:
             Product: A new Product instance populated with data from the dictionary.
         """
-        try:
-            target_price_raw = data.get('target_price', 0.0)
-            if isinstance(target_price_raw, str):
-                target_price_raw = target_price_raw.strip('"').strip("'").replace(',', '.')
-            target_price = float(target_price_raw)
-        except (ValueError, TypeError):
-            target_price = -1.0 # indicating invalid
+        target_price = parse_price(data.get('target_price', 0.0))
+        if target_price is None:
+            target_price = -1.0  # indicating invalid
 
         return cls(
             name=data.get('name', 'Unknown'),
@@ -35,3 +32,4 @@ class Product(BaseTrackedItem):
             last_price=data.get('last_price', 0.0),
             last_checked=data.get('last_checked', '')
         )
+
