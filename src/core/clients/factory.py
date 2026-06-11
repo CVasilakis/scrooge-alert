@@ -10,17 +10,18 @@ class ScraperFactory:
     this file. To add a new scraper, implement BaseScraperClient and register
     it via the package's __init__.py.
     """
-    _registry: Dict[str, Type[BaseScraperClient]] = {}
+    _registry: Dict[str, tuple[Type[BaseScraperClient], dict]] = {}
 
     @classmethod
-    def register(cls, domain_pattern: str, scraper_class: Type[BaseScraperClient]) -> None:
+    def register(cls, domain_pattern: str, scraper_class: Type[BaseScraperClient], **kwargs) -> None:
         """Registers a scraper class for URLs matching the given domain pattern.
 
         Args:
             domain_pattern (str): A substring to match against URL domains (e.g., 'skroutz').
             scraper_class (Type[BaseScraperClient]): The scraper class to instantiate for matching URLs.
+            **kwargs: Constructor arguments to forward to the scraper class.
         """
-        cls._registry[domain_pattern] = scraper_class
+        cls._registry[domain_pattern] = (scraper_class, kwargs)
 
     @classmethod
     def registered_targets(cls) -> List[str]:
@@ -50,8 +51,12 @@ class ScraperFactory:
         parsed_url = urlparse(url)
         domain = parsed_url.netloc.lower()
 
-        for pattern in self._registry:
-            if pattern in domain:
+        for pattern, (scraper_class, _) in self._registry.items():
+            supported_domains = scraper_class.get_supported_domains()
+            if supported_domains:
+                if any(domain.endswith(d) for d in supported_domains):
+                    return pattern
+            elif pattern in domain:
                 return pattern
 
         raise ValueError(f"Unsupported domain: {domain}")
@@ -71,8 +76,8 @@ class ScraperFactory:
         scraper_type = self.get_scraper_type(url)
 
         if scraper_type not in self._scrapers:
-            scraper_class = self._registry[scraper_type]
-            self._scrapers[scraper_type] = scraper_class()
+            scraper_class, kwargs = self._registry[scraper_type]
+            self._scrapers[scraper_type] = scraper_class(**kwargs)
 
         return self._scrapers[scraper_type]
 

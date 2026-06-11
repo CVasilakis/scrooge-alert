@@ -205,7 +205,7 @@ class ScrapingOrchestrator:
             try:
                 self.ui_strategy.start_scraping(item.name)
                 try:
-                    result = scraper.scrape_product(item.url, item.name)
+                    result = scraper.scrape_product(item.url)
                 finally:
                     self.ui_strategy.complete_scraping()
 
