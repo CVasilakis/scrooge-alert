@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from constants import EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, CONFIG_DIR
 from utils import check_env_file, APPRISE_PLACEHOLDERS, check_for_updates
 from exceptions import StorageFileError, EnvFileError, UpdateCheckError
-from storage.factory import DataManagerFactory
+from scrapers.registry import ScraperRegistry
 from logger import setup_global_logging
 from panel import StatusPanelBuilder
 
@@ -58,7 +58,10 @@ def main():
     # Print a starting empty line
     console.print()
 
-    data_manager_factory = DataManagerFactory(CONFIG_DIR)
+    # Trigger auto-discovery of all scraper plugins
+    import scrapers  # noqa: F401
+
+    registry = ScraperRegistry(CONFIG_DIR)
 
     registered_scrapers = []
     if os.path.exists(CONFIG_DIR):
@@ -88,7 +91,7 @@ def main():
         # 2. Config Checks
         for target in registered_scrapers:
             try:
-                manager = data_manager_factory.get_manager(target)
+                manager = registry.get_manager(target)
                 total, faulty_indices = manager.validate_storage()
                 val_str = f"{total} items loaded"
                 if faulty_indices:

@@ -5,8 +5,8 @@ from collections import defaultdict
 from urllib.parse import urlparse
 from typing import Dict, Any, List
 
-from .base import BaseDataManager
-from models.skroutz import Product
+from scrapers.base.storage import BaseDataManager
+from scrapers.skroutz.model import Product
 from exceptions import StorageFileError
 
 
@@ -26,9 +26,10 @@ class SkroutzDataManager(BaseDataManager):
         """Returns the human-readable store name.
 
         Returns:
-            str: ``"Skroutz"``.
+            str: The display name from the plugin descriptor.
         """
-        return "Skroutz"
+        from scrapers.skroutz.plugin import SkroutzPlugin
+        return SkroutzPlugin.get_display_name()
 
     def load(self) -> Dict[str, Any]:
         """Loads the products data from the JSON file.
@@ -199,12 +200,14 @@ class SkroutzDataManager(BaseDataManager):
 
     def is_scrappable_item(self, item: Dict[str, Any]) -> bool:
         """Checks if the item has a valid, properly formatted URL."""
+        from scrapers.skroutz.plugin import SkroutzPlugin
+
         url = item.get("url", "")
         if not isinstance(url, str):
             return False
 
         parsed = urlparse(url)
-        if "skroutz.gr" not in parsed.netloc:
+        if not any(parsed.netloc.endswith(d) for d in SkroutzPlugin.get_supported_domains()):
             return False
 
         if not re.search(r'/\d+/', parsed.path):

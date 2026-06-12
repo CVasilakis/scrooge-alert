@@ -11,10 +11,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from constants import CONFIG_DIR, EXIT_CODE_ERROR, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_INTERRUPT
 from utils import APPRISE_PLACEHOLDERS, check_env_file, check_for_updates
 from exceptions import StorageFileError, EnvFileError, UpdateCheckError
-from storage.factory import DataManagerFactory
+from scrapers.registry import ScraperRegistry
 from notifier import Notifier
 from logger import setup_global_logging, save_traceback, get_target_logger
-from clients.factory import ScraperFactory
 from orchestrator import ScrapingOrchestrator
 from tui import InteractiveExecutionStrategy, SilentExecutionStrategy
 
@@ -37,7 +36,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description='Scrooge Alert scraper')
     parser.add_argument('--quiet', action='store_true', help='Run script with no console output')
 
-    registered_scrapers = ScraperFactory.registered_targets()
+    # Trigger auto-discovery of all scraper plugins
+    import scrapers  # noqa: F401
+
+    registered_scrapers = ScraperRegistry.registered_targets()
     for scraper in registered_scrapers:
         parser.add_argument(f'--{scraper}', action='store_true', help=f'Run the {scraper.capitalize()} scraper')
 
@@ -45,7 +47,7 @@ def main() -> None:
 
     setup_global_logging(args.quiet)
 
-    data_manager_factory = DataManagerFactory(CONFIG_DIR)
+    registry = ScraperRegistry(CONFIG_DIR)
     targets_to_run = [s for s in registered_scrapers if getattr(args, s, False)]
 
     if not targets_to_run:
@@ -77,7 +79,7 @@ def main() -> None:
             init_fatal_error = None
             for target in targets_to_run:
                 try:
-                    manager = data_manager_factory.get_manager(target)
+                    manager = registry.get_manager(target)
                     total, faulty_indices = manager.validate_storage()
                     val_str = f"{total} items loaded"
                     if faulty_indices:
@@ -139,7 +141,7 @@ def main() -> None:
         # Silent checking logic
         for target in targets_to_run:
             try:
-                manager = data_manager_factory.get_manager(target)
+                manager = registry.get_manager(target)
                 manager.validate_storage()
             except StorageFileError as e:
                 get_target_logger(target, True).error(f"❗ Config check failed: {e}")
@@ -170,12 +172,11 @@ def main() -> None:
     notifier = Notifier(notification_urls)
 
     try:
-        scraper_factory = ScraperFactory()
         try:
-            orchestrator = ScrapingOrchestrator(targets_to_run, data_manager_factory, scraper_factory, notifier, CONFIG_DIR, args.quiet, ui_strategy)
+            orchestrator = ScrapingOrchestrator(targets_to_run, registry, notifier, CONFIG_DIR, args.quiet, ui_strategy)
             exit_code = orchestrator.run()
         finally:
-            scraper_factory.close_all()
+            registry.close_all()
 
         sys.exit(exit_code)
 

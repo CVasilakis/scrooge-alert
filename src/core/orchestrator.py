@@ -7,31 +7,28 @@ from typing import Optional
 from locks import acquire_lock
 from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, TIMESTAMP_FORMAT
 from exceptions import RateLimitError, ServerError, ScraperParseError, LockAcquisitionError, StorageFileError, ProductNotFoundError, ProductUnavailableError, InvalidURLError
-from models.base import BaseTrackedItem
-from clients.factory import ScraperFactory
-from storage.factory import DataManagerFactory
-from storage.base import BaseDataManager
+from scrapers.base.model import BaseTrackedItem
+from scrapers.base.storage import BaseDataManager
+from scrapers.registry import ScraperRegistry
 from notifier import Notifier
 from logger import save_traceback, get_target_logger
 from tui import ExecutionStrategy, SilentExecutionStrategy
 
 class ScrapingOrchestrator:
     """Orchestrates the scraping process across multiple targets and manages execution flow."""
-    def __init__(self, targets_to_run: list, data_manager_factory: DataManagerFactory, scraper_factory: ScraperFactory, notifier: Notifier, config_dir: str, quiet: bool = False, ui_strategy: Optional[ExecutionStrategy] = None):
+    def __init__(self, targets_to_run: list, registry: ScraperRegistry, notifier: Notifier, config_dir: str, quiet: bool = False, ui_strategy: Optional[ExecutionStrategy] = None):
         """Initializes the ScrapingOrchestrator.
 
         Args:
             targets_to_run (list): A list of scraper types to run.
-            data_manager_factory (DataManagerFactory): The factory to create data managers.
-            scraper_factory (ScraperFactory): The factory to create web scrapers.
+            registry (ScraperRegistry): The unified registry for scraper clients and data managers.
             notifier (Notifier): The service used to send notifications.
             config_dir (str): The directory for saving user data and configuration.
             quiet (bool): Whether to log to file silently.
             ui_strategy (Optional[ExecutionStrategy]): The strategy for the UI console output.
         """
         self.targets_to_run = targets_to_run
-        self.data_manager_factory = data_manager_factory
-        self.scraper_factory = scraper_factory
+        self.registry = registry
         self.notifier = notifier
         self.config_dir = config_dir
         self.quiet = quiet
@@ -87,7 +84,7 @@ class ScrapingOrchestrator:
             hours (int): The threshold in hours to consider an entry 'old'.
         """
         try:
-            data_manager = self.data_manager_factory.get_manager(target)
+            data_manager = self.registry.get_manager(target)
         except ValueError:
             return
 
@@ -196,7 +193,7 @@ class ScrapingOrchestrator:
         if self.interrupted:
             return None, False
 
-        scraper = self.scraper_factory.get_scraper(item.url)
+        scraper = self.registry.get_scraper(item.url)
 
         for attempt in range(MAX_RETRIES):
             if self.interrupted:
@@ -283,7 +280,7 @@ class ScrapingOrchestrator:
             self._current_logger = get_target_logger(target, self.quiet)
 
             try:
-                data_manager = self.data_manager_factory.get_manager(target)
+                data_manager = self.registry.get_manager(target)
                 data_manager.load()
                 data_manager.clean_storage()
             except ValueError:

@@ -4,13 +4,13 @@
 This project is an automated Python application designed to monitor product prices across Skroutz domains and send push notifications when prices drop below user-defined target thresholds. 
 
 - **Main Technologies:** Python 3, `apprise` (for versatile push notifications via Telegram, Discord, etc.), `tls_client` (for evasive web scraping by mimicking browser TLS fingerprints), and systemd (for automated background scheduling on Linux).
-- **Architecture:** The application features a modular, extensible architecture residing in `src/core/`. The entrypoint is `main.py`, which delegates to specialized modules:
-  - **Models (`models/`)**: Data Transfer Objects (`BaseTrackedItem`, `Product`, `ScrapeResult`) for strict type safety.
-  - **Storage & State (`storage/`)**: Employs the Factory pattern (`DataManagerFactory`) to load JSON configuration specific to each domain/scraper.
-  - **Network & Clients (`clients/`)**: Employs the Strategy/Interface pattern (`BaseScraperClient`) and a Factory pattern (`ScraperFactory`) to dynamically load store-specific scrapers (e.g., `SkroutzClient`). TLS sessions are persisted for performance.
+- **Architecture:** The application features a modular, plugin-based architecture residing in `src/core/`. The entrypoint is `main.py`, which delegates to specialized modules:
+  - **Scrapers (`scrapers/`)**: Self-contained plugin packages grouped by target store. Each plugin (e.g. `scrapers/skroutz/`) contains its own client, model, storage, and a `plugin.py` descriptor that acts as the single source of truth for domains, config filenames, and class bindings.
+    - **Base Contracts (`scrapers/base/`)**: Abstract base classes (`BaseScraperClient`, `BaseTrackedItem`, `ScrapeResult`, `BaseDataManager`, `BasePlugin`) defining the interfaces all plugins must implement.
+    - **Registry (`scrapers/registry.py`)**: A unified `ScraperRegistry` that replaces the old separate `ScraperFactory` and `DataManagerFactory`. Handles URL-to-plugin resolution, lazy client/manager instantiation, and auto-discovery of plugins via `pkgutil`.
   - **Orchestration (`orchestrator.py`)**: `ScrapingOrchestrator` runs a store-agnostic execution loop.
-  - **Configuration & Validation (`config.py`, `validators.py`)**: Centralized constants and environment/file health checks.
-  - **Terminal UI (`tui_bar.py`)**: Manages the interactive progress bar during sleep intervals using the Strategy pattern (`ProgressStrategy`).
+  - **Configuration & Validation (`constants.py`, `utils.py`)**: Centralized constants and environment/file health checks.
+  - **Terminal UI (`tui.py`)**: Manages the interactive progress bar during sleep intervals using the Strategy pattern (`ExecutionStrategy`).
   - **CLI Tools (`ping.py`, `status.py`)**: Dedicated scripts for specific CLI commands to maintain separation of concerns.
   User configuration is completely externalized to `.env` (notification endpoints) and `config/skroutz.json` (the list of tracked products). It is designed to run silently as a background task, leveraging a local Python virtual environment (`venv`) to isolate dependencies.
 
@@ -36,4 +36,4 @@ The application is primarily intended for automated background execution but pro
 - **Scraping Practices & Rate Limiting:** The scraper intentionally paces requests using a base delay (20s) plus randomized jitter (1-5s) between product checks to avoid triggering Skroutz's anti-bot protections. Concurrency is avoided to maintain a low profile.
 - **Data Integrity:** Updates to the `config/skroutz.json` file (such as logging the latest price and check timestamp) are performed using an atomic save mechanism to prevent file corruption in case of unexpected interruptions.
 - **Error Handling & Logging:** When running silently in the background, exceptions are caught and logged to `logs/errors.txt`. If critical errors occur (like repeated scraping failures or a total crash), the script utilizes the Apprise notifier to alert the user of the failure.
-- **Code Style:** Standard Python object-oriented practices are used with a focus on the Single Responsibility Principle, Dependency Injection, and the Open/Closed Principle. Logic is strictly separated into focused modules. Adding support for new domains or stores requires implementing the `BaseScraperClient` interface and registering it in `ScraperFactory` without altering the main orchestration logic. Configuration and state are decoupled from the main execution logic.
+- **Code Style:** Standard Python object-oriented practices are used with a focus on the Single Responsibility Principle, Dependency Injection, and the Open/Closed Principle. Logic is strictly separated into focused modules. Adding support for new stores requires creating a new plugin package under `scrapers/` implementing `BasePlugin`, `BaseScraperClient`, `BaseTrackedItem`, and `BaseDataManager` — no existing files need to be modified. Configuration and state are decoupled from the main execution logic.

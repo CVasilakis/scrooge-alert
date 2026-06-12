@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from constants import APPRISE_PLACEHOLDERS
 
 if TYPE_CHECKING:
-    from models.base import BaseTrackedItem
+    from scrapers.base.model import BaseTrackedItem
 
 class Notifier:
     """Handles sending notifications via configured Apprise URLs."""

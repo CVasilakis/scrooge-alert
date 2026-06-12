@@ -3,7 +3,7 @@ import os
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List
 
-from models.base import BaseTrackedItem
+from scrapers.base.model import BaseTrackedItem
 from utils import parse_price
 
 

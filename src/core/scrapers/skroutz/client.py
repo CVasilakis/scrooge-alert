@@ -6,8 +6,8 @@ from typing import Dict, List
 import json
 import tls_client
 
-from clients.base import BaseScraperClient
-from models.base import ScrapeResult
+from scrapers.base.client import BaseScraperClient
+from scrapers.base.model import ScrapeResult
 from exceptions import ScraperError, RateLimitError, ServerError, ScraperParseError, ProductNotFoundError, ProductUnavailableError, InvalidURLError
 
 # Headers impersonating a real browser to avoid being blocked by anti-bot measures.
@@ -67,7 +67,8 @@ class SkroutzClient(BaseScraperClient):
 
     @staticmethod
     def get_supported_domains() -> List[str]:
-        return ["skroutz.gr", "skroutz.cy", "skroutz.ro", "skroutz.bg", "skroutz.de"]
+        from scrapers.skroutz.plugin import SkroutzPlugin
+        return SkroutzPlugin.get_supported_domains()
 
     def __init__(self):
         """Initializes the Skroutz client, picking a random header and setting up a TLS session."""
