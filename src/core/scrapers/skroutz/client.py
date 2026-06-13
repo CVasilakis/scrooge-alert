@@ -1,7 +1,7 @@
 import re
 import random
 from urllib.parse import urlparse
-from typing import Dict, List
+from typing import Dict
 
 import json
 import tls_client
@@ -64,11 +64,6 @@ class SkroutzClient(BaseScraperClient):
     """Client for scraping product information from Skroutz."""
 
     HEADERS_POOL = _HEADERS_POOL
-
-    @staticmethod
-    def get_supported_domains() -> List[str]:
-        from scrapers.skroutz.plugin import SkroutzPlugin
-        return SkroutzPlugin.get_supported_domains()
 
     def __init__(self):
         """Initializes the Skroutz client, picking a random header and setting up a TLS session."""

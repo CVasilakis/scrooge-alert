@@ -1,7 +1,7 @@
 import apprise
 from urllib.parse import urlparse
 from typing import TYPE_CHECKING
-from constants import APPRISE_PLACEHOLDERS
+from utils import is_valid_apprise_url
 
 if TYPE_CHECKING:
     from scrapers.base.model import BaseTrackedItem
@@ -19,9 +19,8 @@ class Notifier:
         if notification_urls:
             for url in notification_urls.split(','):
                 url = url.strip()
-                if url and not any(p in url for p in APPRISE_PLACEHOLDERS):
-                    if self.app_notif.add(url):
-                        self.has_services = True
+                if is_valid_apprise_url(url) and self.app_notif.add(url):
+                    self.has_services = True
 
     def _extract_site(self, url: str) -> str:
         """Extracts a human-readable site name from a product URL dynamically."""

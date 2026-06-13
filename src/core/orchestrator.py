@@ -2,6 +2,7 @@ import signal
 import datetime
 import random
 import time
+from dataclasses import dataclass
 from typing import Optional
 
 from locks import acquire_lock
@@ -12,7 +13,67 @@ from scrapers.base.storage import BaseDataManager
 from scrapers.registry import ScraperRegistry
 from notifier import Notifier
 from logger import save_traceback, get_target_logger
-from tui import ExecutionStrategy, SilentExecutionStrategy, Notes
+from tui import ExecutionStrategy, SilentExecutionStrategy, Notes, PriceOutcome
+from utils import describe_signal
+
+
+# --- Error handling policy -------------------------------------------------
+# scrape_product signals every outcome through the exception it raises. The
+# behavior for each retryable error — whether to refresh identity before
+# retrying, abort the whole target, count it as a notified failure, save a
+# traceback, and any extra footnotes — is declared here once instead of in a
+# branching ladder. See BaseScraperClient's docstring for the full contract.
+
+# Terminal, non-retryable errors: the item is skipped (warning, not a failure).
+SKIP_ERRORS = (ProductNotFoundError, ProductUnavailableError, InvalidURLError)
+
+# Placeholder in extra_notes, replaced at runtime with the per-target error-log pointer.
+ERRORS_LOG_TOKEN = "<errors_log>"
+
+
+@dataclass(frozen=True)
+class ErrorPolicy:
+    """How the orchestrator treats a single retryable scrape error.
+
+    Attributes:
+        refresh_before_retry: Call ``scraper.refresh_identity()`` between attempts.
+        abort: Abort the entire target run once this error becomes terminal.
+        counts_as_failure: Include the item in the notified ``failed_items`` list.
+        save_traceback: Append a full traceback to the target's errors.txt when terminal.
+        extra_notes: Footnotes shown on the terminal failure row. ``ERRORS_LOG_TOKEN``
+            entries are replaced with the per-target error-log pointer at runtime.
+    """
+    refresh_before_retry: bool = True
+    abort: bool = False
+    counts_as_failure: bool = True
+    save_traceback: bool = False
+    extra_notes: tuple = ()
+
+
+_DEFAULT_POLICY = ErrorPolicy(save_traceback=True, extra_notes=(ERRORS_LOG_TOKEN,))
+
+# Matched by isinstance in insertion order; first hit wins, else _DEFAULT_POLICY.
+_RETRY_POLICIES: dict = {
+    RateLimitError: ErrorPolicy(
+        abort=True,
+        save_traceback=True,
+        extra_notes=("Rate limit reached; scraping aborted.", ERRORS_LOG_TOKEN),
+    ),
+    # A 5xx is a transient server-side fault: shown and logged, but intentionally
+    # not notified and not counted as a failure (a long outage surfaces via stale
+    # tracking instead). Retried without rotating identity.
+    ServerError: ErrorPolicy(refresh_before_retry=False, counts_as_failure=False),
+    ScraperParseError: ErrorPolicy(),
+}
+
+
+def _policy_for(exc: Exception) -> ErrorPolicy:
+    """Returns the ErrorPolicy for a retryable exception (isinstance match, else default)."""
+    for exc_type, policy in _RETRY_POLICIES.items():
+        if isinstance(exc, exc_type):
+            return policy
+    return _DEFAULT_POLICY
+
 
 class ScrapingOrchestrator:
     """Orchestrates the scraping process across multiple targets and manages execution flow."""
@@ -50,8 +111,7 @@ class ScrapingOrchestrator:
             signum (int): The signal number received.
             _frame: The current stack frame (unused).
         """
-        sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
-        self._interrupt_message = f"Received signal {sig_name}"
+        self._interrupt_message = f"Received signal {describe_signal(signum)}"
         self.interrupted = True
 
     def _sleep_with_jitter(self, base_delay: float, attempt: int = 0, is_retry: bool = False) -> None:
@@ -168,6 +228,12 @@ class ScrapingOrchestrator:
         """Returns the footnote pointing at the current target's error log."""
         return f"See logs/{self._current_target}/errors.txt for details."
 
+    def _resolve_policy_notes(self, policy: ErrorPolicy) -> Optional[list]:
+        """Expands a policy's extra_notes, substituting the runtime error-log pointer."""
+        if not policy.extra_notes:
+            return None
+        return [self._errors_log_pointer() if n == ERRORS_LOG_TOKEN else n for n in policy.extra_notes]
+
     def _handle_successful_scrape(self, item: BaseTrackedItem, result, data_manager: BaseDataManager, original_invalid_price=None, missing_target_price: bool = False, retries_used: int = 0, attempt_notes: Optional[list] = None) -> None:
         """Processes a successful product scrape, sending notifications if necessary.
 
@@ -182,9 +248,6 @@ class ScrapingOrchestrator:
             attempt_notes (Optional[list]): Per-attempt footnotes for preceding failed
                 retries, surfaced on the interactive row ahead of the success notes.
         """
-        price_str = f"{result.price} {result.currency}"
-        target_str = f"(Target: {item.target_price} {result.currency})"
-
         notes = []
         if retries_used > 0:
             notes.append(f"Succeeded on attempt {retries_used + 1}/{MAX_RETRIES}")
@@ -195,6 +258,7 @@ class ScrapingOrchestrator:
             notes.append(f"Missing target price. Defaulting to 0.0 {result.currency}")
 
         if result.price < item.target_price:
+            outcome = PriceOutcome.DROP
             if self.notifier.has_services:
                 if self.notifier.notify_low_price(item.name, item.target_price, result.price, item.url, result.currency):
                     notes.append("Notification delivered to all valid apprise URL(s).")
@@ -202,11 +266,12 @@ class ScrapingOrchestrator:
                     notes.append("Notification delivery failed for some apprise URL(s).")
             else:
                 notes.append("No notification sent (.env not configured).")
-            self.ui_strategy.log_result("🎉", item.name, f"[bold green]{price_str}[/bold green] {target_str}", notes, attempt_notes)
         elif item.target_price == 0.0:
-            self.ui_strategy.log_result("🟡", item.name, f"{price_str} [yellow]{target_str}[/yellow]", notes, attempt_notes)
+            outcome = PriceOutcome.NO_TARGET
         else:
-            self.ui_strategy.log_result("✅", item.name, f"{price_str} {target_str}", notes, attempt_notes)
+            outcome = PriceOutcome.OK
+
+        self.ui_strategy.log_price_result(item.name, result.price, result.currency, item.target_price, outcome, notes, attempt_notes)
 
         data_manager.update_item(
             item.url,
@@ -269,45 +334,29 @@ class ScrapingOrchestrator:
                     break
 
                 self._handle_successful_scrape(item, result, data_manager, original_invalid_price, missing_target_price, retries_used=attempt, attempt_notes=attempt_notes)
-                break
+                return None, False
 
-            except (ProductNotFoundError, ProductUnavailableError, InvalidURLError) as e:
+            except SKIP_ERRORS as e:
+                # Terminal for this item, no retry: the product is gone, unavailable,
+                # or its URL is unusable. Surfaced as a warning, not a failure.
                 stale_note = self._flag_if_stale(item, data_manager)
                 self.ui_strategy.log_warning(item.name, f"Skipping ({type(e).__name__})", self._combine_notes(str(e), stale_note), attempt_notes)
-                break
-            except ScraperParseError as e:
-                self._record_attempt(item.name, attempt, type(e).__name__, f"{type(e).__name__}: {e}", attempt_notes)
-                if attempt == MAX_RETRIES - 1:
-                    self._emit_failure(item, data_manager, type(e).__name__, attempt_notes)
-                    return e, False
-                scraper.refresh_identity()
-                self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt, is_retry=True)
-            except RateLimitError as e:
-                self._record_attempt(item.name, attempt, type(e).__name__, f"{type(e).__name__}: {e}", attempt_notes)
-                if attempt == MAX_RETRIES - 1:
-                    self._emit_failure(item, data_manager, type(e).__name__, attempt_notes, ["Rate limit reached; scraping aborted.", self._errors_log_pointer()])
-                    if self._current_logger:
-                        save_traceback(self._current_logger, target_name=self._current_target, url=item.url, headers=scraper.get_current_headers(), log_to_console=False)
-                    return e, True
-                scraper.refresh_identity()
-                self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt, is_retry=True)
-            except ServerError as e:
-                self._record_attempt(item.name, attempt, type(e).__name__, f"{type(e).__name__}: {e}", attempt_notes)
-                if attempt == MAX_RETRIES - 1:
-                    self._emit_failure(item, data_manager, type(e).__name__, attempt_notes)
-                    # A 5xx is a transient, server-side fault: it is shown and logged, but
-                    # intentionally not notified. A genuinely long outage surfaces via the
-                    # stale-tracking warning instead. Returning None keeps it out of failed_items.
-                    return None, False
-                self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt, is_retry=True)
+                return None, False
+
             except Exception as e:
+                # Retryable errors: how each is handled (refresh, abort, notify,
+                # traceback, footnotes) is declared once in the ErrorPolicy table.
+                policy = _policy_for(e)
                 self._record_attempt(item.name, attempt, type(e).__name__, f"{type(e).__name__}: {e}", attempt_notes)
+
                 if attempt == MAX_RETRIES - 1:
-                    self._emit_failure(item, data_manager, type(e).__name__, attempt_notes, self._errors_log_pointer())
-                    if self._current_logger:
+                    self._emit_failure(item, data_manager, type(e).__name__, attempt_notes, self._resolve_policy_notes(policy))
+                    if policy.save_traceback and self._current_logger:
                         save_traceback(self._current_logger, target_name=self._current_target, url=item.url, headers=scraper.get_current_headers(), log_to_console=False)
-                    return e, False
-                scraper.refresh_identity()
+                    return (e if policy.counts_as_failure else None), policy.abort
+
+                if policy.refresh_before_retry:
+                    scraper.refresh_identity()
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt, is_retry=True)
 
         return None, False
@@ -364,12 +413,16 @@ class ScrapingOrchestrator:
                         any_rate_limited = any_rate_limited or product_abort
                         needs_save = True
 
-                if needs_save:
-                    try:
-                        data_manager.save()
-                    except StorageFileError as e:
-                        self.ui_strategy.log_error("Storage", f"Failed to update config/{target}.json file!", str(e))
+                    # Persist under the same lock as clean_storage(): save() does a
+                    # read-merge-rewrite, so a concurrent instance must not race the
+                    # final write.
+                    if needs_save:
+                        try:
+                            data_manager.save()
+                        except StorageFileError as e:
+                            self.ui_strategy.log_error("Storage", f"Failed to update config/{target}.json file!", str(e))
 
+                # Notifications involve network I/O and need no lock.
                 if not self.interrupted and self._stale_items:
                     self.notifier.notify_old_entries(self._stale_items, OLD_ENTRY_HOURS)
 

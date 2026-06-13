@@ -1,10 +1,14 @@
 import os
+import sys
+import signal
 import subprocess
 import apprise
 from dotenv import load_dotenv
 
 from typing import Optional
-from constants import BASE_DIR, APPRISE_PLACEHOLDERS
+from rich.console import Console
+
+from constants import BASE_DIR, APPRISE_PLACEHOLDERS, EXIT_CODE_INTERRUPT
 from exceptions import EnvFileError, UpdateCheckError
 
 def parse_price(raw_value) -> Optional[float]:
@@ -30,6 +34,26 @@ def parse_price(raw_value) -> Optional[float]:
     except (ValueError, TypeError):
         return None
 
+def is_valid_apprise_url(url: str) -> bool:
+    """Returns whether a single Apprise URL is usable.
+
+    A URL is valid when it is non-empty, contains no unconfigured placeholder
+    (e.g. ``<token>``), and Apprise can instantiate it. This is the single
+    predicate used everywhere notification URLs are validated.
+
+    Args:
+        url (str): A single Apprise URL (surrounding whitespace is ignored).
+
+    Returns:
+        bool: True if the URL is a usable Apprise endpoint.
+    """
+    url = (url or "").strip()
+    if not url:
+        return False
+    if any(p in url for p in APPRISE_PLACEHOLDERS):
+        return False
+    return bool(apprise.Apprise.instantiate(url))
+
 def classify_notification_urls(notification_urls: str) -> tuple[list, list]:
     """Splits a comma-separated Apprise URL string into valid and invalid URLs.
 
@@ -47,7 +71,7 @@ def classify_notification_urls(notification_urls: str) -> tuple[list, list]:
         url = url.strip()
         if not url:
             continue
-        if not any(p in url for p in APPRISE_PLACEHOLDERS) and apprise.Apprise.instantiate(url):
+        if is_valid_apprise_url(url):
             valid_urls.append(url)
         else:
             invalid_urls.append(url)
@@ -72,7 +96,7 @@ def check_env_file() -> None:
 
     urls = [u.strip() for u in notification_urls.split(',') if u.strip()]
 
-    valid_urls = [u for u in urls if not any(p in u for p in APPRISE_PLACEHOLDERS) and apprise.Apprise.instantiate(u)]
+    valid_urls = [u for u in urls if is_valid_apprise_url(u)]
     if not valid_urls:
         raise EnvFileError("NOTIFICATION_URLS contains no valid notification URL(s)")
 
@@ -100,3 +124,34 @@ def check_for_updates() -> bool:
             raise UpdateCheckError("Failed to retrieve remote repository version information")
     except Exception as e:
         raise UpdateCheckError(f"Could not check for updates: {e}")
+
+def describe_signal(signum) -> str:
+    """Returns a human-readable name for a termination signal.
+
+    Args:
+        signum: The signal number received.
+
+    Returns:
+        str: A friendly label (e.g. ``'SIGINT (Ctrl+C)'``), or the raw number as a string.
+    """
+    if signum == signal.SIGINT:
+        return 'SIGINT (Ctrl+C)'
+    if signum == signal.SIGTERM:
+        return 'SIGTERM (System Shutdown/Termination)'
+    return str(signum)
+
+def install_interrupt_handler() -> None:
+    """Installs SIGINT/SIGTERM handlers that print a clean message and exit.
+
+    Shared by the one-shot CLI entrypoints (main's pre-flight phase, status, ping):
+    clears the current terminal line, prints the interrupt reason, and exits with
+    ``EXIT_CODE_INTERRUPT``. The long-running scrape loop installs its own
+    deferred handler instead (see ScrapingOrchestrator.signal_handler).
+    """
+    def _handler(signum, _frame):
+        os.write(1, b"\033[2K\r")
+        Console().print(f"🛑 Interrupted! Received signal {describe_signal(signum)}.\n")
+        sys.exit(EXIT_CODE_INTERRUPT)
+
+    signal.signal(signal.SIGINT, _handler)
+    signal.signal(signal.SIGTERM, _handler)

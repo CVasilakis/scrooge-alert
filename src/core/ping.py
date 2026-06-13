@@ -1,12 +1,11 @@
 import os
 import sys
 import signal
-import apprise
 
 # Ensure the script directory is in the python path to allow imports when running as a module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils import check_env_file, APPRISE_PLACEHOLDERS
+from utils import check_env_file, is_valid_apprise_url, install_interrupt_handler
 from notifier import Notifier
 from logger import setup_global_logging
 from exceptions import EnvFileError
@@ -14,8 +13,6 @@ from panel import StatusPanelBuilder
 
 from rich.console import Console
 from rich.markup import escape
-
-from constants import EXIT_CODE_INTERRUPT
 
 def obfuscate_invalid_url(url: str) -> str:
     """Obfuscates an invalid URL for display."""
@@ -52,8 +49,7 @@ def main():
     This function initializes the notifier with URLs from the environment and sends
     a test message, reporting the success or failure of each configured service using rich UI.
     """
-    signal.signal(signal.SIGINT, _handle_signal)
-    signal.signal(signal.SIGTERM, _handle_signal)
+    install_interrupt_handler()
 
     setup_global_logging()
     console = Console()
@@ -74,7 +70,7 @@ def main():
         for u in notification_urls.split(','):
             u = u.strip()
             if u:
-                is_valid = not any(p in u for p in APPRISE_PLACEHOLDERS) and bool(apprise.Apprise.instantiate(u))
+                is_valid = is_valid_apprise_url(u)
                 url_entries.append((u, is_valid))
 
     # Collect and test valid URLs
@@ -122,13 +118,6 @@ def main():
     panel.render(console, panel_color=panel_color)
 
     console.print()
-
-def _handle_signal(signum, _frame):
-    """Handles termination signals by printing a clean message and exiting."""
-    sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
-    os.write(1, b"\033[2K\r")
-    Console().print(f"🛑 Interrupted! Received signal {sig_name}.\n")
-    sys.exit(EXIT_CODE_INTERRUPT)
 
 if __name__ == "__main__":
     main()

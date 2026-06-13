@@ -1,9 +1,12 @@
 import json
 import os
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List
+from collections import defaultdict
+from typing import Dict, Any, List, Type
+from urllib.parse import urlparse
 
 from scrapers.base.model import BaseTrackedItem
+from exceptions import StorageFileError
 from utils import parse_price
 
 
@@ -13,6 +16,13 @@ class BaseDataManager(ABC):
     Subclasses must call ``super().__init__(filepath)`` in their
     ``__init__`` and use ``self.filepath`` for all file operations so that
     the base-class helpers (e.g. ``_save_json_atomically``) work correctly.
+
+    Note:
+        Most plugins back their storage with a JSON file. Such plugins should
+        extend :class:`JsonProductDataManager` (below) instead of this class
+        directly — it implements the entire generic JSON lifecycle and leaves
+        only ``is_scrappable_item`` (the store-specific URL rule) abstract.
+        Subclass this class directly only for non-JSON backends (DB, API).
     """
     def __init__(self, filepath: str) -> None:
         """Initializes the data manager with a file path.
@@ -55,7 +65,7 @@ class BaseDataManager(ABC):
         pass
 
     # ------------------------------------------------------------------
-    # Item CRUD
+    # Item access
     # ------------------------------------------------------------------
 
     @abstractmethod
@@ -93,27 +103,6 @@ class BaseDataManager(ABC):
             int: The total number of items.
         """
         return len(self.get_items())
-
-    @abstractmethod
-    def add_item(self, data: Dict[str, Any]) -> None:
-        """Adds a new item to the storage.
-
-        Args:
-            data (Dict[str, Any]): The item data dictionary to add.
-        """
-        pass
-
-    @abstractmethod
-    def remove_item(self, url: str) -> bool:
-        """Removes an item from the storage by its URL.
-
-        Args:
-            url (str): The URL of the item to remove.
-
-        Returns:
-            bool: True if the item was found and removed, False otherwise.
-        """
-        pass
 
     # ------------------------------------------------------------------
     # Parsing & Validation
@@ -172,15 +161,6 @@ class BaseDataManager(ABC):
         """Performs pre-scrape cleanup on the storage data (e.g., removing duplicates)."""
         pass
 
-    @abstractmethod
-    def get_store_name(self) -> str:
-        """Returns a human-readable name for the store this manager handles.
-
-        Returns:
-            str: The store name (e.g. ``"Skroutz"``).
-        """
-        pass
-
     # ------------------------------------------------------------------
     # Shared concrete helpers
     # ------------------------------------------------------------------
@@ -218,8 +198,6 @@ class BaseDataManager(ABC):
         Raises:
             StorageFileError: If the write operation fails.
         """
-        from exceptions import StorageFileError
-
         temp_path = self.filepath + ".tmp"
         try:
             with open(temp_path, mode='w') as f:
@@ -227,3 +205,216 @@ class BaseDataManager(ABC):
             os.replace(temp_path, self.filepath)
         except OSError as e:
             raise StorageFileError(str(e))
+
+
+class JsonProductDataManager(BaseDataManager):
+    """Generic data manager for a JSON file holding a list of tracked items.
+
+    Implements the entire storage lifecycle shared by every JSON-file-backed
+    scraper: load/validate, cache-and-merge updates, atomic save, and
+    duplicate cleanup. The file is treated both as configuration (the tracked
+    items and their target prices) and as state (the scraper writes back the
+    latest price and check timestamp).
+
+    Subclasses only need to declare two class attributes and implement one
+    store-specific method:
+
+        class FooDataManager(JsonProductDataManager):
+            MODEL = FooItem        # a BaseTrackedItem subclass
+            ROOT_KEY = "products"  # top-level JSON key holding the item list
+
+            def is_scrappable_item(self, item): ...  # store URL rule
+
+    Everything else (parsing, validation, dedup, persistence) is inherited.
+    """
+
+    #: The :class:`BaseTrackedItem` subclass that ``parse_item`` instantiates.
+    MODEL: Type[BaseTrackedItem] = BaseTrackedItem
+    #: The top-level JSON key whose value is the list of item dictionaries.
+    ROOT_KEY: str = "products"
+
+    def __init__(self, filepath: str) -> None:
+        """Initializes the manager with the JSON file path.
+
+        Args:
+            filepath (str): The path to the JSON storage/config file.
+        """
+        super().__init__(filepath)
+        self._data: Dict[str, Any] = {}
+        self._updates: Dict[str, Dict[str, Any]] = {}
+
+    @property
+    def _config_label(self) -> str:
+        """Returns a human-readable ``config/<file>`` label for error messages."""
+        return f"config/{os.path.basename(self.filepath)}"
+
+    def load(self) -> Dict[str, Any]:
+        """Loads and validates the items data from the JSON file.
+
+        Performs the full pre-scrape validation (directory, existence, permissions
+        and JSON structure) and populates the in-memory state in one pass.
+
+        Returns:
+            Dict[str, Any]: The parsed JSON data.
+
+        Raises:
+            StorageFileError: If the file is missing, has wrong permissions, or
+                contains invalid JSON (or lacks the ``ROOT_KEY`` list).
+        """
+        config_dir = os.path.dirname(self.filepath)
+        if config_dir and not os.path.exists(config_dir):
+            os.makedirs(config_dir)
+
+        if not os.path.exists(self.filepath) or not os.path.isfile(self.filepath):
+            raise StorageFileError(f"The {self._config_label} file is missing or not a file")
+
+        if not os.access(self.filepath, os.R_OK | os.W_OK):
+            raise StorageFileError(f"The {self._config_label} file has wrong permissions")
+
+        try:
+            with open(self.filepath, 'r') as file:
+                data = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            raise StorageFileError(f"The {self._config_label} file contains invalid JSON format")
+
+        if not isinstance(data, dict) or not isinstance(data.get(self.ROOT_KEY), list):
+            raise StorageFileError(f"The {self._config_label} file contains invalid JSON format")
+
+        self._data = data
+        return self._data
+
+    def _get_clean_url(self, url: str) -> str:
+        """Strips query parameters and fragments to return the clean base URL.
+
+        Args:
+            url (str): The raw URL to clean.
+
+        Returns:
+            str: The sanitized base URL.
+        """
+        if not url:
+            return ""
+        parsed = urlparse(url)
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+
+    def update_item(self, url: str, **updates: Any) -> None:
+        """Caches updates for an item based on its clean URL.
+
+        Args:
+            url (str): The URL of the item to update.
+            **updates: Arbitrary field updates (e.g. ``last_price=12.5``,
+                ``last_checked="11-06-2026 01:00:00"``).
+        """
+        clean_url = self._get_clean_url(url)
+        if clean_url in self._updates:
+            self._updates[clean_url].update(updates)
+        else:
+            self._updates[clean_url] = dict(updates)
+
+    def get_items(self) -> List[Dict[str, Any]]:
+        """Returns the list of items as dictionaries."""
+        return self._data.get(self.ROOT_KEY, [])
+
+    def _clean_products(self, products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Removes duplicates based on URL rules and cleans URLs."""
+        groups = defaultdict(list)
+
+        for i, product in enumerate(products):
+            if "skip" not in product:
+                product["skip"] = False
+
+            url = str(product.get("url", ""))
+            # Group by clean URL if scrappable, otherwise fallback to string representation of raw url
+            clean_url = self._get_clean_url(url) if self.is_scrappable_item(product) else url
+            groups[clean_url].append((i, product))
+
+        items_to_keep = set()
+        for clean_url, group in groups.items():
+            if len(group) == 1:
+                items_to_keep.add(group[0][0])
+                continue
+
+            valid_indices = [i for i, p in group if self.is_valid_item(p)]
+            if valid_indices:
+                items_to_keep.add(valid_indices[0])
+            else:
+                scrappable_indices = [i for i, p in group if self.is_scrappable_item(p)]
+                if scrappable_indices:
+                    items_to_keep.add(scrappable_indices[0])
+                else:
+                    for i, p in group:
+                        items_to_keep.add(i)
+
+        cleaned_products = []
+        for i, product in enumerate(products):
+            if i in items_to_keep:
+                if self.is_scrappable_item(product):
+                    product["url"] = self._get_clean_url(str(product.get("url", "")))
+                cleaned_products.append(product)
+
+        return cleaned_products
+
+    def clean_storage(self) -> None:
+        """Cleans up the configuration file before scraping (dedup + URL normalization)."""
+        if self.ROOT_KEY in self._data:
+            original_count = len(self._data[self.ROOT_KEY])
+            cleaned = self._clean_products(self._data[self.ROOT_KEY])
+            if len(cleaned) < original_count:
+                self._data[self.ROOT_KEY] = cleaned
+                self._save_json_atomically(self._data)
+
+    def save(self) -> None:
+        """Applies pending updates and saves the data back to the JSON file atomically.
+
+        Re-reads the file from disk to merge with any external edits made
+        during the scraping run, then applies cached updates and performs
+        a final duplicate cleanup before writing.
+        """
+        fresh_data: Dict[str, Any] = {}
+        if os.path.exists(self.filepath):
+            try:
+                with open(self.filepath, 'r') as file:
+                    fresh_data = json.load(file)
+            except json.JSONDecodeError:
+                fresh_data = self._data  # Fallback to in-memory data if corrupted
+        else:
+            fresh_data = self._data
+
+        if self.ROOT_KEY in fresh_data:
+            for product in fresh_data[self.ROOT_KEY]:
+                url = str(product.get("url", ""))
+                clean_url = self._get_clean_url(url)
+
+                if clean_url in self._updates:
+                    for key, value in self._updates[clean_url].items():
+                        product[key] = value
+
+            # We also need to clean duplicates when saving to ensure any user edits during scraping are handled.
+            fresh_data[self.ROOT_KEY] = self._clean_products(fresh_data[self.ROOT_KEY])
+
+        self._data = fresh_data
+        self._save_json_atomically(self._data)
+
+    def parse_item(self, data: Dict[str, Any]) -> BaseTrackedItem:
+        """Parses a dictionary into a ``MODEL`` instance."""
+        return self.MODEL.from_dict(data)
+
+    def is_valid_item(self, item: Dict[str, Any]) -> bool:
+        """Validates an item dictionary.
+
+        Args:
+            item (Dict[str, Any]): The item dictionary to validate.
+
+        Returns:
+            bool: True if the item has a name, a scrappable URL, and a valid target price.
+        """
+        if "name" not in item:
+            return False
+
+        if not self.is_scrappable_item(item):
+            return False
+
+        if not self.has_valid_target_price(item):
+            return False
+
+        return True

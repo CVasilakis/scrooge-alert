@@ -11,6 +11,7 @@ from scrapers.registry import ScraperRegistry
 from logger import setup_global_logging
 from panel import StatusPanelBuilder
 from config_check import render_config_panel, load_targets
+from utils import install_interrupt_handler
 
 from rich.console import Console
 from rich.table import Table
@@ -47,8 +48,7 @@ def main():
     This function retrieves status information from systemd, validates configuration,
     checks for updates, and prints a formatted status report to the console using rich panels.
     """
-    signal.signal(signal.SIGINT, _handle_signal)
-    signal.signal(signal.SIGTERM, _handle_signal)
+    install_interrupt_handler()
 
     setup_global_logging()
     console = Console()
@@ -61,14 +61,9 @@ def main():
 
     registry = ScraperRegistry(CONFIG_DIR)
 
-    registered_scrapers = []
-    if os.path.exists(CONFIG_DIR):
-        for f in os.listdir(CONFIG_DIR):
-            if f.endswith('.json'):
-                registered_scrapers.append(f[:-5])
-
-    if not registered_scrapers:
-        registered_scrapers = ['skroutz'] # Default fallback
+    # Discover targets via the plugin registry (single source of truth), not by
+    # scanning config filenames — a plugin's config name may differ from its name.
+    registered_scrapers = ScraperRegistry.registered_targets()
 
     # --- Configuration Checks Panel ---
     load_results = load_targets(registry, registered_scrapers)
@@ -146,7 +141,8 @@ def main():
                 completed_str = f"[yellow]Skipped{ref}[/yellow]"
             elif products_error:
                 completed_icon = "❗"
-                ref = service_panel.add_note_ref(f"Issue with the `config/{target}.json` file.")
+                config_filename = ScraperRegistry.get_plugin(target).get_config_filename()
+                ref = service_panel.add_note_ref(f"Issue with the `config/{config_filename}` file.")
                 completed_str = f"[red]Failed{ref}[/red]"
             elif env_error:
                 completed_icon = "❗"
@@ -175,13 +171,6 @@ def main():
         service_panel.render(console)
 
     console.print()
-
-def _handle_signal(signum, _frame):
-    """Handles termination signals by printing a clean message and exiting."""
-    sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
-    os.write(1, b"\033[2K\r")
-    Console().print(f"🛑 Interrupted! Received signal {sig_name}.\n")
-    sys.exit(EXIT_CODE_INTERRUPT)
 
 if __name__ == "__main__":
     main()

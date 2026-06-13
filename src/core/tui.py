@@ -1,5 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
+from enum import Enum
 from typing import List, Union
 from rich.console import Console, Group
 from rich.live import Live
@@ -14,8 +15,24 @@ from rich.progress_bar import ProgressBar
 Notes = Union[str, List[str], None]
 
 
+class PriceOutcome(Enum):
+    """The outcome of a successful price scrape, used to pick row styling.
+
+    The orchestrator decides which bucket a result falls into (business logic);
+    each strategy maps the bucket to its own icon/formatting (presentation).
+    """
+    DROP = "drop"            # below target -> celebrate + notify
+    NO_TARGET = "no_target"  # no real target set (target price is 0.0)
+    OK = "ok"                # at or above a real target
+
+
 class ExecutionStrategy(ABC):
     """Abstract base class for execution UI and logging strategies."""
+
+    @staticmethod
+    def _outcome_icon(outcome: PriceOutcome) -> str:
+        """Maps a price outcome to its status icon (shared by all strategies)."""
+        return {PriceOutcome.DROP: "🎉", PriceOutcome.NO_TARGET: "🟡"}.get(outcome, "✅")
 
     @staticmethod
     def _normalize_notes(notes: Notes) -> List[str]:
@@ -72,6 +89,24 @@ class ExecutionStrategy(ABC):
             attempt_notes (Notes): Per-attempt footnotes for preceding failed retries.
                 Interactive renders them; silent ignores them (already streamed via
                 log_attempt) to avoid duplicating per-attempt detail in the log file.
+        """
+        pass
+
+    @abstractmethod
+    def log_price_result(self, name: str, price: float, currency: str, target: float, outcome: PriceOutcome, notes: Notes = None, attempt_notes: Notes = None) -> None:
+        """Logs a completed price scrape, choosing icon/formatting from the outcome.
+
+        The orchestrator passes semantic values only; each strategy owns how the
+        price/target are styled (colors for interactive, plain text for silent).
+
+        Args:
+            name (str): The product name.
+            price (float): The scraped current price.
+            currency (str): The currency symbol/label (e.g. ``"€"``).
+            target (float): The product's target price (0.0 means no real threshold).
+            outcome (PriceOutcome): Which bucket the result falls into.
+            notes (Notes): Result footnotes (e.g. notification status).
+            attempt_notes (Notes): Per-attempt footnotes for preceding failed retries.
         """
         pass
 
@@ -294,6 +329,18 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
         if self.live:
             self.live.update(self._generate_panel())
 
+    def log_price_result(self, name: str, price: float, currency: str, target: float, outcome: PriceOutcome, notes: Notes = None, attempt_notes: Notes = None) -> None:
+        """Renders a price result row, coloring the price/target per the outcome."""
+        price_str = f"{price} {currency}"
+        target_str = f"(Target: {target} {currency})"
+        if outcome == PriceOutcome.DROP:
+            value = f"[bold green]{price_str}[/bold green] {target_str}"
+        elif outcome == PriceOutcome.NO_TARGET:
+            value = f"{price_str} [yellow]{target_str}[/yellow]"
+        else:
+            value = f"{price_str} {target_str}"
+        self.log_result(self._outcome_icon(outcome), name, value, notes, attempt_notes)
+
     def log_warning(self, name: str, warning_str: str, notes: Notes = None, attempt_notes: Notes = None) -> None:
         """Logs a warning entry to the live display."""
         refs = self._build_note_refs(self._normalize_notes(attempt_notes) + self._normalize_notes(notes))
@@ -405,6 +452,13 @@ class SilentExecutionStrategy(ExecutionStrategy):
             clean_value = Text.from_markup(value).plain
             suffix = self._format_notes_suffix(self._normalize_notes(notes))
             self.target_logger.info(f"{icon} {name}: {clean_value}{suffix}")
+
+    def log_price_result(self, name: str, price: float, currency: str, target: float, outcome: PriceOutcome, notes: Notes = None, attempt_notes: Notes = None) -> None:
+        """Logs a price result as plain text (``attempt_notes`` ignored; already streamed)."""
+        if self.target_logger:
+            value = f"{price} {currency} (Target: {target} {currency})"
+            suffix = self._format_notes_suffix(self._normalize_notes(notes))
+            self.target_logger.info(f"{self._outcome_icon(outcome)} {name}: {value}{suffix}")
 
     def log_warning(self, name: str, warning_str: str, notes: Notes = None, attempt_notes: Notes = None) -> None:
         """Logs a warning to the target logger (``attempt_notes`` ignored; already streamed)."""

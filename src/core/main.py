@@ -7,8 +7,8 @@ import signal
 # Ensure the script directory is in the python path to allow imports when running as a module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from constants import CONFIG_DIR, EXIT_CODE_ERROR, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_INTERRUPT
-from utils import check_env_file, classify_notification_urls
+from constants import CONFIG_DIR, EXIT_CODE_ERROR, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR
+from utils import check_env_file, classify_notification_urls, install_interrupt_handler
 from exceptions import EnvFileError
 from scrapers.registry import ScraperRegistry
 from notifier import Notifier
@@ -26,12 +26,6 @@ def main() -> None:
     checks for updates, loads products, and starts the scraping orchestrator.
     It delegates file locking and scraping execution to the ScrapingOrchestrator.
     """
-    def _handle_signal(signum, _frame):
-        sig_name = 'SIGINT (Ctrl+C)' if signum == signal.SIGINT else 'SIGTERM (System Shutdown/Termination)' if signum == signal.SIGTERM else signum
-        os.write(1, b"\033[2K\r")
-        Console().print(f"🛑 Interrupted! Received signal {sig_name}.\n")
-        sys.exit(EXIT_CODE_INTERRUPT)
-
     parser = argparse.ArgumentParser(description='Scrooge Alert scraper')
     parser.add_argument('--quiet', action='store_true', help='Run script with no console output')
 
@@ -57,8 +51,7 @@ def main() -> None:
     load_results = load_targets(registry, targets_to_run)
 
     if not args.quiet:
-        signal.signal(signal.SIGINT, _handle_signal)
-        signal.signal(signal.SIGTERM, _handle_signal)
+        install_interrupt_handler()
 
         console = Console()
         console.print()
