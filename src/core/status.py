@@ -10,7 +10,7 @@ from constants import EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, EXIT_CODE_PRODUCTS_E
 from scrapers.registry import ScraperRegistry
 from logger import setup_global_logging
 from panel import StatusPanelBuilder
-from config_check import render_config_panel
+from config_check import render_config_panel, load_targets
 
 from rich.console import Console
 from rich.table import Table
@@ -71,7 +71,8 @@ def main():
         registered_scrapers = ['skroutz'] # Default fallback
 
     # --- Configuration Checks Panel ---
-    render_config_panel(console, registry, registered_scrapers, gate=False)
+    load_results = load_targets(registry, registered_scrapers)
+    render_config_panel(console, load_results, gate=False)
 
     # Disable custom signal handling after the update/test phase is complete
     signal.signal(signal.SIGINT, signal.SIG_DFL)

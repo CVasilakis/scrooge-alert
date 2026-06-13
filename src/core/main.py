@@ -9,13 +9,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from constants import CONFIG_DIR, EXIT_CODE_ERROR, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_INTERRUPT
 from utils import check_env_file, classify_notification_urls
-from exceptions import StorageFileError, EnvFileError
+from exceptions import EnvFileError
 from scrapers.registry import ScraperRegistry
 from notifier import Notifier
 from logger import setup_global_logging, save_traceback, get_target_logger
 from orchestrator import ScrapingOrchestrator
 from tui import InteractiveExecutionStrategy, SilentExecutionStrategy
-from config_check import render_config_panel
+from config_check import render_config_panel, load_targets
 
 from rich.console import Console
 
@@ -52,6 +52,10 @@ def main() -> None:
     if not targets_to_run:
         targets_to_run = registered_scrapers
 
+    # Single load/validation phase: read each config once into its cached manager.
+    # The orchestrator later reuses these same in-memory snapshots.
+    load_results = load_targets(registry, targets_to_run)
+
     if not args.quiet:
         signal.signal(signal.SIGINT, _handle_signal)
         signal.signal(signal.SIGTERM, _handle_signal)
@@ -59,7 +63,7 @@ def main() -> None:
         console = Console()
         console.print()
 
-        init_fatal_error = render_config_panel(console, registry, targets_to_run, gate=True)
+        init_fatal_error = render_config_panel(console, load_results, gate=True)
 
         # Restore default handlers immediately after the spinner vanishes
         signal.signal(signal.SIGINT, signal.SIG_DFL)
@@ -73,16 +77,11 @@ def main() -> None:
         ui_strategy = InteractiveExecutionStrategy()
     else:
         # Silent checking logic
-        for target in targets_to_run:
-            try:
-                manager = registry.get_manager(target)
-                manager.validate_storage()
-            except StorageFileError as e:
-                get_target_logger(target, True).error(f"❗ Config check failed: {e}")
-                logging.critical(f"Config check failed for {target}: {e}")
+        for result in load_results:
+            if result.error is not None:
+                get_target_logger(result.target, True).error(f"❗ Config check failed: {result.error}")
+                logging.critical(f"Config check failed for {result.target}: {result.error}")
                 sys.exit(EXIT_CODE_PRODUCTS_ERROR)
-            except ValueError:
-                continue
 
         try:
             check_env_file()

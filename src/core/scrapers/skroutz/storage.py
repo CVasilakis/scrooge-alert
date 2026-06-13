@@ -32,20 +32,38 @@ class SkroutzDataManager(BaseDataManager):
         return SkroutzPlugin.get_display_name()
 
     def load(self) -> Dict[str, Any]:
-        """Loads the products data from the JSON file.
+        """Loads and validates the products data from the JSON file.
+
+        Performs the full pre-scrape validation (directory, existence, permissions
+        and JSON structure) and populates the in-memory state in one pass.
 
         Returns:
             Dict[str, Any]: The parsed JSON data representing products.
 
         Raises:
-            StorageFileError: If the file cannot be read or contains invalid JSON.
+            StorageFileError: If the file is missing, has wrong permissions, or
+                contains invalid JSON.
         """
+        config_dir = os.path.dirname(self.filepath)
+        if config_dir and not os.path.exists(config_dir):
+            os.makedirs(config_dir)
+
+        if not os.path.exists(self.filepath) or not os.path.isfile(self.filepath):
+            raise StorageFileError("The config/skroutz.json file is missing or not a file")
+
+        if not os.access(self.filepath, os.R_OK | os.W_OK):
+            raise StorageFileError("The config/skroutz.json file has wrong permissions")
+
         try:
             with open(self.filepath, 'r') as file:
-                self.products_data = json.load(file)
-        except (OSError, json.JSONDecodeError) as e:
-            raise StorageFileError(f"Failed to load {self.filepath}: {e}")
+                data = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            raise StorageFileError("The config/skroutz.json file contains invalid JSON format")
 
+        if not isinstance(data, dict) or not isinstance(data.get("products"), list):
+            raise StorageFileError("The config/skroutz.json file contains invalid JSON format")
+
+        self.products_data = data
         return self.products_data
 
     def _get_clean_url(self, url: str) -> str:
@@ -234,32 +252,3 @@ class SkroutzDataManager(BaseDataManager):
             return False
 
         return True
-
-    def validate_storage(self) -> tuple[int, list[int]]:
-        """Validates the skroutz.json file and counts products.
-
-        Returns:
-            tuple[int, list[int]]: A tuple containing the total number of products and a list of 1-based indices of faulty products.
-        """
-        config_dir = os.path.dirname(self.filepath)
-        if not os.path.exists(config_dir):
-            os.makedirs(config_dir)
-
-        if not os.path.exists(self.filepath) or not os.path.isfile(self.filepath):
-            raise StorageFileError("The config/skroutz.json file is missing or not a file")
-
-        if not os.access(self.filepath, os.R_OK | os.W_OK):
-            raise StorageFileError("The config/skroutz.json file has wrong permissions")
-
-        try:
-            with open(self.filepath, 'r') as f:
-                data = json.load(f)
-                if not isinstance(data, dict) or not isinstance(data.get("products"), list):
-                    raise StorageFileError("The config/skroutz.json file contains invalid JSON format")
-
-                products = data.get("products", [])
-                num_products = len(products)
-                faulty_indices = [i + 1 for i, p in enumerate(products) if not self.is_valid_item(p)]
-                return num_products, faulty_indices
-        except (json.JSONDecodeError, OSError):
-            raise StorageFileError("The config/skroutz.json file contains invalid JSON format")

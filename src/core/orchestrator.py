@@ -338,23 +338,22 @@ class ScrapingOrchestrator:
 
             try:
                 data_manager = self.registry.get_manager(target)
-                data_manager.load()
-                data_manager.clean_storage()
             except ValueError:
                 continue
-            except StorageFileError as e:
-                self.ui_strategy.log_error("Storage", f"Failed to load config/{target}.json file!", str(e))
-                continue
 
-            target_items = data_manager.get_items()
-            if not target_items:
+            # Storage was already read and validated during the preflight load phase;
+            # the registry returns that same cached, in-memory snapshot here.
+            if data_manager.get_item_count() == 0:
                 continue
 
             self.ui_strategy.start_target(target, self._current_logger)
 
             try:
                 with acquire_lock(target):
-                    for row in target_items:
+                    # Dedup/normalize under the lock so a concurrent instance can't
+                    # race the rewrite this performs.
+                    data_manager.clean_storage()
+                    for row in data_manager.get_items():
                         if abort_target or self.interrupted:
                             break
 

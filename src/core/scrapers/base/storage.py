@@ -28,10 +28,18 @@ class BaseDataManager(ABC):
 
     @abstractmethod
     def load(self) -> Dict[str, Any]:
-        """Loads data from the storage.
+        """Loads and validates data from the storage into memory.
+
+        This is the single read/validation entry point for a target. Implementations
+        must verify the source is present and well-formed, populate their in-memory
+        state, and raise StorageFileError on any problem. After a successful call,
+        ``get_items``, ``get_item_count`` and ``get_faulty_indices`` reflect the data.
 
         Returns:
             Dict[str, Any]: The parsed data representing tracked items.
+
+        Raises:
+            StorageFileError: If the source is missing, unreadable, or malformed.
         """
         pass
 
@@ -123,17 +131,17 @@ class BaseDataManager(ABC):
         """
         pass
 
-    @abstractmethod
-    def validate_storage(self) -> tuple[int, list[int]]:
-        """Validates the storage file and counts items.
+    def get_faulty_indices(self) -> list[int]:
+        """Returns the 1-based indices of loaded items that fail validation.
+
+        The default implementation derives the result from the already-loaded
+        items via ``is_valid_item``; subclasses backed by a database or API may
+        override it. Call after ``load`` so the in-memory data is populated.
 
         Returns:
-            tuple[int, list[int]]: A tuple containing the total number of items and a list of 1-based indices of faulty items.
-
-        Raises:
-            StorageFileError: If the file is missing, unreadable, or contains invalid data.
+            list[int]: 1-based indices of items for which ``is_valid_item`` is False.
         """
-        pass
+        return [i + 1 for i, item in enumerate(self.get_items()) if not self.is_valid_item(item)]
 
     @abstractmethod
     def is_valid_item(self, item: Dict[str, Any]) -> bool:

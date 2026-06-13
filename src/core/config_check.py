@@ -1,5 +1,6 @@
 import os
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import List, Optional
 
 from rich.console import Console
 
@@ -8,6 +9,51 @@ from exceptions import StorageFileError, EnvFileError, UpdateCheckError
 from utils import check_env_file, check_for_updates, classify_notification_urls
 from panel import StatusPanelBuilder
 from scrapers.registry import ScraperRegistry
+
+
+@dataclass
+class TargetLoad:
+    """Outcome of loading a single target's storage during the preflight load phase.
+
+    Attributes:
+        target (str): The target name.
+        count (int): The number of loaded items (0 when the load failed).
+        faulty_indices (List[int]): 1-based indices of items failing validation.
+        error (Optional[str]): The failure message if the storage could not be loaded.
+    """
+    target: str
+    count: int = 0
+    faulty_indices: List[int] = field(default_factory=list)
+    error: Optional[str] = None
+
+
+def load_targets(registry: ScraperRegistry, targets: list) -> List[TargetLoad]:
+    """Loads every target's storage exactly once — the single read/validation point.
+
+    The managers are cached in the registry, so the orchestrator later reuses the
+    very same in-memory snapshot without re-reading any file. This is the only
+    place a config file is opened for validation.
+
+    Args:
+        registry (ScraperRegistry): The registry used to resolve and cache managers.
+        targets (list): The targets to load.
+
+    Returns:
+        List[TargetLoad]: One outcome per resolvable target, in the given order
+            (targets without a registered plugin are skipped).
+    """
+    results: List[TargetLoad] = []
+    for target in targets:
+        try:
+            manager = registry.get_manager(target)
+        except ValueError:
+            continue
+        try:
+            manager.load()
+            results.append(TargetLoad(target, manager.get_item_count(), manager.get_faulty_indices()))
+        except StorageFileError as e:
+            results.append(TargetLoad(target, error=str(e)))
+    return results
 
 
 def _append_version_row(panel: StatusPanelBuilder) -> None:
@@ -23,13 +69,12 @@ def _append_version_row(panel: StatusPanelBuilder) -> None:
         panel.add_row("🟡", "Software Version", f"Could not check for updates{ref}")
 
 
-def _append_config_rows(panel: StatusPanelBuilder, registry: ScraperRegistry, targets: list, gate: bool) -> Optional[int]:
-    """Appends one config row per target by validating its storage.
+def _append_config_rows(panel: StatusPanelBuilder, load_results: List[TargetLoad], gate: bool) -> Optional[int]:
+    """Appends one config row per target from the preflight load outcomes.
 
     Args:
         panel (StatusPanelBuilder): The panel to populate.
-        registry (ScraperRegistry): The registry used to resolve data managers.
-        targets (list): The targets to validate.
+        load_results (List[TargetLoad]): The outcomes from load_targets.
         gate (bool): When True, the first storage error stops further checks and
             yields a fatal exit code (pre-flight gating). When False, all targets
             are reported regardless (health-report mode).
@@ -37,24 +82,18 @@ def _append_config_rows(panel: StatusPanelBuilder, registry: ScraperRegistry, ta
     Returns:
         Optional[int]: A fatal exit code if gating tripped, otherwise None.
     """
-    for target in targets:
-        try:
-            manager = registry.get_manager(target)
-            total, faulty_indices = manager.validate_storage()
-            val_str = f"{total} items loaded"
-            if faulty_indices:
-                ref = panel.add_note_ref(f"Problematic items found at JSON index: {', '.join(map(str, faulty_indices))}.")
-                val_str += f", [yellow]{len(faulty_indices)} misconfigured{ref}[/yellow]"
-                panel.add_row("🟡", f"{target.capitalize()} Config", val_str)
-            else:
-                panel.add_row("✅", f"{target.capitalize()} Config", val_str)
-        except StorageFileError as e:
-            ref = panel.add_note_ref(str(e))
-            panel.add_row("❗", f"{target.capitalize()} Config", f"[red]Failed{ref}[/red]")
+    for result in load_results:
+        label = f"{result.target.capitalize()} Config"
+        if result.error is not None:
+            ref = panel.add_note_ref(result.error)
+            panel.add_row("❗", label, f"[red]Failed{ref}[/red]")
             if gate:
                 return EXIT_CODE_PRODUCTS_ERROR
-        except ValueError:
-            continue
+        elif result.faulty_indices:
+            ref = panel.add_note_ref(f"Problematic items found at JSON index: {', '.join(map(str, result.faulty_indices))}.")
+            panel.add_row("🟡", label, f"{result.count} items loaded, [yellow]{len(result.faulty_indices)} misconfigured{ref}[/yellow]")
+        else:
+            panel.add_row("✅", label, f"{result.count} items loaded")
     return None
 
 
@@ -79,17 +118,17 @@ def _append_env_row(panel: StatusPanelBuilder) -> None:
         panel.add_row("❗", ".env File", f"[red]Not configured{ref}[/red]")
 
 
-def render_config_panel(console: Console, registry: ScraperRegistry, targets: list, gate: bool = False) -> Optional[int]:
+def render_config_panel(console: Console, load_results: List[TargetLoad], gate: bool = False) -> Optional[int]:
     """Builds and renders the shared 'Configuration Check' panel.
 
-    Runs the update, per-target config, and .env checks behind a single spinner,
-    then renders the panel. This is the single source of truth shared by the
-    interactive scraper run (main.py) and the health check (status.py).
+    Runs the update and .env checks behind a single spinner and reports the
+    already-completed per-target load outcomes, then renders the panel. This is
+    the single presentation path shared by the interactive scraper run (main.py)
+    and the health check (status.py); it performs no config-file I/O itself.
 
     Args:
         console (Console): The Rich console to render to.
-        registry (ScraperRegistry): The registry used to resolve data managers.
-        targets (list): The targets whose configuration should be validated.
+        load_results (List[TargetLoad]): The outcomes from load_targets.
         gate (bool): When True (pre-flight), a storage error stops further checks
             and the returned exit code is non-None so the caller can abort.
 
@@ -101,7 +140,7 @@ def render_config_panel(console: Console, registry: ScraperRegistry, targets: li
 
     with console.status("[bold green]Checking for updates...[/bold green]", spinner="dots"):
         _append_version_row(panel)
-        fatal_exit_code = _append_config_rows(panel, registry, targets, gate)
+        fatal_exit_code = _append_config_rows(panel, load_results, gate)
         if not (gate and fatal_exit_code):
             _append_env_row(panel)
 
