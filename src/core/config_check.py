@@ -1,12 +1,14 @@
 import os
+import logging
 from dataclasses import dataclass, field
 from typing import List, Optional
 
 from rich.console import Console
 
-from constants import EXIT_CODE_PRODUCTS_ERROR
+from constants import EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR
 from exceptions import StorageFileError, EnvFileError, UpdateCheckError
 from utils import check_env_file, check_for_updates, classify_notification_urls
+from logger import get_target_logger
 from panel import StatusPanelBuilder
 from scrapers.registry import ScraperRegistry
 
@@ -146,3 +148,69 @@ def render_config_panel(console: Console, load_results: List[TargetLoad], gate: 
 
     panel.render(console)
     return fatal_exit_code
+
+
+def _silent_preflight(load_results: List[TargetLoad], targets_to_run: list) -> Optional[int]:
+    """Validates config and .env for a background (``--quiet``) run, logging to file.
+
+    Mirrors the gating of the interactive panel but emits to each target's file
+    logger instead of rendering, and additionally gates on the .env (a service with
+    no usable notification URL cannot do its job).
+
+    Args:
+        load_results (List[TargetLoad]): The outcomes from load_targets.
+        targets_to_run (list): The targets being run (for per-target logging).
+
+    Returns:
+        Optional[int]: A fatal exit code to abort on, or None to proceed.
+    """
+    for result in load_results:
+        if result.error is not None:
+            get_target_logger(result.target, True).error(f"❗ Config check failed: {result.error}")
+            logging.critical(f"Config check failed for {result.target}: {result.error}")
+            return EXIT_CODE_PRODUCTS_ERROR
+
+    try:
+        check_env_file()
+    except EnvFileError as e:
+        for target in targets_to_run:
+            get_target_logger(target, True).error(f"❗ Env configuration failed: {e}")
+        logging.critical(f"Env configuration failed: {e}")
+        return EXIT_CODE_ENV_ERROR
+
+    _, invalid_urls = classify_notification_urls(os.environ.get("NOTIFICATION_URLS", ""))
+    if invalid_urls:
+        for target in targets_to_run:
+            get_target_logger(target, True).warning(
+                f"❗ {len(invalid_urls)} invalid notification URL(s) detected in .env file."
+            )
+
+    return None
+
+
+def preflight(console: Optional[Console], load_results: List[TargetLoad], targets_to_run: list, quiet: bool) -> Optional[int]:
+    """Single preflight-validation entry point shared by both run modes.
+
+    This is the one place all pre-scrape validation policy lives, so a new check
+    is added once and both modes honor it. Storage was already read by
+    ``load_targets``; this only renders/logs the verdict and decides whether to abort.
+
+    Gating policy (intentionally mode-specific):
+        * A storage/config failure is always fatal (``EXIT_CODE_PRODUCTS_ERROR``).
+        * A missing/invalid ``.env`` is fatal only in quiet/service mode
+          (``EXIT_CODE_ENV_ERROR``); interactively it is surfaced as a panel row so
+          the user can see it and still proceed.
+
+    Args:
+        console (Optional[Console]): The console for interactive rendering; unused
+            (may be None) in quiet mode.
+        load_results (List[TargetLoad]): The outcomes from load_targets.
+        targets_to_run (list): The targets being run.
+        quiet (bool): Whether this is a silent/background run.
+
+    Returns:
+        Optional[int]: A fatal exit code to abort on, or None to proceed.
+    """
+    if quiet:
+        return _silent_preflight(load_results, targets_to_run)
+    return render_config_panel(console, load_results, gate=True)

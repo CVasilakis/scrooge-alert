@@ -1,6 +1,9 @@
 import os
+import importlib
+import pkgutil
+from pathlib import Path
 from urllib.parse import urlparse
-from typing import Dict, List, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from scrapers.base.plugin import BasePlugin
@@ -12,11 +15,13 @@ class ScraperRegistry:
     """Unified registry that replaces ScraperFactory + DataManagerFactory.
 
     Each plugin is registered as a cohesive unit. The registry can:
+    - Discover and register all plugin packages under scrapers/ (idempotent)
     - Resolve a URL to a plugin (using plugin.get_supported_domains())
     - Create client instances (lazy, cached)
     - Create storage/data-manager instances (lazy, cached)
     """
     _plugins: Dict[str, 'BasePlugin'] = {}
+    _discovered: bool = False
 
     @classmethod
     def register(cls, plugin: 'BasePlugin') -> None:
@@ -28,12 +33,37 @@ class ScraperRegistry:
         cls._plugins[plugin.get_name()] = plugin
 
     @classmethod
+    def discover(cls) -> None:
+        """Imports and registers every plugin package under scrapers/ (idempotent).
+
+        Auto-discovery is a no-op after the first successful call, so any entrypoint
+        or component may call it freely without worrying about ordering or repeated
+        work. The registry's lookup methods call this themselves, so a populated
+        registry never depends on a caller remembering to import the package first.
+
+        Each plugin sub-package must expose a module-level ``plugin`` attribute
+        (a :class:`BasePlugin` instance) in its ``__init__.py``.
+        """
+        if cls._discovered:
+            return
+
+        package_dir = Path(__file__).parent
+        for _importer, modname, ispkg in pkgutil.iter_modules([str(package_dir)]):
+            if ispkg and modname != "base":
+                module = importlib.import_module(f"scrapers.{modname}")
+                if hasattr(module, "plugin"):
+                    cls.register(module.plugin)
+
+        cls._discovered = True
+
+    @classmethod
     def registered_targets(cls) -> List[str]:
         """Returns a list of all registered plugin target identifiers.
 
         Returns:
             List[str]: The registered target names.
         """
+        cls.discover()
         return list(cls._plugins.keys())
 
     @classmethod
@@ -49,9 +79,32 @@ class ScraperRegistry:
         Raises:
             ValueError: If the target is not registered.
         """
+        cls.discover()
         if target not in cls._plugins:
             raise ValueError(f"Unsupported target: {target}")
         return cls._plugins[target]
+
+    @classmethod
+    def plugin_for_url(cls, url: str) -> Optional['BasePlugin']:
+        """Resolves a URL to its registered plugin, or None if no plugin matches.
+
+        A class-level lookup that needs no registry instance (and no config dir):
+        it is the single place the supported-domain match is performed, used both
+        by ``resolve_target`` and by components such as the notifier that only need
+        a plugin's metadata (e.g. its display name) for a given product URL.
+
+        Args:
+            url (str): The product URL.
+
+        Returns:
+            Optional[BasePlugin]: The matching plugin, or None when unsupported.
+        """
+        cls.discover()
+        domain = urlparse(url).netloc.lower()
+        for plugin in cls._plugins.values():
+            if any(domain.endswith(d) for d in plugin.get_supported_domains()):
+                return plugin
+        return None
 
     def __init__(self, config_dir: str):
         """Initializes the ScraperRegistry with a configuration directory.
@@ -75,15 +128,10 @@ class ScraperRegistry:
         Raises:
             ValueError: If the URL belongs to an unsupported domain.
         """
-        parsed_url = urlparse(url)
-        domain = parsed_url.netloc.lower()
-
-        for name, plugin in self._plugins.items():
-            supported_domains = plugin.get_supported_domains()
-            if any(domain.endswith(d) for d in supported_domains):
-                return name
-
-        raise ValueError(f"Unsupported domain: {domain}")
+        plugin = self.plugin_for_url(url)
+        if plugin is None:
+            raise ValueError(f"Unsupported domain: {urlparse(url).netloc.lower()}")
+        return plugin.get_name()
 
     def get_scraper(self, url: str) -> 'BaseScraperClient':
         """Retrieves or creates an appropriate scraper client for the given URL.
@@ -118,12 +166,15 @@ class ScraperRegistry:
             ValueError: If the target is unsupported.
         """
         if target not in self._managers:
+            self.discover()
             if target not in self._plugins:
                 raise ValueError(f"Unsupported storage target: {target}")
 
             plugin = self._plugins[target]
             path = os.path.join(self.config_dir, plugin.get_config_filename())
-            self._managers[target] = plugin.get_storage_class()(path)
+            # Inject the plugin so the manager resolves supported domains through
+            # it (the single source of truth) instead of importing a concrete plugin.
+            self._managers[target] = plugin.get_storage_class()(path, plugin)
 
         return self._managers[target]
 

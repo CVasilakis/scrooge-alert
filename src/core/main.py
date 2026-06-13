@@ -7,15 +7,14 @@ import signal
 # Ensure the script directory is in the python path to allow imports when running as a module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from constants import CONFIG_DIR, EXIT_CODE_ERROR, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR
-from utils import check_env_file, classify_notification_urls, install_interrupt_handler
-from exceptions import EnvFileError
+from constants import CONFIG_DIR, EXIT_CODE_ERROR
+from utils import install_interrupt_handler
 from scrapers.registry import ScraperRegistry
 from notifier import Notifier
-from logger import setup_global_logging, save_traceback, get_target_logger
+from logger import setup_global_logging, save_traceback
 from orchestrator import ScrapingOrchestrator
 from tui import InteractiveExecutionStrategy, SilentExecutionStrategy
-from config_check import render_config_panel, load_targets
+from config_check import preflight, load_targets
 
 from rich.console import Console
 
@@ -29,9 +28,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description='Scrooge Alert scraper')
     parser.add_argument('--quiet', action='store_true', help='Run script with no console output')
 
-    # Trigger auto-discovery of all scraper plugins
-    import scrapers  # noqa: F401
-
+    # Discover and register all scraper plugins (idempotent).
     registered_scrapers = ScraperRegistry.registered_targets()
     for scraper in registered_scrapers:
         parser.add_argument(f'--{scraper}', action='store_true', help=f'Run the {scraper.capitalize()} scraper')
@@ -56,7 +53,7 @@ def main() -> None:
         console = Console()
         console.print()
 
-        init_fatal_error = render_config_panel(console, load_results, gate=True)
+        init_fatal_error = preflight(console, load_results, targets_to_run, quiet=False)
 
         # Restore default handlers immediately after the spinner vanishes
         signal.signal(signal.SIGINT, signal.SIG_DFL)
@@ -64,32 +61,13 @@ def main() -> None:
 
         console.print()
 
-        if init_fatal_error:
-            sys.exit(init_fatal_error)
-
         ui_strategy = InteractiveExecutionStrategy()
     else:
-        # Silent checking logic
-        for result in load_results:
-            if result.error is not None:
-                get_target_logger(result.target, True).error(f"❗ Config check failed: {result.error}")
-                logging.critical(f"Config check failed for {result.target}: {result.error}")
-                sys.exit(EXIT_CODE_PRODUCTS_ERROR)
-
-        try:
-            check_env_file()
-        except EnvFileError as e:
-            for target in targets_to_run:
-                get_target_logger(target, True).error(f"❗ Env configuration failed: {e}")
-            logging.critical(f"Env configuration failed: {e}")
-            sys.exit(EXIT_CODE_ENV_ERROR)
-
-        _, invalid_urls = classify_notification_urls(os.environ.get("NOTIFICATION_URLS", ""))
-        if invalid_urls:
-            for target in targets_to_run:
-                get_target_logger(target, True).warning(f"❗ {len(invalid_urls)} invalid notification URL(s) detected in .env file.")
-
+        init_fatal_error = preflight(None, load_results, targets_to_run, quiet=True)
         ui_strategy = SilentExecutionStrategy()
+
+    if init_fatal_error:
+        sys.exit(init_fatal_error)
 
     notification_urls = os.environ.get("NOTIFICATION_URLS", "")
     notifier = Notifier(notification_urls)

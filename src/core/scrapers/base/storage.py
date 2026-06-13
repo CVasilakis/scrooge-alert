@@ -2,35 +2,43 @@ import json
 import os
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from typing import Dict, Any, List, Type
+from typing import Dict, Any, List, Optional, Type, TYPE_CHECKING
 from urllib.parse import urlparse
 
 from scrapers.base.model import BaseTrackedItem
 from exceptions import StorageFileError
 from utils import parse_price
 
+if TYPE_CHECKING:
+    from scrapers.base.plugin import BasePlugin
+
 
 class BaseDataManager(ABC):
     """Abstract base class for managing data storage and retrieval.
 
-    Subclasses must call ``super().__init__(filepath)`` in their
-    ``__init__`` and use ``self.filepath`` for all file operations so that
-    the base-class helpers (e.g. ``_save_json_atomically``) work correctly.
+    Subclasses must call ``super().__init__(filepath, plugin)`` in their
+    ``__init__`` and use ``self.filepath`` for all file operations. The manager
+    is given its owning :class:`BasePlugin` so that domain matching resolves
+    through ``plugin.get_supported_domains()`` (the single source of truth)
+    rather than importing a concrete plugin.
 
     Note:
         Most plugins back their storage with a JSON file. Such plugins should
         extend :class:`JsonProductDataManager` (below) instead of this class
         directly — it implements the entire generic JSON lifecycle and leaves
-        only ``is_scrappable_item`` (the store-specific URL rule) abstract.
+        only ``_matches_product_path`` (the store-specific URL-path rule) abstract.
         Subclass this class directly only for non-JSON backends (DB, API).
     """
-    def __init__(self, filepath: str) -> None:
-        """Initializes the data manager with a file path.
+    def __init__(self, filepath: str, plugin: Optional['BasePlugin'] = None) -> None:
+        """Initializes the data manager.
 
         Args:
             filepath (str): The path to the storage file.
+            plugin (Optional[BasePlugin]): The owning plugin, used to resolve the
+                supported domains for URL matching. Injected by the registry.
         """
         self.filepath = filepath
+        self.plugin = plugin
 
     # ------------------------------------------------------------------
     # Core lifecycle – must be implemented by every subclass
@@ -185,26 +193,24 @@ class BaseDataManager(ABC):
 
         return True
 
-    def _save_json_atomically(self, data: Dict[str, Any]) -> None:
-        """Writes data to the JSON file atomically using a temp-file swap.
+    def _url_on_supported_domain(self, url: str) -> bool:
+        """Returns True if the URL's host is one this plugin handles.
 
-        This is a shared helper for any JSON-file-backed subclass.
-        Writes to a temporary file first, then atomically replaces the
-        target file via ``os.replace`` to prevent corruption on crash.
+        Matches the URL's netloc against ``plugin.get_supported_domains()`` — the
+        same single source of truth the registry uses to route URLs — so domain
+        matching never drifts between routing and storage. Returns False when no
+        plugin was injected or the value is not a usable URL string.
 
         Args:
-            data (Dict[str, Any]): The data to serialize as JSON.
+            url (str): The URL to check.
 
-        Raises:
-            StorageFileError: If the write operation fails.
+        Returns:
+            bool: True if the URL is on a supported domain.
         """
-        temp_path = self.filepath + ".tmp"
-        try:
-            with open(temp_path, mode='w') as f:
-                json.dump(data, f, indent=2)
-            os.replace(temp_path, self.filepath)
-        except OSError as e:
-            raise StorageFileError(str(e))
+        if self.plugin is None or not isinstance(url, str) or not url:
+            return False
+        domain = urlparse(url).netloc.lower()
+        return any(domain.endswith(d) for d in self.plugin.get_supported_domains())
 
 
 class JsonProductDataManager(BaseDataManager):
@@ -223,9 +229,10 @@ class JsonProductDataManager(BaseDataManager):
             MODEL = FooItem        # a BaseTrackedItem subclass
             ROOT_KEY = "products"  # top-level JSON key holding the item list
 
-            def is_scrappable_item(self, item): ...  # store URL rule
+            def _matches_product_path(self, url): ...  # store URL-path rule
 
-    Everything else (parsing, validation, dedup, persistence) is inherited.
+    Everything else (parsing, validation, dedup, persistence, and the
+    supported-domain check) is inherited.
     """
 
     #: The :class:`BaseTrackedItem` subclass that ``parse_item`` instantiates.
@@ -233,13 +240,14 @@ class JsonProductDataManager(BaseDataManager):
     #: The top-level JSON key whose value is the list of item dictionaries.
     ROOT_KEY: str = "products"
 
-    def __init__(self, filepath: str) -> None:
+    def __init__(self, filepath: str, plugin: Optional['BasePlugin'] = None) -> None:
         """Initializes the manager with the JSON file path.
 
         Args:
             filepath (str): The path to the JSON storage/config file.
+            plugin (Optional[BasePlugin]): The owning plugin (see BaseDataManager).
         """
-        super().__init__(filepath)
+        super().__init__(filepath, plugin)
         self._data: Dict[str, Any] = {}
         self._updates: Dict[str, Dict[str, Any]] = {}
 
@@ -247,6 +255,27 @@ class JsonProductDataManager(BaseDataManager):
     def _config_label(self) -> str:
         """Returns a human-readable ``config/<file>`` label for error messages."""
         return f"config/{os.path.basename(self.filepath)}"
+
+    def _save_json_atomically(self, data: Dict[str, Any]) -> None:
+        """Writes data to the JSON file atomically using a temp-file swap.
+
+        Writes to a temporary file first, then atomically replaces the target
+        file via ``os.replace`` to prevent corruption on crash. This is the sole
+        writer for the JSON backend.
+
+        Args:
+            data (Dict[str, Any]): The data to serialize as JSON.
+
+        Raises:
+            StorageFileError: If the write operation fails.
+        """
+        temp_path = self.filepath + ".tmp"
+        try:
+            with open(temp_path, mode='w') as f:
+                json.dump(data, f, indent=2)
+            os.replace(temp_path, self.filepath)
+        except OSError as e:
+            raise StorageFileError(str(e))
 
     def load(self) -> Dict[str, Any]:
         """Loads and validates the items data from the JSON file.
@@ -355,13 +384,16 @@ class JsonProductDataManager(BaseDataManager):
         return cleaned_products
 
     def clean_storage(self) -> None:
-        """Cleans up the configuration file before scraping (dedup + URL normalization)."""
+        """Normalizes the in-memory item list (dedup + URL cleaning) before scraping.
+
+        Operates only on the in-memory snapshot so the scrape loop iterates a clean,
+        de-duplicated list. Persistence is deferred entirely to ``save()`` — the sole
+        writer — which re-reads the file and re-cleans it, absorbing any external
+        edits made during the run. Keeping this in-memory avoids writing the config
+        file twice per run.
+        """
         if self.ROOT_KEY in self._data:
-            original_count = len(self._data[self.ROOT_KEY])
-            cleaned = self._clean_products(self._data[self.ROOT_KEY])
-            if len(cleaned) < original_count:
-                self._data[self.ROOT_KEY] = cleaned
-                self._save_json_atomically(self._data)
+            self._data[self.ROOT_KEY] = self._clean_products(self._data[self.ROOT_KEY])
 
     def save(self) -> None:
         """Applies pending updates and saves the data back to the JSON file atomically.
@@ -418,3 +450,37 @@ class JsonProductDataManager(BaseDataManager):
             return False
 
         return True
+
+    def is_scrappable_item(self, item: Dict[str, Any]) -> bool:
+        """Checks whether the item has a scrappable product URL.
+
+        Composes the shared supported-domain check (inherited, driven by the
+        plugin) with the store-specific path rule (:meth:`_matches_product_path`),
+        so a concrete plugin declares only the path shape. Override this method
+        entirely only for stores whose scrappability cannot be expressed as
+        "supported domain + path shape".
+
+        Args:
+            item (Dict[str, Any]): The item dictionary to check.
+
+        Returns:
+            bool: True if the URL is on a supported domain and its path matches.
+        """
+        url = item.get("url", "")
+        return self._url_on_supported_domain(url) and self._matches_product_path(url)
+
+    @abstractmethod
+    def _matches_product_path(self, url: str) -> bool:
+        """Returns True if the URL path matches this store's product-page shape.
+
+        Called only after the domain has been confirmed supported, so the URL is
+        guaranteed to be a non-empty string on a supported domain; implementations
+        need only inspect the path (e.g. a numeric product-id segment).
+
+        Args:
+            url (str): A URL already confirmed to be on a supported domain.
+
+        Returns:
+            bool: True if the path matches this store's product-page shape.
+        """
+        ...

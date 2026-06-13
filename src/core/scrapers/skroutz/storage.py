@@ -1,42 +1,32 @@
 import re
 from urllib.parse import urlparse
-from typing import Dict, Any
 
 from scrapers.base.storage import JsonProductDataManager
 from scrapers.skroutz.model import Product
-from scrapers.skroutz.plugin import SkroutzPlugin
 
 
 class SkroutzDataManager(JsonProductDataManager):
     """Data manager for Skroutz products.
 
-    Inherits the entire JSON load/save/update/clean lifecycle from
-    :class:`JsonProductDataManager`; only the Skroutz-specific URL rule
-    (a supported domain plus a ``/<product-id>/`` path) is implemented here.
+    Inherits the entire JSON lifecycle and the supported-domain check from
+    :class:`JsonProductDataManager`; only the Skroutz-specific URL-path rule
+    (a ``/<product-id>/`` numeric segment) is declared here. The supported
+    domains come from the injected plugin, so they are never duplicated.
     """
 
     MODEL = Product
     ROOT_KEY = "products"
 
-    def is_scrappable_item(self, item: Dict[str, Any]) -> bool:
-        """Checks if the item has a valid Skroutz product URL.
+    def _matches_product_path(self, url: str) -> bool:
+        """Returns True if the URL path has a Skroutz numeric product-id segment.
+
+        The domain has already been confirmed supported by the base class, so this
+        only needs to inspect the path.
 
         Args:
-            item (Dict[str, Any]): The item dictionary to check.
+            url (str): A URL already confirmed to be on a supported Skroutz domain.
 
         Returns:
-            bool: True if the URL is on a supported Skroutz domain and contains
-                a numeric product-id path segment.
+            bool: True if the path contains a numeric product-id segment.
         """
-        url = item.get("url", "")
-        if not isinstance(url, str):
-            return False
-
-        parsed = urlparse(url)
-        if not any(parsed.netloc.endswith(d) for d in SkroutzPlugin.get_supported_domains()):
-            return False
-
-        if not re.search(r'/\d+/', parsed.path):
-            return False
-
-        return True
+        return bool(re.search(r'/\d+/', urlparse(url).path))

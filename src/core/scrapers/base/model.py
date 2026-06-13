@@ -30,8 +30,17 @@ class BaseTrackedItem:
     human-readable name, a URL, a target price for alerting, the most
     recently scraped price, a skip flag, and a last-checked timestamp.
 
-    Subclasses may add store-specific fields (e.g. an SKU or category)
-    and should override ``from_dict`` / ``to_dict`` accordingly.
+    Read-side projection:
+        A tracked item is built from a stored row via ``from_dict`` purely for
+        reading (price comparison, notifications, stale checks). It is never
+        reserialized back to storage. Writes go through
+        ``BaseDataManager.update_item(url, **fields)``, which surgically merges
+        only the named fields into the stored row. This is deliberate: the config
+        file is co-authored by the user, so a full reserialization would clobber
+        unknown keys, coerce the user's original input, and persist the invalid
+        ``target_price`` sentinel (see ``from_dict``). Subclasses may add
+        store-specific fields and override ``from_dict`` to read them; to persist a
+        machine-owned field, pass it to ``update_item`` — no ``to_dict`` is needed.
     """
     name: str = "Unknown"
     url: str = ""
@@ -70,22 +79,3 @@ class BaseTrackedItem:
             skip=data.get('skip', False),
             last_checked=data.get('last_checked', ''),
         )
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Serializes the item back to a dictionary.
-
-        The output is compatible with ``from_dict`` for round-tripping.
-        Subclasses that add fields should override this method and merge
-        with ``super().to_dict()``.
-
-        Returns:
-            Dict[str, Any]: A dictionary representation of the item.
-        """
-        return {
-            'name': self.name,
-            'url': self.url,
-            'target_price': self.target_price,
-            'last_price': self.last_price,
-            'skip': self.skip,
-            'last_checked': self.last_checked,
-        }

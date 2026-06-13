@@ -2,6 +2,7 @@ import apprise
 from urllib.parse import urlparse
 from typing import TYPE_CHECKING
 from utils import is_valid_apprise_url
+from scrapers.registry import ScraperRegistry
 
 if TYPE_CHECKING:
     from scrapers.base.model import BaseTrackedItem
@@ -23,16 +24,26 @@ class Notifier:
                     self.has_services = True
 
     def _extract_site(self, url: str) -> str:
-        """Extracts a human-readable site name from a product URL dynamically."""
+        """Returns a human-readable store name for a product URL.
+
+        Prefers the authoritative display name from the URL's registered plugin,
+        so the brand is correct even when it differs from the domain label. Falls
+        back to deriving a name from the domain only when no plugin matches the URL.
+        """
         if not url:
             return "Unknown Site"
+
+        plugin = ScraperRegistry.plugin_for_url(url)
+        if plugin is not None:
+            return plugin.get_display_name()
+
         try:
             domain = urlparse(url).netloc.lower()
             if domain.startswith('www.'):
                 domain = domain[4:]
             if not domain:
                 return "Unknown Site"
-            # Return the main domain name capitalized (e.g. 'skroutz.gr' -> 'Skroutz')
+            # Fallback: capitalize the main domain label (e.g. 'example.gr' -> 'Example')
             return domain.split('.')[0].capitalize()
         except Exception:
             return "Unknown Site"

@@ -56,13 +56,11 @@ def main():
     # Print a starting empty line
     console.print()
 
-    # Trigger auto-discovery of all scraper plugins
-    import scrapers  # noqa: F401
-
     registry = ScraperRegistry(CONFIG_DIR)
 
     # Discover targets via the plugin registry (single source of truth), not by
     # scanning config filenames — a plugin's config name may differ from its name.
+    # registered_targets() triggers idempotent plugin discovery on first use.
     registered_scrapers = ScraperRegistry.registered_targets()
 
     # --- Configuration Checks Panel ---

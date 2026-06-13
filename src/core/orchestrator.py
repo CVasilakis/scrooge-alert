@@ -399,8 +399,9 @@ class ScrapingOrchestrator:
 
             try:
                 with acquire_lock(target):
-                    # Dedup/normalize under the lock so a concurrent instance can't
-                    # race the rewrite this performs.
+                    # Normalize the in-memory snapshot the loop iterates. The
+                    # actual rewrite happens in save() below, under this same lock,
+                    # so a concurrent instance can't race the read-merge-rewrite.
                     data_manager.clean_storage()
                     for row in data_manager.get_items():
                         if abort_target or self.interrupted:
