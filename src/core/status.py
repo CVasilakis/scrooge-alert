@@ -2,17 +2,15 @@ import sys
 import os
 import signal
 import subprocess
-import apprise
 
 # Ensure the script directory is in the python path to allow imports when running as a module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from constants import EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, CONFIG_DIR
-from utils import check_env_file, APPRISE_PLACEHOLDERS, check_for_updates
-from exceptions import StorageFileError, EnvFileError, UpdateCheckError
 from scrapers.registry import ScraperRegistry
 from logger import setup_global_logging
 from panel import StatusPanelBuilder
+from config_check import render_config_panel
 
 from rich.console import Console
 from rich.table import Table
@@ -73,67 +71,11 @@ def main():
         registered_scrapers = ['skroutz'] # Default fallback
 
     # --- Configuration Checks Panel ---
-    config_panel = StatusPanelBuilder("Configuration Check")
-
-    with console.status("[bold green]Checking for updates...[/bold green]", spinner="dots"):
-        # 1. Update Check
-        try:
-            has_update = check_for_updates()
-            if has_update:
-                ref = config_panel.add_note_ref("Run `./update.sh` to install the latest version.")
-                config_panel.add_row("🟡", "Software Version", f"[yellow]Update available!{ref}[/yellow]")
-            else:
-                config_panel.add_row("✅", "Software Version", "Up to date")
-        except UpdateCheckError as e:
-            ref = config_panel.add_note_ref(str(e))
-            config_panel.add_row("❗", "Software Version", f"[red]Update check failed{ref}[/red]")
-
-        # 2. Config Checks
-        for target in registered_scrapers:
-            try:
-                manager = registry.get_manager(target)
-                total, faulty_indices = manager.validate_storage()
-                val_str = f"{total} items loaded"
-                if faulty_indices:
-                    faulty_count = len(faulty_indices)
-                    ref = config_panel.add_note_ref(f"Problematic items found at JSON index: {', '.join(map(str, faulty_indices))}.")
-                    val_str += f", [yellow]{faulty_count} misconfigured{ref}[/yellow]"
-                    config_panel.add_row("🟡", f"{target.capitalize()} Config", val_str)
-                else:
-                    config_panel.add_row("✅", f"{target.capitalize()} Config", val_str)
-            except StorageFileError as e:
-                ref = config_panel.add_note_ref(str(e))
-                config_panel.add_row("❗", f"{target.capitalize()} Config", f"[red]Failed{ref}[/red]")
-            except ValueError:
-                continue
-
-        # 3. Env Checks
-        try:
-            check_env_file()
-            notification_urls = os.environ.get("NOTIFICATION_URLS", "")
-            valid_urls = []
-            invalid_urls = []
-            for u in notification_urls.split(','):
-                u = u.strip()
-                if u:
-                    if not any(p in u for p in APPRISE_PLACEHOLDERS) and apprise.Apprise.instantiate(u):
-                        valid_urls.append(u)
-                    else:
-                        invalid_urls.append(u)
-            if not invalid_urls:
-                config_panel.add_row("✅", ".env File", f"{len(valid_urls)} valid URL(s)")
-            else:
-                ref = config_panel.add_note_ref("Run `./scripts/run.sh --ping` for more details.")
-                config_panel.add_row("🟡", ".env File", f"{len(valid_urls)} valid URL(s), [yellow]{len(invalid_urls)} invalid{ref}[/yellow]")
-        except EnvFileError as e:
-            ref = config_panel.add_note_ref(str(e))
-            config_panel.add_row("❗", ".env File", f"[red]Not configured{ref}[/red]")
+    render_config_panel(console, registry, registered_scrapers, gate=False)
 
     # Disable custom signal handling after the update/test phase is complete
     signal.signal(signal.SIGINT, signal.SIG_DFL)
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
-
-    config_panel.render(console)
 
     # --- Systemd Service Panels ---
     for target in registered_scrapers:

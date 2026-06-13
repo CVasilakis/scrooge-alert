@@ -49,8 +49,14 @@ class ExecutionStrategy(ABC):
         pass
 
     @abstractmethod
-    def start_scraping(self, name: str) -> None:
-        """Called when scraping for a specific product begins."""
+    def start_scraping(self, name: str, attempt: int = 1, max_retries: int = 1) -> None:
+        """Called when scraping for a specific product begins.
+
+        Args:
+            name (str): The product name being scraped.
+            attempt (int): The 1-based attempt number; values above 1 indicate a retry.
+            max_retries (int): The total number of attempts that will be made.
+        """
         pass
 
     @abstractmethod
@@ -59,13 +65,25 @@ class ExecutionStrategy(ABC):
         pass
 
     @abstractmethod
-    def log_result(self, icon: str, name: str, value: str, notes: Notes = None) -> None:
-        """Logs a successful or informational result."""
+    def log_result(self, icon: str, name: str, value: str, notes: Notes = None, attempt_notes: Notes = None) -> None:
+        """Logs a successful or informational result.
+
+        Args:
+            attempt_notes (Notes): Per-attempt footnotes for preceding failed retries.
+                Interactive renders them; silent ignores them (already streamed via
+                log_attempt) to avoid duplicating per-attempt detail in the log file.
+        """
         pass
 
     @abstractmethod
-    def log_warning(self, name: str, warning_str: str, notes: Notes = None) -> None:
-        """Logs a warning message for a specific product."""
+    def log_warning(self, name: str, warning_str: str, notes: Notes = None, attempt_notes: Notes = None) -> None:
+        """Logs a warning message for a specific product.
+
+        Args:
+            attempt_notes (Notes): Per-attempt footnotes for preceding failed retries.
+                Interactive renders them; silent ignores them (already streamed via
+                log_attempt).
+        """
         pass
 
     @abstractmethod
@@ -74,8 +92,39 @@ class ExecutionStrategy(ABC):
         pass
 
     @abstractmethod
-    def start_sleep(self, total_delay: float) -> None:
-        """Called when a sleep/delay period begins."""
+    def log_attempt(self, name: str, attempt: int, max_retries: int, detail: str) -> None:
+        """Reports a single failed scrape attempt that will be retried or is terminal.
+
+        The interactive strategy collapses these into the product's single row and
+        ignores this call; the silent strategy logs one line per attempt so that
+        background-run logs retain full per-attempt detail.
+        """
+        pass
+
+    @abstractmethod
+    def log_failure(self, name: str, error_type: str, attempt_notes: Notes = None, extra_notes: Notes = None) -> None:
+        """Logs the terminal failure of a product after all retries are exhausted.
+
+        Args:
+            name (str): The product name.
+            error_type (str): The exception type of the final failed attempt.
+            attempt_notes (Notes): Per-attempt footnotes for the collapsed interactive
+                row (already streamed to the log file by the silent strategy).
+            extra_notes (Notes): Additional notes (e.g. a stale-tracking warning) shown
+                by every strategy.
+        """
+        pass
+
+    @abstractmethod
+    def start_sleep(self, total_delay: float, retry_attempt: int = 0, max_retries: int = 0) -> None:
+        """Called when a sleep/delay period begins.
+
+        Args:
+            total_delay (float): The total delay in seconds.
+            retry_attempt (int): The 1-based number of the upcoming retry attempt, or 0
+                for the normal pacing delay between products.
+            max_retries (int): The total number of attempts (used with retry_attempt).
+        """
         pass
 
     @abstractmethod
@@ -110,8 +159,11 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
         self.target_name = ""
         self.sleep_total = 0.0
         self.sleep_remaining = 0.0
+        self.sleep_label = "Sleeping"
         self.is_sleeping = False
         self.scraping_name = ""
+        self.scraping_attempt = 1
+        self.scraping_max = 1
 
     def start_target(self, target_name: str, target_logger: logging.Logger) -> None:
         """Starts a new live display session for the given target."""
@@ -123,13 +175,22 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
         self.notes = []
         self.is_sleeping = False
         self.scraping_name = ""
+        self.scraping_attempt = 1
+        self.scraping_max = 1
+        self.sleep_label = "Sleeping"
 
         self.live = Live(self._generate_panel(), refresh_per_second=10)
         self.live.start()
 
-    def start_scraping(self, name: str) -> None:
-        """Starts scraping the specified product and updates the live display."""
+    def start_scraping(self, name: str, attempt: int = 1, max_retries: int = 1) -> None:
+        """Starts scraping the specified product and updates the live display.
+
+        The spinner row stays visible across retries; from the second attempt on it
+        shows an ``(attempt/max)`` counter so a single evolving row conveys progress.
+        """
         self.scraping_name = self._truncate_name(name)
+        self.scraping_attempt = attempt
+        self.scraping_max = max_retries
         if self.live:
             self.live.update(self._generate_panel())
 
@@ -186,9 +247,13 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
                 ProgressBar(total=self.sleep_total, completed=self.sleep_remaining, width=30, style="grey37", complete_style="cyan", finished_style="cyan"),
                 f"[cyan]{self.sleep_remaining:.1f}s[/cyan]"
             )
-            display_table.add_row("⏳", "Sleeping", grid)
+            display_table.add_row("⏳", self.sleep_label, grid)
         elif self.scraping_name:
-            display_table.add_row(Spinner("dots", style="cyan"), escape(self.scraping_name), "[cyan]Scraping...[/cyan]")
+            if self.scraping_attempt > 1:
+                scrape_text = f"[cyan]Scraping ({self.scraping_attempt}/{self.scraping_max})...[/cyan]"
+            else:
+                scrape_text = "[cyan]Scraping...[/cyan]"
+            display_table.add_row(Spinner("dots", style="cyan"), escape(self.scraping_name), scrape_text)
 
         if self.notes:
             notes_group = [""]
@@ -222,16 +287,16 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
 
         return Panel(renderable, title=f"[bold]{self.target_name.capitalize()} Scraping[/bold]", border_style=panel_color, width=75)
 
-    def log_result(self, icon: str, name: str, value: str, notes: Notes = None) -> None:
+    def log_result(self, icon: str, name: str, value: str, notes: Notes = None, attempt_notes: Notes = None) -> None:
         """Logs a standard result directly into the rich table."""
-        refs = self._build_note_refs(notes)
+        refs = self._build_note_refs(self._normalize_notes(attempt_notes) + self._normalize_notes(notes))
         self.rows.append((icon, escape(self._truncate_name(name)), f"{value}{refs}"))
         if self.live:
             self.live.update(self._generate_panel())
 
-    def log_warning(self, name: str, warning_str: str, notes: Notes = None) -> None:
+    def log_warning(self, name: str, warning_str: str, notes: Notes = None, attempt_notes: Notes = None) -> None:
         """Logs a warning entry to the live display."""
-        refs = self._build_note_refs(notes)
+        refs = self._build_note_refs(self._normalize_notes(attempt_notes) + self._normalize_notes(notes))
         self.rows.append(("🟡", escape(self._truncate_name(name)), f"[yellow]{escape(warning_str)}{refs}[/yellow]"))
         if self.live:
             self.live.update(self._generate_panel())
@@ -243,11 +308,21 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
         if self.live:
             self.live.update(self._generate_panel())
 
-    def start_sleep(self, total_delay: float) -> None:
+    def log_attempt(self, name: str, attempt: int, max_retries: int, detail: str) -> None:
+        """Ignored: failed attempts are collapsed into the product's single row."""
+        pass
+
+    def log_failure(self, name: str, error_type: str, attempt_notes: Notes = None, extra_notes: Notes = None) -> None:
+        """Logs the terminal failure as a single red row with one footnote per attempt."""
+        notes = self._normalize_notes(attempt_notes) + self._normalize_notes(extra_notes)
+        self.log_error(name, error_type, notes)
+
+    def start_sleep(self, total_delay: float, retry_attempt: int = 0, max_retries: int = 0) -> None:
         """Starts the sleep state and renders a progress bar."""
         self.is_sleeping = True
         self.sleep_total = total_delay
         self.sleep_remaining = total_delay
+        self.sleep_label = f"Retrying ({retry_attempt}/{max_retries})" if retry_attempt else "Sleeping"
         if self.live:
             self.live.update(self._generate_panel())
 
@@ -312,7 +387,7 @@ class SilentExecutionStrategy(ExecutionStrategy):
         """Sets the underlying logger context to use for output."""
         self.target_logger = target_logger
 
-    def start_scraping(self, name: str) -> None:
+    def start_scraping(self, name: str, attempt: int = 1, max_retries: int = 1) -> None:
         """Does nothing in silent mode."""
         pass
 
@@ -320,15 +395,19 @@ class SilentExecutionStrategy(ExecutionStrategy):
         """Does nothing in silent mode."""
         pass
 
-    def log_result(self, icon: str, name: str, value: str, notes: Notes = None) -> None:
-        """Logs an informational result to the target logger."""
+    def log_result(self, icon: str, name: str, value: str, notes: Notes = None, attempt_notes: Notes = None) -> None:
+        """Logs an informational result to the target logger.
+
+        ``attempt_notes`` are ignored here; the silent strategy already streamed each
+        failed attempt via log_attempt, so re-listing them would duplicate log lines.
+        """
         if self.target_logger:
             clean_value = Text.from_markup(value).plain
             suffix = self._format_notes_suffix(self._normalize_notes(notes))
             self.target_logger.info(f"{icon} {name}: {clean_value}{suffix}")
 
-    def log_warning(self, name: str, warning_str: str, notes: Notes = None) -> None:
-        """Logs a warning to the target logger."""
+    def log_warning(self, name: str, warning_str: str, notes: Notes = None, attempt_notes: Notes = None) -> None:
+        """Logs a warning to the target logger (``attempt_notes`` ignored; already streamed)."""
         if self.target_logger:
             suffix = self._format_notes_suffix(self._normalize_notes(notes))
             self.target_logger.warning(f"❗ {name}: {warning_str}{suffix}")
@@ -339,7 +418,18 @@ class SilentExecutionStrategy(ExecutionStrategy):
             suffix = self._format_notes_suffix(self._normalize_notes(notes))
             self.target_logger.error(f"❗ {name}: {error_str}{suffix}")
 
-    def start_sleep(self, total_delay: float) -> None:
+    def log_attempt(self, name: str, attempt: int, max_retries: int, detail: str) -> None:
+        """Logs a single failed attempt, preserving per-attempt detail in the log file."""
+        if self.target_logger:
+            self.target_logger.warning(f"❗ {name}: Attempt {attempt}/{max_retries} FAILED ({detail})")
+
+    def log_failure(self, name: str, error_type: str, attempt_notes: Notes = None, extra_notes: Notes = None) -> None:
+        """Logs the terminal failure line; per-attempt detail was already streamed via log_attempt."""
+        if self.target_logger:
+            suffix = self._format_notes_suffix(self._normalize_notes(extra_notes))
+            self.target_logger.error(f"❗ {name}: All attempts failed ({error_type}){suffix}")
+
+    def start_sleep(self, total_delay: float, retry_attempt: int = 0, max_retries: int = 0) -> None:
         """Does nothing in silent mode."""
         pass
 

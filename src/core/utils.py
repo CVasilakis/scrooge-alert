@@ -30,6 +30,29 @@ def parse_price(raw_value) -> Optional[float]:
     except (ValueError, TypeError):
         return None
 
+def classify_notification_urls(notification_urls: str) -> tuple[list, list]:
+    """Splits a comma-separated Apprise URL string into valid and invalid URLs.
+
+    A URL is considered valid when it contains no unconfigured placeholder and
+    Apprise can instantiate it. Empty entries are ignored.
+
+    Args:
+        notification_urls (str): The raw, comma-separated NOTIFICATION_URLS value.
+
+    Returns:
+        tuple[list, list]: A (valid_urls, invalid_urls) pair.
+    """
+    valid_urls, invalid_urls = [], []
+    for url in (notification_urls or "").split(','):
+        url = url.strip()
+        if not url:
+            continue
+        if not any(p in url for p in APPRISE_PLACEHOLDERS) and apprise.Apprise.instantiate(url):
+            valid_urls.append(url)
+        else:
+            invalid_urls.append(url)
+    return valid_urls, invalid_urls
+
 def check_env_file() -> None:
     """Validates the existence and contents of the .env file.
 

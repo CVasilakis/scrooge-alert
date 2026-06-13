@@ -125,7 +125,7 @@ class Notifier:
         site = self._extract_site(failed_items[0][0].url)
         title = f'Scrooge Alert - Scraping Errors on {site}'
 
-        MAX_ERRORS_TO_SHOW = 5
+        MAX_ERRORS_TO_SHOW = 3
         body_lines = [f"The script encountered errors while checking {len(failed_items)} product(s) on {site}:\n"]
 
         for product, error in failed_items[:MAX_ERRORS_TO_SHOW]:
