@@ -69,22 +69,41 @@ class Notifier:
             body=f'{product_name} is now available for {current_price}{currency} in {site}, which is below your target of {target_price}{currency}.\nView it here: {url}'
         )
 
-    def notify_old_entries(self, product_name: str, hours: int, url: str) -> bool:
-        """Sends a notification about a product that hasn't been successfully checked recently.
+    def notify_old_entries(self, stale_items: list['BaseTrackedItem'], hours: int) -> bool:
+        """Sends a single notification summarizing products that have gone stale.
+
+        Aggregates every product that hasn't been successfully scraped within the
+        threshold into one message. If many products are stale, the list is
+        truncated to prevent notification bloat.
 
         Args:
-            product_name (str): The name of the product.
-            hours (int): The number of hours since the last successful check.
-            url (str): The URL of the product.
+            stale_items (list[BaseTrackedItem]): The products whose last successful
+                scrape is older than the threshold.
+            hours (int): The staleness threshold in hours.
 
         Returns:
             bool: True if the notification was sent successfully, False otherwise.
         """
-        site = self._extract_site(url)
-        return self.notify(
-            title='Scrooge Alert - Tracking Stale',
-            body=f'The scraping for "{product_name}" on {site} hasn\'t been successfully completed in over {hours} hours. Please check the error logs or verify if the URL is still valid.\nProduct URL: {url}'
-        )
+        if not stale_items:
+            return False
+
+        # Extract site name from the first stale item to give context
+        site = self._extract_site(stale_items[0].url)
+        title = f'Scrooge Alert - Tracking Stale on {site}'
+
+        MAX_ITEMS_TO_SHOW = 3
+        body_lines = [f"{len(stale_items)} product(s) on {site} haven't been successfully scraped in over {hours} hours:\n"]
+
+        for item in stale_items[:MAX_ITEMS_TO_SHOW]:
+            body_lines.append(f"- {item.name}: {item.url}")
+
+        if len(stale_items) > MAX_ITEMS_TO_SHOW:
+            remaining = len(stale_items) - MAX_ITEMS_TO_SHOW
+            body_lines.append(f"... and {remaining} more.")
+
+        body_lines.append("\nPlease check the error logs or verify the URLs are still valid.")
+
+        return self.notify(title=title, body="\n".join(body_lines))
 
     def notify_errors(self, failed_items: list[tuple['BaseTrackedItem', Exception]]) -> bool:
         """Sends a notification indicating that specific errors occurred during scraping.

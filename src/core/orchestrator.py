@@ -36,6 +36,7 @@ class ScrapingOrchestrator:
         self._interrupt_message = ""
         self._current_target = ""
         self._current_logger = None
+        self._stale_items: list[BaseTrackedItem] = []
         self.ui_strategy = ui_strategy or SilentExecutionStrategy()
 
     def signal_handler(self, signum, _frame):
@@ -76,45 +77,58 @@ class ScrapingOrchestrator:
             actual_delay = time.monotonic() - start_time
             self.ui_strategy.complete_sleep(actual_delay)
 
-    def check_for_old_entries(self, target: str, hours: int) -> None:
-        """Checks if any product hasn't been successfully scraped recently for a specific target.
+    def _flag_if_stale(self, item: BaseTrackedItem, data_manager: BaseDataManager) -> Optional[str]:
+        """Evaluates the stored timestamp of a product that was not scraped this cycle.
+
+        Called only for non-skipped products whose scrape did not succeed (a
+        successful scrape refreshes the timestamp to now, so such a product is
+        never stale). Records genuinely stale products for the aggregated
+        end-of-target notification and repairs corrupted timestamps in place.
 
         Args:
-            target (str): The specific target to check.
-            hours (int): The threshold in hours to consider an entry 'old'.
+            item (BaseTrackedItem): The product whose timestamp is being evaluated.
+            data_manager (BaseDataManager): The data manager, used to repair a
+                corrupted timestamp via the atomic update mechanism.
+
+        Returns:
+            Optional[str]: A footnote to attach to the product's row, or None when
+                the product has no usable timestamp or is still fresh.
         """
+        if not item.last_checked:
+            return None
+
         try:
-            data_manager = self.registry.get_manager(target)
+            timestamp = datetime.datetime.strptime(item.last_checked, TIMESTAMP_FORMAT)
         except ValueError:
-            return
+            data_manager.update_item(
+                item.url,
+                last_price=item.last_price,
+                last_checked=datetime.datetime.now().strftime(TIMESTAMP_FORMAT)
+            )
+            return "Corrupted timestamp! Updated to current system time."
 
-        needs_save = False
-        for row in data_manager.get_items():
-            item = data_manager.parse_item(row)
-            if item.skip:
+        if (datetime.datetime.now() - timestamp) > datetime.timedelta(hours=OLD_ENTRY_HOURS):
+            self._stale_items.append(item)
+            return f"Stale: last scraped {item.last_checked} (over {OLD_ENTRY_HOURS}h ago)."
+
+        return None
+
+    @staticmethod
+    def _combine_notes(*notes) -> Optional[list]:
+        """Flattens the given note values (strings, lists, or None) into one list.
+
+        Returns:
+            Optional[list]: A flat list of note strings, or None when empty.
+        """
+        flat = []
+        for note in notes:
+            if not note:
                 continue
-
-            if item.last_checked:
-                try:
-                    timestamp = datetime.datetime.strptime(item.last_checked, TIMESTAMP_FORMAT)
-                    current_time = datetime.datetime.now()
-                    if (current_time - timestamp) > datetime.timedelta(hours=hours):
-                        self.ui_strategy.log_warning(item.name, "Stale item", f"Last time scraped: {item.last_checked}.")
-                        self.notifier.notify_old_entries(item.name, hours, item.url)
-                except ValueError:
-                    self.ui_strategy.log_warning(item.name, "Corrupted timestamp detected", "Resetting stored timestamp to the current system time.")
-                    data_manager.update_item(
-                        item.url,
-                        last_price=item.last_price,
-                        last_checked=datetime.datetime.now().strftime(TIMESTAMP_FORMAT)
-                    )
-                    needs_save = True
-
-        if needs_save:
-            try:
-                data_manager.save()
-            except StorageFileError as e:
-                self.ui_strategy.log_error("Storage", f"Failed to update config/{target}.json file!", str(e))
+            if isinstance(note, str):
+                flat.append(note)
+            else:
+                flat.extend(note)
+        return flat or None
 
     def _handle_successful_scrape(self, item: BaseTrackedItem, result, data_manager: BaseDataManager, original_invalid_price=None, missing_target_price: bool = False) -> None:
         """Processes a successful product scrape, sending notifications if necessary.
@@ -176,7 +190,8 @@ class ScrapingOrchestrator:
             return None, False
 
         if not data_manager.is_scrappable_item(row):
-            self.ui_strategy.log_warning(item.name, "Invalid URL. Skipping product...")
+            stale_note = self._flag_if_stale(item, data_manager)
+            self.ui_strategy.log_warning(item.name, "Invalid URL. Skipping product...", stale_note)
             return None, False
 
         # Detect and normalize invalid / missing target prices.
@@ -213,11 +228,13 @@ class ScrapingOrchestrator:
                 break
 
             except (ProductNotFoundError, ProductUnavailableError, InvalidURLError) as e:
-                self.ui_strategy.log_warning(item.name, f"Skipping ({type(e).__name__})", str(e))
+                stale_note = self._flag_if_stale(item, data_manager)
+                self.ui_strategy.log_warning(item.name, f"Skipping ({type(e).__name__})", self._combine_notes(str(e), stale_note))
                 break
             except ScraperParseError as e:
                 if attempt == MAX_RETRIES - 1:
-                    self.ui_strategy.log_error(item.name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
+                    stale_note = self._flag_if_stale(item, data_manager)
+                    self.ui_strategy.log_error(item.name, f"Attempt {attempt + 1} FAILED", self._combine_notes(f"{type(e).__name__}: {e}", stale_note))
                     return e, False
                 else:
                     self.ui_strategy.log_warning(item.name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
@@ -225,7 +242,8 @@ class ScrapingOrchestrator:
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except RateLimitError as e:
                 if attempt == MAX_RETRIES - 1:
-                    self.ui_strategy.log_error(item.name, f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e}")
+                    stale_note = self._flag_if_stale(item, data_manager)
+                    self.ui_strategy.log_error(item.name, f"Attempt {attempt + 1} FAILED ({type(e).__name__}): {e}", stale_note)
                     self.ui_strategy.log_error(item.name, "Rate limit block", "Max retries reached. Aborting scraping.")
                     if self._current_logger:
                         save_traceback(self._current_logger, target_name=self._current_target, url=item.url, headers=scraper.get_current_headers(), log_to_console=False)
@@ -237,14 +255,16 @@ class ScrapingOrchestrator:
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except ServerError as e:
                 if attempt == MAX_RETRIES - 1:
-                    self.ui_strategy.log_error(item.name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
+                    stale_note = self._flag_if_stale(item, data_manager)
+                    self.ui_strategy.log_error(item.name, f"Attempt {attempt + 1} FAILED", self._combine_notes(f"{type(e).__name__}: {e}", stale_note))
                     return e, False
                 else:
                     self.ui_strategy.log_warning(item.name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
                 self._sleep_with_jitter(MIN_DELAY_SECONDS, attempt)
             except Exception as e:
                 if attempt == MAX_RETRIES - 1:
-                    self.ui_strategy.log_error(item.name, f"Attempt {attempt + 1} FAILED", f"{type(e).__name__}: {e}")
+                    stale_note = self._flag_if_stale(item, data_manager)
+                    self.ui_strategy.log_error(item.name, f"Attempt {attempt + 1} FAILED", self._combine_notes(f"{type(e).__name__}: {e}", stale_note))
                     if self._current_logger:
                         save_traceback(self._current_logger, target_name=self._current_target, url=item.url, headers=scraper.get_current_headers(), log_to_console=False)
                     self.ui_strategy.log_error("System", "An error occurred!", f"Check logs/{self._current_target}/errors.txt for details.")
@@ -270,6 +290,7 @@ class ScrapingOrchestrator:
 
         for target in self.targets_to_run:
             failed_items = []
+            self._stale_items = []
             needs_save = False
             abort_target = False
 
@@ -314,8 +335,8 @@ class ScrapingOrchestrator:
                     except StorageFileError as e:
                         self.ui_strategy.log_error("Storage", f"Failed to update config/{target}.json file!", str(e))
 
-                if not self.interrupted:
-                    self.check_for_old_entries(target, OLD_ENTRY_HOURS)
+                if not self.interrupted and self._stale_items:
+                    self.notifier.notify_old_entries(self._stale_items, OLD_ENTRY_HOURS)
 
                 if not self.interrupted and failed_items:
                     self.notifier.notify_errors(failed_items)
