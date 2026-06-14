@@ -294,7 +294,33 @@ class ScrapingOrchestrator:
             last_checked=_utc_now().strftime(TIMESTAMP_FORMAT)
         )
 
-    def _process_product(self, row: dict, data_manager: BaseDataManager) -> tuple[Exception | None, bool]:
+    @staticmethod
+    def _normalize_target_price(item: BaseTrackedItem, row: dict) -> tuple[object | None, bool]:
+        """Detects and neutralizes a missing or invalid target price.
+
+        A negative sentinel target price (set by ``from_dict`` for unparseable input)
+        is reset to ``0.0`` in place so price comparisons are safe. The raw values are
+        returned rather than injected onto the item so the success handler can surface
+        them as footnotes.
+
+        Args:
+            item (BaseTrackedItem): The parsed product (mutated in place when invalid).
+            row (dict): The raw config row, used to recover the original raw value.
+
+        Returns:
+            tuple[object | None, bool]: ``(original_invalid_price, missing_target_price)``
+                where ``original_invalid_price`` is the raw unparseable value (or None
+                when the price was valid) and ``missing_target_price`` is True when the
+                field was absent entirely.
+        """
+        missing_target_price = 'target_price' not in row
+        original_invalid_price = None
+        if item.target_price < 0:
+            original_invalid_price = row.get('target_price')
+            item.target_price = 0.0
+        return original_invalid_price, missing_target_price
+
+    def _process_product(self, row: dict, data_manager: BaseDataManager) -> tuple[BaseTrackedItem, Exception | None, bool]:
         """Processes a single product from the configuration, attempting to scrape it.
 
         Args:
@@ -302,7 +328,8 @@ class ScrapingOrchestrator:
             data_manager (BaseDataManager): The data manager.
 
         Returns:
-            tuple[Exception | None, bool]: A tuple containing:
+            tuple[BaseTrackedItem, Exception | None, bool]: A tuple containing:
+                - item: The parsed product (returned so the caller need not re-parse it).
                 - error: The Exception that caused the failure, or None if successful.
                 - abort_scraping: True if scraping should be aborted entirely (e.g., rate limit).
         """
@@ -310,27 +337,39 @@ class ScrapingOrchestrator:
 
         if item.skip:
             self.ui_strategy.log_result("✅", item.name, "Skipped", "The skip field was set to true in the configuration file.")
-            return None, False
+            return item, None, False
 
         if not data_manager.is_scrappable_item(row):
             stale_note = self._check_and_repair_timestamp(item, data_manager)
             self.ui_strategy.log_warning(item.name, "Invalid URL. Skipping product...", stale_note)
-            return None, False
+            return item, None, False
 
-        # Detect and normalize invalid / missing target prices.
-        # These are passed explicitly to _handle_successful_scrape
-        # instead of being injected onto the item at runtime.
-        original_invalid_price = None
-        missing_target_price = 'target_price' not in row
-
-        if item.target_price < 0:
-            original_invalid_price = row.get('target_price')
-            item.target_price = 0.0
+        original_invalid_price, missing_target_price = self._normalize_target_price(item, row)
 
         self._sleep_with_jitter(MIN_DELAY_SECONDS)
         if self.interrupted:
-            return None, False
+            return item, None, False
 
+        error, abort = self._run_attempts(item, data_manager, original_invalid_price, missing_target_price)
+        return item, error, abort
+
+    def _run_attempts(self, item: BaseTrackedItem, data_manager: BaseDataManager, original_invalid_price, missing_target_price: bool) -> tuple[Exception | None, bool]:
+        """Runs the retry loop for one product, mapping each error through its policy.
+
+        On success it delegates to ``_handle_successful_scrape`` and returns no error.
+        Terminal SKIP_ERRORS surface as a warning (no failure). For other errors the
+        per-error ``ErrorPolicy`` decides refresh/abort/notify/traceback behavior.
+
+        Args:
+            item (BaseTrackedItem): The product to scrape.
+            data_manager (BaseDataManager): The data manager (for stale evaluation).
+            original_invalid_price: The raw target price when it was unparseable, else None.
+            missing_target_price (bool): True when the config row had no target price.
+
+        Returns:
+            tuple[Exception | None, bool]: ``(error, abort_scraping)`` — the failure to
+                count (or None), and whether the whole target run should abort.
+        """
         scraper = self.registry.get_scraper(item.url)
         attempt_notes: list = []
 
@@ -422,9 +461,9 @@ class ScrapingOrchestrator:
                         if abort_target or self.interrupted:
                             break
 
-                        product_error, product_abort = self._process_product(row, data_manager)
+                        item, product_error, product_abort = self._process_product(row, data_manager)
                         if product_error:
-                            failed_items.append((data_manager.parse_item(row), product_error))
+                            failed_items.append((item, product_error))
                         abort_target = abort_target or product_abort
                         any_rate_limited = any_rate_limited or product_abort
                         needs_save = True

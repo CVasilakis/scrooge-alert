@@ -6,7 +6,8 @@ import subprocess
 # Ensure the script directory is in the python path to allow imports when running as a module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from constants import EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, CONFIG_DIR
+from constants import CONFIG_DIR
+from exit_status import classify_service_state
 from scrapers.registry import ScraperRegistry
 from logger import setup_global_logging
 from panel import StatusPanelBuilder
@@ -98,12 +99,6 @@ def main():
         last_exec_time = service_props.get("ExecMainStartTimestamp", "")
         service_active = service_props.get("ActiveState", "")
 
-        no_errors = (result == "success" and exec_status == str(EXIT_CODE_SUCCESS))
-        skipped = (exec_status == str(EXIT_CODE_SKIPPED))
-        products_error = (exec_status == str(EXIT_CODE_PRODUCTS_ERROR))
-        env_error = (exec_status == str(EXIT_CODE_ENV_ERROR))
-        rate_limit_error = (exec_status == str(EXIT_CODE_RATE_LIMIT_ERROR))
-        interrupted = (exec_status == str(EXIT_CODE_INTERRUPT))
         is_currently_running = service_active in ("active", "activating")
         is_pending_first_execution = timer_active_val and not last_exec_time
 
@@ -129,35 +124,12 @@ def main():
             completed_icon = "❗"
         else:
             last_exec_icon = "✅"
-            error_details = "None" if no_errors else f"Reason: {result or 'Unknown'}, Exit Code: {exec_status or 'Unknown'}"
-            if no_errors:
-                completed_icon = "✅"
-                completed_str = "[green]OK[/green]"
-            elif skipped:
-                completed_icon = "🟡"
-                ref = service_panel.add_note_ref("Another instance of the scraper was running.")
-                completed_str = f"[yellow]Skipped{ref}[/yellow]"
-            elif products_error:
-                completed_icon = "❗"
-                config_filename = ScraperRegistry.get_plugin(target).get_config_filename()
-                ref = service_panel.add_note_ref(f"Issue with the `config/{config_filename}` file.")
-                completed_str = f"[red]Failed{ref}[/red]"
-            elif env_error:
-                completed_icon = "❗"
-                ref = service_panel.add_note_ref("Issue with the `.env` file.")
-                completed_str = f"[red]Failed{ref}[/red]"
-            elif rate_limit_error:
-                completed_icon = "❗"
-                ref = service_panel.add_note_ref("Blocked by server due to rate limits.")
-                completed_str = f"[red]Failed{ref}[/red]"
-            elif interrupted:
-                completed_icon = "🟡"
-                ref = service_panel.add_note_ref("Process was terminated by the user or system.")
-                completed_str = f"[yellow]Interrupted{ref}[/yellow]"
-            else:
-                completed_icon = "❗"
-                ref = service_panel.add_note_ref(error_details)
-                completed_str = f"[red]Failed{ref}[/red]"
+            # Exit-code presentation lives in one table (exit_status.py); status only
+            # renders the resolved verdict and links its note as a footnote.
+            verdict = classify_service_state(result, exec_status, ScraperRegistry.get_plugin(target).get_config_filename())
+            completed_icon = verdict.icon
+            ref = service_panel.add_note_ref(verdict.note) if verdict.note else ""
+            completed_str = f"[{verdict.color}]{verdict.label}{ref}[/{verdict.color}]"
 
         service_panel.add_row(timer_icon, "Systemd Timer Active", timer_active)
         if last_exec_time != "[red]Never[/red]":

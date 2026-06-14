@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import signal
 import subprocess
@@ -14,9 +15,17 @@ from exceptions import EnvFileError, UpdateCheckError
 def parse_price(raw_value) -> Optional[float]:
     """Parses a raw price value into a float.
 
-    Handles string inputs by stripping surrounding quotes and normalizing
-    comma decimal separators to periods. Returns None if the value cannot
-    be parsed into a valid number.
+    This is the single price-normalization routine shared by config validation
+    (target prices) and every scraper (scraped prices), so a new store never needs
+    to re-implement price cleaning. Ints and floats are returned directly; strings
+    may carry a currency symbol, surrounding quotes/whitespace, and either European
+    (``1.299,00``) or US (``1,299.00``) grouping.
+
+    Normalization rule: after stripping everything but digits, ``.``, ``,`` and a
+    leading sign, the right-most ``.``/``,`` is treated as the decimal separator and
+    every other separator is dropped as a thousands grouping. A value with a single
+    separator is therefore read as a decimal (``"1,234"`` -> ``1.234``), matching the
+    previous behavior. Returns None when the value cannot be parsed into a number.
 
     Args:
         raw_value: The raw price value (str, int, float, or None).
@@ -24,14 +33,34 @@ def parse_price(raw_value) -> Optional[float]:
     Returns:
         Optional[float]: The parsed price, or None if parsing fails.
     """
-    if raw_value is None:
+    if raw_value is None or isinstance(raw_value, bool):
         return None
 
-    try:
-        if isinstance(raw_value, str):
-            raw_value = raw_value.strip('"').strip("'").replace(',', '.')
+    if isinstance(raw_value, (int, float)):
         return float(raw_value)
-    except (ValueError, TypeError):
+
+    if not isinstance(raw_value, str):
+        return None
+
+    # Keep only digits, separators and a leading sign (drops currency symbols,
+    # spaces, and surrounding quotes in one pass).
+    cleaned = re.sub(r'[^\d.,-]', '', raw_value)
+    sign = '-' if cleaned.startswith('-') else ''
+    cleaned = cleaned.replace('-', '')
+    if not cleaned:
+        return None
+
+    decimal_pos = max(cleaned.rfind('.'), cleaned.rfind(','))
+    if decimal_pos == -1:
+        number = cleaned
+    else:
+        integer_part = re.sub(r'[.,]', '', cleaned[:decimal_pos])
+        fractional_part = re.sub(r'[.,]', '', cleaned[decimal_pos + 1:])
+        number = f"{integer_part}.{fractional_part}"
+
+    try:
+        return float(f"{sign}{number}")
+    except ValueError:
         return None
 
 def is_valid_apprise_url(url: str) -> bool:

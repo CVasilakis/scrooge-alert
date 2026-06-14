@@ -61,8 +61,9 @@ class BasePlugin(ABC):
         The single place the supported-domain match is performed: both the
         registry (URL routing) and a plugin's data manager (storage validation)
         delegate here, so domain matching can never drift between them. Matching is
-        suffix-based against ``get_supported_domains()`` and tolerant of non-string
-        or empty input.
+        label-boundary-aware against ``get_supported_domains()`` (a supported domain
+        or a subdomain of it) and tolerant of non-string or empty input. The boundary
+        check prevents a host like ``myskroutz.gr`` from falsely matching ``skroutz.gr``.
 
         Args:
             url (str): The URL to test.
@@ -73,4 +74,4 @@ class BasePlugin(ABC):
         if not isinstance(url, str) or not url:
             return False
         domain = urlparse(url).netloc.lower()
-        return any(domain.endswith(d) for d in self.get_supported_domains())
+        return any(domain == d or domain.endswith("." + d) for d in self.get_supported_domains())

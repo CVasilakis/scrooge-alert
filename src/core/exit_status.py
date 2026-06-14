@@ -1,0 +1,80 @@
+from dataclasses import dataclass, replace
+from typing import Optional
+
+from constants import (
+    EXIT_CODE_SUCCESS,
+    EXIT_CODE_SKIPPED,
+    EXIT_CODE_PRODUCTS_ERROR,
+    EXIT_CODE_ENV_ERROR,
+    EXIT_CODE_RATE_LIMIT_ERROR,
+    EXIT_CODE_INTERRUPT,
+)
+
+
+@dataclass(frozen=True)
+class ServiceVerdict:
+    """How a finished service run is presented in the status report.
+
+    Attributes:
+        icon: The status icon (e.g. ``"✅"``, ``"🟡"``, ``"❗"``).
+        label: The short status word shown in the cell (e.g. ``"OK"``, ``"Failed"``).
+        color: The Rich color applied to the label.
+        note: An optional footnote; fully resolved (no placeholder) by the time a
+            verdict is returned from :func:`classify_service_state`.
+    """
+    icon: str
+    label: str
+    color: str
+    note: Optional[str] = None
+
+
+# Process exit code -> how the status report renders it. This is the single source of
+# truth for exit-code presentation, so a new exit code is one entry here instead of
+# another branch in status.py. A ``{detail}`` placeholder in a note is filled in by
+# classify_service_state (e.g. with the offending config filename).
+_VERDICTS: dict[int, ServiceVerdict] = {
+    EXIT_CODE_SUCCESS: ServiceVerdict("✅", "OK", "green"),
+    EXIT_CODE_SKIPPED: ServiceVerdict("🟡", "Skipped", "yellow", "Another instance of the scraper was running."),
+    EXIT_CODE_PRODUCTS_ERROR: ServiceVerdict("❗", "Failed", "red", "Issue with the `config/{detail}` file."),
+    EXIT_CODE_ENV_ERROR: ServiceVerdict("❗", "Failed", "red", "Issue with the `.env` file."),
+    EXIT_CODE_RATE_LIMIT_ERROR: ServiceVerdict("❗", "Failed", "red", "Blocked by server due to rate limits."),
+    EXIT_CODE_INTERRUPT: ServiceVerdict("🟡", "Interrupted", "yellow", "Process was terminated by the user or system."),
+}
+
+# Fallback for an exit code not in the table; the note carries the raw reason/code.
+_UNKNOWN_VERDICT = ServiceVerdict("❗", "Failed", "red", "{detail}")
+
+
+def classify_service_state(result: str, exec_status: str, config_filename: str) -> ServiceVerdict:
+    """Maps a finished service's systemd outcome to a presentation verdict.
+
+    A run counts as fully successful only when systemd reports ``Result=success``
+    together with a zero exit code; any other exit code is looked up in the verdict
+    table, and an unrecognized code falls back to a generic failure carrying the raw
+    reason and code.
+
+    Args:
+        result (str): The systemd ``Result`` property (e.g. ``"success"``).
+        exec_status (str): The process exit code as a string (``ExecMainStatus``).
+        config_filename (str): The target's config filename, used to fill the
+            products-error note's ``{detail}`` placeholder.
+
+    Returns:
+        ServiceVerdict: The icon/label/color and a fully-resolved note (or None).
+    """
+    if result == "success" and exec_status == str(EXIT_CODE_SUCCESS):
+        return _VERDICTS[EXIT_CODE_SUCCESS]
+
+    try:
+        code = int(exec_status)
+    except (TypeError, ValueError):
+        code = None
+
+    verdict = _VERDICTS.get(code) if code is not None and code != EXIT_CODE_SUCCESS else None
+    if verdict is None:
+        detail = f"Reason: {result or 'Unknown'}, Exit Code: {exec_status or 'Unknown'}"
+        return replace(_UNKNOWN_VERDICT, note=detail)
+
+    if verdict.note and "{detail}" in verdict.note:
+        return replace(verdict, note=verdict.note.format(detail=config_filename))
+    return verdict

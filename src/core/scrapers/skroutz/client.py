@@ -1,14 +1,12 @@
 import re
-import random
+import json
 from urllib.parse import urlparse
 from typing import Dict
 
-import json
-import tls_client
-
-from scrapers.base.client import BaseScraperClient
+from scrapers.base.http_client import HttpScraperClient
 from scrapers.base.model import ScrapeResult
-from exceptions import ScraperError, RateLimitError, ServerError, ScraperParseError, ProductNotFoundError, ProductUnavailableError, InvalidURLError
+from exceptions import ScraperParseError, ProductUnavailableError, InvalidURLError
+from utils import parse_price
 
 # Headers impersonating a real browser to avoid being blocked by anti-bot measures.
 # The scraper rotates through these profiles randomly on retries.
@@ -59,37 +57,29 @@ _HEADER_VARIANTS = [
 
 _HEADERS_POOL: list[Dict[str, str]] = [{**_BASE_HEADERS, **v} for v in _HEADER_VARIANTS]
 
+# Per-TLD currency overrides; every other Skroutz domain prices in euro. Centralized
+# here so a new country domain is a one-line entry rather than another inline ternary.
+_CURRENCY_BY_TLD: Dict[str, str] = {".ro": "Lei"}
+_DEFAULT_CURRENCY = "€"
 
-class SkroutzClient(BaseScraperClient):
-    """Client for scraping product information from Skroutz."""
+
+def _currency_for_domain(domain: str) -> str:
+    """Returns the currency symbol for a Skroutz domain (euro unless overridden)."""
+    for tld, currency in _CURRENCY_BY_TLD.items():
+        if domain.endswith(tld):
+            return currency
+    return _DEFAULT_CURRENCY
+
+
+class SkroutzClient(HttpScraperClient):
+    """Client for scraping product information from Skroutz.
+
+    Inherits the TLS session, header-pool rotation, and HTTP-status-to-exception
+    mapping from :class:`HttpScraperClient`; only the Skroutz-specific request
+    shaping and JSON/price extraction live here.
+    """
 
     HEADERS_POOL = _HEADERS_POOL
-
-    def __init__(self):
-        """Initializes the Skroutz client, picking a random header and setting up a TLS session."""
-        super().__init__()
-        self.current_headers = random.choice(self.HEADERS_POOL)
-        self.session = tls_client.Session(
-            client_identifier="chrome120",  # type: ignore
-            random_tls_extension_order=True
-        )
-
-    def get_current_headers(self) -> Dict[str, str]:
-        """Retrieves the current HTTP headers.
-
-        Returns:
-            Dict[str, str]: The current headers in use.
-        """
-        return self.current_headers
-
-    def refresh_identity(self) -> None:
-        """Refreshes the client's identity by selecting new headers and recreating the session."""
-        self.current_headers = random.choice(self.HEADERS_POOL)
-        self.session.close()
-        self.session = tls_client.Session(
-            client_identifier="chrome120",  # type: ignore
-            random_tls_extension_order=True
-        )
 
     def scrape_product(self, product_url: str) -> ScrapeResult:
         """Scrapes the Skroutz API for the current price of a product.
@@ -127,17 +117,9 @@ class SkroutzClient(BaseScraperClient):
 
         response = self.session.get(api_link.strip(), headers=headers)
 
-        if response.status_code is None:
-            raise ScraperError("Empty response or no status code received from server")
-
-        if response.status_code in (404, 410):
-            raise ProductNotFoundError(f"Product not found or removed (HTTP {response.status_code}).")
-        elif response.status_code in (401, 403, 429):
-            raise RateLimitError(f"Blocked or rate limited (HTTP {response.status_code})")
-        elif 500 <= response.status_code < 600:
-            raise ServerError(f"Skroutz server error (HTTP {response.status_code}), retrying...")
-        elif response.status_code != 200:
-            raise ScraperError(f"HTTP request failed with status code {response.status_code}")
+        # Maps the HTTP status to the modeled exception the orchestrator's retry/abort
+        # policy is keyed on (404/410, 401/403/429, 5xx, ...). See HttpScraperClient.
+        self.raise_for_status(response.status_code)
 
         try:
             response_data = response.json()
@@ -147,24 +129,11 @@ class SkroutzClient(BaseScraperClient):
         if response_data.get("price_min") is None:
             raise ProductUnavailableError("Not available")
 
-        price_str = str(response_data["price_min"])
-        price_str = re.sub(r'[^\d.,]', '', price_str)
-        price_str = price_str.replace(",", ".")
-        if price_str.count(".") == 2:
-            price_str = price_str.replace(".", "", 1)
-
-        currency = 'Lei' if domain.endswith('.ro') else '€'
-
-        try:
-            price = float(price_str)
-        except ValueError:
-            # Re-raise as a modeled parse error so the orchestrator treats an
-            # unparseable price like any other parse failure instead of an
-            # unexpected fault. See BaseScraperClient's exception contract.
+        # parse_price is the single shared price normalizer (handles currency symbols
+        # and European/US grouping); None means the value was unparseable, which the
+        # orchestrator treats as a modeled parse failure per the exception contract.
+        price = parse_price(response_data["price_min"])
+        if price is None:
             raise ScraperParseError(f"Could not parse price from value: {response_data['price_min']!r}")
 
-        return ScrapeResult(price=price, currency=currency)
-
-    def close(self) -> None:
-        """Closes the underlying TLS session."""
-        self.session.close()
+        return ScrapeResult(price=price, currency=_currency_for_domain(domain))
