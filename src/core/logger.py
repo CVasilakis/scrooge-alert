@@ -1,5 +1,6 @@
 import logging
 import datetime
+import time
 import traceback
 import os
 from typing import Optional, Dict
@@ -87,7 +88,11 @@ def get_target_logger(target_name: str, quiet: bool = False) -> logging.Logger:
         return logger
 
     if quiet:
-        log_format = '[%(asctime)s] %(message)s'
+        # Log line timestamps are emitted in UTC (with an explicit marker) so they
+        # match the UTC last_checked written to config and are immune to host
+        # timezone/DST shifts. utc=True keeps the daily rollover boundary aligned
+        # with those UTC timestamps.
+        log_format = '[%(asctime)s UTC] %(message)s'
         date_format = '%Y-%m-%d %H:%M:%S'
 
         target_logs_dir = os.path.join(LOGS_DIR, target_name)
@@ -95,10 +100,12 @@ def get_target_logger(target_name: str, quiet: bool = False) -> logging.Logger:
         log_path = os.path.join(target_logs_dir, "output.log")
 
         rotating_handler = TimedRotatingFileHandler(
-            log_path, when="midnight", interval=1, backupCount=7, encoding='utf-8'
+            log_path, when="midnight", interval=1, backupCount=7, encoding='utf-8', utc=True
         )
         rotating_handler.addFilter(NonEmptyFilter())
-        rotating_handler.setFormatter(logging.Formatter(log_format, datefmt=date_format))
+        formatter = logging.Formatter(log_format, datefmt=date_format)
+        formatter.converter = time.gmtime
+        rotating_handler.setFormatter(formatter)
 
         logger.addHandler(rotating_handler)
 
@@ -125,9 +132,9 @@ def save_traceback(logger: logging.Logger, target_name: Optional[str] = None, ur
     if log_to_console:
         logger.critical(f"🛑 An error occurred! Check {log_path} for details.", extra={"pad_top": 1})
 
-    time_now = datetime.datetime.now().strftime("%Y-%m-%d (%H:%M:%S)")
+    time_now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d (%H:%M:%S)")
     with open(log_path, "a", newline='') as log_file:
-        log_file.write(f"\n\nAn error occurred at {time_now}:\n")
+        log_file.write(f"\n\nAn error occurred at {time_now} UTC:\n")
         if url:
             log_file.write(f"URL: {url}\n")
         if headers:

@@ -188,7 +188,7 @@ class ScrapingOrchestrator:
 
         if (_utc_now() - timestamp) > datetime.timedelta(hours=OLD_ENTRY_HOURS):
             self._stale_items.append(item)
-            return f"Stale: last scraped {item.last_checked} (over {OLD_ENTRY_HOURS}h ago)."
+            return f"Stale: last scraped {item.last_checked} UTC (over {OLD_ENTRY_HOURS}h ago)."
 
         return None
 
