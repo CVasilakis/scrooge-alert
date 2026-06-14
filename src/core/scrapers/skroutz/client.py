@@ -155,7 +155,15 @@ class SkroutzClient(BaseScraperClient):
 
         currency = 'Lei' if domain.endswith('.ro') else '€'
 
-        return ScrapeResult(price=float(price_str), currency=currency)
+        try:
+            price = float(price_str)
+        except ValueError:
+            # Re-raise as a modeled parse error so the orchestrator treats an
+            # unparseable price like any other parse failure instead of an
+            # unexpected fault. See BaseScraperClient's exception contract.
+            raise ScraperParseError(f"Could not parse price from value: {response_data['price_min']!r}")
+
+        return ScrapeResult(price=price, currency=currency)
 
     def close(self) -> None:
         """Closes the underlying TLS session."""

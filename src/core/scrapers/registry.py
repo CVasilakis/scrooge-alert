@@ -5,6 +5,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 from typing import Dict, List, Optional, TYPE_CHECKING
 
+from exceptions import PluginDiscoveryError
+
 if TYPE_CHECKING:
     from scrapers.base.plugin import BasePlugin
     from scrapers.base.client import BaseScraperClient
@@ -42,17 +44,46 @@ class ScraperRegistry:
         registry never depends on a caller remembering to import the package first.
 
         Each plugin sub-package must expose a module-level ``plugin`` attribute
-        (a :class:`BasePlugin` instance) in its ``__init__.py``.
+        (a :class:`BasePlugin` instance) in its ``__init__.py``. A package that
+        fails to import, omits ``plugin``, or exposes a non-:class:`BasePlugin`
+        value is a programming error in that plugin, so discovery fails loudly with
+        a :class:`PluginDiscoveryError` naming the offending package rather than
+        silently skipping it.
+
+        Raises:
+            PluginDiscoveryError: If a plugin package cannot be imported, does not
+                expose a ``plugin`` attribute, or exposes a non-BasePlugin value.
         """
         if cls._discovered:
             return
 
+        from scrapers.base.plugin import BasePlugin
+
         package_dir = Path(__file__).parent
         for _importer, modname, ispkg in pkgutil.iter_modules([str(package_dir)]):
-            if ispkg and modname != "base":
+            if not ispkg or modname == "base":
+                continue
+
+            try:
                 module = importlib.import_module(f"scrapers.{modname}")
-                if hasattr(module, "plugin"):
-                    cls.register(module.plugin)
+            except Exception as e:
+                raise PluginDiscoveryError(
+                    f"Failed to import scraper plugin package 'scrapers.{modname}': {e}"
+                ) from e
+
+            plugin = getattr(module, "plugin", None)
+            if plugin is None:
+                raise PluginDiscoveryError(
+                    f"Scraper plugin package 'scrapers.{modname}' does not expose a "
+                    f"module-level 'plugin' attribute. Add `plugin = {modname.capitalize()}Plugin()` "
+                    f"to scrapers/{modname}/__init__.py."
+                )
+            if not isinstance(plugin, BasePlugin):
+                raise PluginDiscoveryError(
+                    f"The 'plugin' attribute of scraper package 'scrapers.{modname}' is "
+                    f"a {type(plugin).__name__}, not a BasePlugin instance."
+                )
+            cls.register(plugin)
 
         cls._discovered = True
 
@@ -100,9 +131,8 @@ class ScraperRegistry:
             Optional[BasePlugin]: The matching plugin, or None when unsupported.
         """
         cls.discover()
-        domain = urlparse(url).netloc.lower()
         for plugin in cls._plugins.values():
-            if any(domain.endswith(d) for d in plugin.get_supported_domains()):
+            if plugin.matches_url(url):
                 return plugin
         return None
 

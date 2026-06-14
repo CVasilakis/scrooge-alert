@@ -17,6 +17,17 @@ from tui import ExecutionStrategy, SilentExecutionStrategy, Notes, PriceOutcome
 from utils import describe_signal
 
 
+def _utc_now() -> datetime.datetime:
+    """Returns the current time as a naive UTC datetime.
+
+    Timestamps are written and compared in naive UTC so the staleness window is
+    immune to host timezone or DST changes (UTC has no DST). The value is naive
+    (no tzinfo) so it formats with TIMESTAMP_FORMAT and parses back without a
+    timezone suffix, keeping existing config files migration-free.
+    """
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+
+
 # --- Error handling policy -------------------------------------------------
 # scrape_product signals every outcome through the exception it raises. The
 # behavior for each retryable error — whether to refresh identity before
@@ -141,13 +152,17 @@ class ScrapingOrchestrator:
             actual_delay = time.monotonic() - start_time
             self.ui_strategy.complete_sleep(actual_delay)
 
-    def _flag_if_stale(self, item: BaseTrackedItem, data_manager: BaseDataManager) -> Optional[str]:
-        """Evaluates the stored timestamp of a product that was not scraped this cycle.
+    def _check_and_repair_timestamp(self, item: BaseTrackedItem, data_manager: BaseDataManager) -> Optional[str]:
+        """Evaluates — and may repair — the stored timestamp of an unscraped product.
 
-        Called only for non-skipped products whose scrape did not succeed (a
-        successful scrape refreshes the timestamp to now, so such a product is
-        never stale). Records genuinely stale products for the aggregated
-        end-of-target notification and repairs corrupted timestamps in place.
+        This method writes: a corrupted (unparseable) timestamp is repaired in place
+        via the data manager's update mechanism. It is called only for non-skipped
+        products whose scrape did not succeed (a successful scrape refreshes the
+        timestamp to now, so such a product is never stale). Genuinely stale products
+        are recorded for the aggregated end-of-target notification.
+
+        Timestamps are written and compared in naive UTC (see ``_utc_now``), so the
+        staleness window is immune to host timezone or DST changes.
 
         Args:
             item (BaseTrackedItem): The product whose timestamp is being evaluated.
@@ -167,11 +182,11 @@ class ScrapingOrchestrator:
             data_manager.update_item(
                 item.url,
                 last_price=item.last_price,
-                last_checked=datetime.datetime.now().strftime(TIMESTAMP_FORMAT)
+                last_checked=_utc_now().strftime(TIMESTAMP_FORMAT)
             )
-            return "Corrupted timestamp! Updated to current system time."
+            return "Corrupted timestamp! Updated to current time."
 
-        if (datetime.datetime.now() - timestamp) > datetime.timedelta(hours=OLD_ENTRY_HOURS):
+        if (_utc_now() - timestamp) > datetime.timedelta(hours=OLD_ENTRY_HOURS):
             self._stale_items.append(item)
             return f"Stale: last scraped {item.last_checked} (over {OLD_ENTRY_HOURS}h ago)."
 
@@ -221,7 +236,7 @@ class ScrapingOrchestrator:
             extra_notes (Notes): Additional footnotes for this failure (e.g. an
                 errors.txt pointer), shown by every strategy alongside the stale note.
         """
-        stale_note = self._flag_if_stale(item, data_manager)
+        stale_note = self._check_and_repair_timestamp(item, data_manager)
         self.ui_strategy.log_failure(item.name, error_type, attempt_notes, self._combine_notes(extra_notes, stale_note))
 
     def _errors_log_pointer(self) -> str:
@@ -276,7 +291,7 @@ class ScrapingOrchestrator:
         data_manager.update_item(
             item.url,
             last_price=result.price,
-            last_checked=datetime.datetime.now().strftime(TIMESTAMP_FORMAT)
+            last_checked=_utc_now().strftime(TIMESTAMP_FORMAT)
         )
 
     def _process_product(self, row: dict, data_manager: BaseDataManager) -> tuple[Exception | None, bool]:
@@ -298,7 +313,7 @@ class ScrapingOrchestrator:
             return None, False
 
         if not data_manager.is_scrappable_item(row):
-            stale_note = self._flag_if_stale(item, data_manager)
+            stale_note = self._check_and_repair_timestamp(item, data_manager)
             self.ui_strategy.log_warning(item.name, "Invalid URL. Skipping product...", stale_note)
             return None, False
 
@@ -339,7 +354,7 @@ class ScrapingOrchestrator:
             except SKIP_ERRORS as e:
                 # Terminal for this item, no retry: the product is gone, unavailable,
                 # or its URL is unusable. Surfaced as a warning, not a failure.
-                stale_note = self._flag_if_stale(item, data_manager)
+                stale_note = self._check_and_repair_timestamp(item, data_manager)
                 self.ui_strategy.log_warning(item.name, f"Skipping ({type(e).__name__})", self._combine_notes(str(e), stale_note), attempt_notes)
                 return None, False
 

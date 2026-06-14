@@ -1,6 +1,6 @@
 import apprise
 from urllib.parse import urlparse
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 from utils import is_valid_apprise_url
 from scrapers.registry import ScraperRegistry
 
@@ -79,6 +79,40 @@ class Notifier:
             body=f'{product_name} is now available for {current_price}{currency} in {site}, which is below your target of {target_price}{currency}.\nView it here: {url}'
         )
 
+    def _build_summary(self, title: str, header: str, items: list, format_item: Callable[[Any], str], footer: str, more_noun: str = "", max_show: int = 3) -> bool:
+        """Builds and sends one aggregated summary notification.
+
+        Shared shape for the aggregated notifications: a header line, up to
+        ``max_show`` bullet rows, a truncation line when more remain, and a footer.
+        Truncating caps the message size so a large batch can't bloat a push.
+
+        Args:
+            title (str): The notification title.
+            header (str): The opening line (typically embeds the count and site).
+            items (list): The items to summarize (already filtered to a single site).
+            format_item (Callable[[Any], str]): Maps one item to its bullet text
+                (without the leading "- ").
+            footer (str): The closing line.
+            more_noun (str): Optional noun appended to the truncation line, e.g.
+                " errors" yields "... and N more errors.". Defaults to "".
+            max_show (int): Maximum number of bullet rows before truncating.
+
+        Returns:
+            bool: True if the notification was sent successfully, False otherwise.
+        """
+        body_lines = [header]
+
+        for item in items[:max_show]:
+            body_lines.append(f"- {format_item(item)}")
+
+        if len(items) > max_show:
+            remaining = len(items) - max_show
+            body_lines.append(f"... and {remaining} more{more_noun}.")
+
+        body_lines.append(footer)
+
+        return self.notify(title=title, body="\n".join(body_lines))
+
     def notify_old_entries(self, stale_items: list['BaseTrackedItem'], hours: int) -> bool:
         """Sends a single notification summarizing products that have gone stale.
 
@@ -99,21 +133,13 @@ class Notifier:
 
         # Extract site name from the first stale item to give context
         site = self._extract_site(stale_items[0].url)
-        title = f'Scrooge Alert - Tracking Stale on {site}'
-
-        MAX_ITEMS_TO_SHOW = 3
-        body_lines = [f"{len(stale_items)} product(s) on {site} haven't been successfully scraped in over {hours} hours:\n"]
-
-        for item in stale_items[:MAX_ITEMS_TO_SHOW]:
-            body_lines.append(f"- {item.name}: {item.url}")
-
-        if len(stale_items) > MAX_ITEMS_TO_SHOW:
-            remaining = len(stale_items) - MAX_ITEMS_TO_SHOW
-            body_lines.append(f"... and {remaining} more.")
-
-        body_lines.append("\nPlease check the error logs or verify the URLs are still valid.")
-
-        return self.notify(title=title, body="\n".join(body_lines))
+        return self._build_summary(
+            title=f'Scrooge Alert - Tracking Stale on {site}',
+            header=f"{len(stale_items)} product(s) on {site} haven't been successfully scraped in over {hours} hours:\n",
+            items=stale_items,
+            format_item=lambda item: f"{item.name}: {item.url}",
+            footer="\nPlease check the error logs or verify the URLs are still valid.",
+        )
 
     def notify_errors(self, failed_items: list[tuple['BaseTrackedItem', Exception]]) -> bool:
         """Sends a notification indicating that specific errors occurred during scraping.
@@ -133,23 +159,14 @@ class Notifier:
 
         # Extract site name from the first failed item to give context
         site = self._extract_site(failed_items[0][0].url)
-        title = f'Scrooge Alert - Scraping Errors on {site}'
-
-        MAX_ERRORS_TO_SHOW = 3
-        body_lines = [f"The script encountered errors while checking {len(failed_items)} product(s) on {site}:\n"]
-
-        for product, error in failed_items[:MAX_ERRORS_TO_SHOW]:
-            error_type = type(error).__name__
-            item_name = product.name
-            body_lines.append(f"- {item_name}: {error_type}")
-
-        if len(failed_items) > MAX_ERRORS_TO_SHOW:
-            remaining = len(failed_items) - MAX_ERRORS_TO_SHOW
-            body_lines.append(f"... and {remaining} more errors.")
-
-        body_lines.append("\nPlease review the error logs for more details.")
-
-        return self.notify(title=title, body="\n".join(body_lines))
+        return self._build_summary(
+            title=f'Scrooge Alert - Scraping Errors on {site}',
+            header=f"The script encountered errors while checking {len(failed_items)} product(s) on {site}:\n",
+            items=failed_items,
+            format_item=lambda pair: f"{pair[0].name}: {type(pair[1]).__name__}",
+            footer="\nPlease review the error logs for more details.",
+            more_noun=" errors",
+        )
 
     def notify_crash(self) -> bool:
         """Sends a notification indicating that the script crashed unexpectedly.

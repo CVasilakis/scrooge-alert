@@ -25,6 +25,13 @@ class BaseScraperClient(ABC):
 
         A successful call must return a :class:`ScrapeResult`. To plug a new
         store into the retry machinery, raise these exceptions accordingly.
+
+        Every failure MUST be raised as a :class:`ScraperError` subclass (see
+        ``exceptions.py``). Raising any other exception type is treated as an
+        unexpected fault: the orchestrator falls back to its default retry policy
+        (retried, counted as a failure, traceback saved). When a store-specific
+        parsing step can fail (e.g. coercing a price string to ``float``), wrap it
+        and re-raise as :class:`ScraperParseError` so it maps to a modeled outcome.
     """
 
     def __init__(self) -> None:
@@ -54,18 +61,21 @@ class BaseScraperClient(ABC):
         """
         pass
 
-    @abstractmethod
     def refresh_identity(self) -> None:
         """Resets headers, sessions, or cookies before a retry to evade blocks.
 
-        Called by the orchestrator between retries for most error types. A client
-        with nothing to rotate may implement this as a no-op.
+        Called by the orchestrator between retries for most error types. The base
+        implementation is a no-op; a client with nothing to rotate (e.g. a simple
+        ``requests``-based scraper) can rely on it and need not override this.
         """
         pass
 
-    @abstractmethod
     def close(self) -> None:
-        """Closes any underlying sessions or resources."""
+        """Closes any underlying sessions or resources.
+
+        The base implementation is a no-op so clients without resources to release
+        need not override it. Called once per run via ``ScraperRegistry.close_all``.
+        """
         pass
 
     def get_current_headers(self) -> Dict[str, str]:

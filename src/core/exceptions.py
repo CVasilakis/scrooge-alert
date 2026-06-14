@@ -41,3 +41,7 @@ class UpdateCheckError(Exception):
 class LockAcquisitionError(Exception):
     """Raised when a lock cannot be acquired because it is held by another process."""
     pass
+
+class PluginDiscoveryError(Exception):
+    """Raised when a scraper plugin package cannot be discovered or is malformed."""
+    pass

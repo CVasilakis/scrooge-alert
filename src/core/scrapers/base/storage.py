@@ -173,21 +173,19 @@ class BaseDataManager(ABC):
     # Shared concrete helpers
     # ------------------------------------------------------------------
 
-    def has_valid_target_price(self, item: Dict[str, Any], field: str = "target_price") -> bool:
-        """Checks if an item has a valid, non-negative price in the given field.
+    def has_valid_target_price(self, item: Dict[str, Any]) -> bool:
+        """Checks if an item has a valid, non-negative ``target_price``.
 
         Args:
             item (Dict[str, Any]): The item dictionary to check.
-            field (str): The dictionary key containing the price value.
-                Defaults to ``"target_price"``.
 
         Returns:
-            bool: True if the price field exists and is a valid non-negative number.
+            bool: True if ``target_price`` exists and is a valid non-negative number.
         """
-        if field not in item:
+        if "target_price" not in item:
             return False
 
-        price = parse_price(item.get(field))
+        price = parse_price(item.get("target_price"))
         if price is None or price < 0:
             return False
 
@@ -196,10 +194,9 @@ class BaseDataManager(ABC):
     def _url_on_supported_domain(self, url: str) -> bool:
         """Returns True if the URL's host is one this plugin handles.
 
-        Matches the URL's netloc against ``plugin.get_supported_domains()`` — the
-        same single source of truth the registry uses to route URLs — so domain
-        matching never drifts between routing and storage. Returns False when no
-        plugin was injected or the value is not a usable URL string.
+        Delegates to ``plugin.matches_url`` — the single place the supported-domain
+        match is performed — so domain matching never drifts between routing
+        (registry) and storage validation. Returns False when no plugin was injected.
 
         Args:
             url (str): The URL to check.
@@ -207,10 +204,9 @@ class BaseDataManager(ABC):
         Returns:
             bool: True if the URL is on a supported domain.
         """
-        if self.plugin is None or not isinstance(url, str) or not url:
+        if self.plugin is None:
             return False
-        domain = urlparse(url).netloc.lower()
-        return any(domain.endswith(d) for d in self.plugin.get_supported_domains())
+        return self.plugin.matches_url(url)
 
 
 class JsonProductDataManager(BaseDataManager):

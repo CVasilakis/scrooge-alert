@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import List, Type
+from urllib.parse import urlparse
 from scrapers.base.client import BaseScraperClient
 from scrapers.base.storage import BaseDataManager
 
@@ -53,3 +54,23 @@ class BasePlugin(ABC):
     def get_storage_class() -> Type[BaseDataManager]:
         """Returns the data manager class for this scraper."""
         ...
+
+    def matches_url(self, url: str) -> bool:
+        """Returns True if the URL's host is one this plugin handles.
+
+        The single place the supported-domain match is performed: both the
+        registry (URL routing) and a plugin's data manager (storage validation)
+        delegate here, so domain matching can never drift between them. Matching is
+        suffix-based against ``get_supported_domains()`` and tolerant of non-string
+        or empty input.
+
+        Args:
+            url (str): The URL to test.
+
+        Returns:
+            bool: True if the URL is on a supported domain.
+        """
+        if not isinstance(url, str) or not url:
+            return False
+        domain = urlparse(url).netloc.lower()
+        return any(domain.endswith(d) for d in self.get_supported_domains())
