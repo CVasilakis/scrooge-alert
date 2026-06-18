@@ -199,6 +199,7 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
         self.scraping_name = ""
         self.scraping_attempt = 1
         self.scraping_max = 1
+        self.is_complete = False
 
     def start_target(self, target_name: str, target_logger: logging.Logger) -> None:
         """Starts a new live display session for the given target."""
@@ -213,6 +214,7 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
         self.scraping_attempt = 1
         self.scraping_max = 1
         self.sleep_label = "Sleeping"
+        self.is_complete = False
 
         self.live = Live(self._generate_panel(), refresh_per_second=10)
         self.live.start()
@@ -317,6 +319,9 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
             panel_color = "red"
         elif has_yellow:
             panel_color = "yellow"
+        elif self.is_complete:
+            # On completion with no warnings or errors.
+            panel_color = "green"
         else:
             panel_color = "blue"
 
@@ -390,8 +395,15 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
 
 
     def complete_target(self) -> None:
-        """Stops the live display console for the target."""
+        """Stops the live display console for the target.
+
+        Before stopping, the panel is re-rendered one final time in its completed
+        state so that a clean run (no warning or error rows) settles on a green
+        border instead of the in-progress blue.
+        """
         if self.live:
+            self.is_complete = True
+            self.live.update(self._generate_panel())
             self.live.stop()
             self.live = None
             self.console.print()
