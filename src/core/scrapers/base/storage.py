@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from typing import Dict, Any, List, Optional, Type, TYPE_CHECKING
@@ -391,12 +392,35 @@ class JsonProductDataManager(BaseDataManager):
         if self.ROOT_KEY in self._data:
             self._data[self.ROOT_KEY] = self._clean_products(self._data[self.ROOT_KEY])
 
+    def _backup_corrupt_file(self) -> None:
+        """Best-effort copy of a corrupt config file to a sibling ``.corrupt`` file.
+
+        Called when the on-disk JSON is unparseable at save time, just before it is
+        overwritten with the self-healed in-memory snapshot, so the user's original
+        (corrupt) content is preserved for inspection rather than silently lost.
+        Any failure here is swallowed: the backup is a courtesy and must never
+        prevent the actual save.
+        """
+        try:
+            shutil.copyfile(self.filepath, self.filepath + ".corrupt")
+        except OSError:
+            pass
+
     def save(self) -> None:
         """Applies pending updates and saves the data back to the JSON file atomically.
 
         Re-reads the file from disk to merge with any external edits made
         during the scraping run, then applies cached updates and performs
         a final duplicate cleanup before writing.
+
+        If the file is present but unreadable (``OSError``) this raises
+        :class:`StorageFileError` — mirroring ``load`` — so the caller can report it
+        instead of an unhandled error aborting the run. If it is present but contains
+        invalid JSON, the corrupt content is backed up to a sibling ``.corrupt`` file
+        and the in-memory snapshot is rewritten in its place.
+
+        Raises:
+            StorageFileError: If the file cannot be read, or the atomic write fails.
         """
         fresh_data: Dict[str, Any] = {}
         if os.path.exists(self.filepath):
@@ -404,7 +428,17 @@ class JsonProductDataManager(BaseDataManager):
                 with open(self.filepath, 'r') as file:
                     fresh_data = json.load(file)
             except json.JSONDecodeError:
-                fresh_data = self._data  # Fallback to in-memory data if corrupted
+                # The on-disk file became invalid JSON during the run. Preserve the
+                # corrupt bytes (best-effort) so the user's data is never silently
+                # lost, then self-heal by rewriting from the in-memory snapshot.
+                self._backup_corrupt_file()
+                fresh_data = self._data
+            except OSError as e:
+                # The file exists but cannot be read (permissions, I/O error, replaced
+                # by a directory). Surface as StorageFileError so the orchestrator's
+                # save guard handles it, rather than letting an unhandled OSError
+                # abort the whole run.
+                raise StorageFileError(f"Could not read {self._config_label} while saving: {e}")
         else:
             fresh_data = self._data
 

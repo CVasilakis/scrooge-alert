@@ -50,14 +50,24 @@ class ScraperRegistry:
         a :class:`PluginDiscoveryError` naming the offending package rather than
         silently skipping it.
 
+        Every discovered plugin is additionally validated against the descriptor
+        contract (:meth:`_validate_plugin_contract`) and, once all are registered,
+        the full set is checked for overlapping domains
+        (:meth:`_check_domain_conflicts`). This turns a malformed plugin or an
+        ambiguously-routed domain into a loud failure at startup rather than a
+        confusing error (or silent misrouting) at first scrape.
+
         Raises:
             PluginDiscoveryError: If a plugin package cannot be imported, does not
-                expose a ``plugin`` attribute, or exposes a non-BasePlugin value.
+                expose a ``plugin`` attribute, exposes a non-BasePlugin value, fails
+                the descriptor contract, or claims a domain another plugin handles.
         """
         if cls._discovered:
             return
 
         from scrapers.base.plugin import BasePlugin
+        from scrapers.base.client import BaseScraperClient
+        from scrapers.base.storage import BaseDataManager
 
         package_dir = Path(__file__).parent
         for _importer, modname, ispkg in pkgutil.iter_modules([str(package_dir)]):
@@ -83,9 +93,102 @@ class ScraperRegistry:
                     f"The 'plugin' attribute of scraper package 'scrapers.{modname}' is "
                     f"a {type(plugin).__name__}, not a BasePlugin instance."
                 )
+            cls._validate_plugin_contract(modname, plugin, BaseScraperClient, BaseDataManager)
             cls.register(plugin)
 
+        cls._check_domain_conflicts()
         cls._discovered = True
+
+    @classmethod
+    def _validate_plugin_contract(cls, modname: str, plugin: 'BasePlugin', client_base: type, storage_base: type) -> None:
+        """Validates that a discovered plugin returns usable descriptor values.
+
+        The :class:`BasePlugin` ABC only guarantees the descriptor methods *exist*;
+        this additionally checks they return usable values — a non-empty, unique
+        name, a non-empty display name and config filename, a non-empty list of
+        string domains, and client/storage classes that actually subclass the
+        scraper bases. A plugin that fails any check is rejected here so the mistake
+        surfaces at startup instead of breaking later at first scrape.
+
+        Args:
+            modname (str): The plugin package name, for error messages.
+            plugin (BasePlugin): The plugin descriptor to validate.
+            client_base (type): The BaseScraperClient class to check the client against.
+            storage_base (type): The BaseDataManager class to check the storage against.
+
+        Raises:
+            PluginDiscoveryError: If any part of the descriptor contract is unmet.
+        """
+        where = f"scrapers.{modname}"
+
+        name = plugin.get_name()
+        if not isinstance(name, str) or not name.strip():
+            raise PluginDiscoveryError(f"Plugin '{where}' must return a non-empty string from get_name().")
+        if name in cls._plugins:
+            raise PluginDiscoveryError(
+                f"Duplicate plugin name '{name}' (from '{where}'): another registered plugin "
+                f"already uses it. Each plugin's get_name() must be unique."
+            )
+
+        for getter_name, value in (("get_display_name", plugin.get_display_name()),
+                                   ("get_config_filename", plugin.get_config_filename())):
+            if not isinstance(value, str) or not value.strip():
+                raise PluginDiscoveryError(f"Plugin '{name}' ({where}) must return a non-empty string from {getter_name}().")
+
+        domains = plugin.get_supported_domains()
+        if not isinstance(domains, (list, tuple)) or not domains:
+            raise PluginDiscoveryError(f"Plugin '{name}' ({where}) must return a non-empty list from get_supported_domains().")
+        if any(not isinstance(d, str) or not d.strip() for d in domains):
+            raise PluginDiscoveryError(f"Plugin '{name}' ({where}) returned an empty or non-string entry in get_supported_domains().")
+
+        for getter_name, getter, base in (("get_client_class", plugin.get_client_class, client_base),
+                                          ("get_storage_class", plugin.get_storage_class, storage_base)):
+            try:
+                bound_class = getter()
+            except Exception as e:
+                raise PluginDiscoveryError(f"Plugin '{name}' ({where}) failed to provide {getter_name}(): {e}") from e
+            if not (isinstance(bound_class, type) and issubclass(bound_class, base)):
+                raise PluginDiscoveryError(
+                    f"Plugin '{name}' ({where}): {getter_name}() must return a {base.__name__} subclass, got {bound_class!r}."
+                )
+
+    @staticmethod
+    def _domains_overlap(d1: str, d2: str) -> bool:
+        """Returns True if a single host could match both domains.
+
+        ``BasePlugin.matches_url`` accepts a host that equals a supported domain or
+        is a label-boundary subdomain of it, so two domains conflict when they are
+        equal or one is a subdomain-suffix of the other (e.g. ``skroutz.gr`` and
+        ``shop.skroutz.gr`` both match a host of ``shop.skroutz.gr``).
+        """
+        if d1 == d2:
+            return True
+        return d1.endswith("." + d2) or d2.endswith("." + d1)
+
+    @classmethod
+    def _check_domain_conflicts(cls) -> None:
+        """Ensures no two registered plugins claim overlapping domains.
+
+        ``plugin_for_url`` returns the *first* plugin whose ``matches_url`` accepts a
+        URL, iterating in (non-guaranteed) discovery order. If two plugins claimed
+        the same — or a nesting — domain, routing would be silent and order-dependent.
+        Detecting it once at discovery turns that latent ambiguity into a loud failure.
+
+        Raises:
+            PluginDiscoveryError: If two plugins claim overlapping domains.
+        """
+        seen: List[tuple] = []  # (normalized_domain, owning_plugin_name)
+        for name, plugin in cls._plugins.items():
+            for domain in plugin.get_supported_domains():
+                norm = domain.strip().lower()
+                for existing_domain, owner in seen:
+                    if owner != name and cls._domains_overlap(norm, existing_domain):
+                        raise PluginDiscoveryError(
+                            f"Domain conflict: plugin '{name}' claims '{norm}', which overlaps with "
+                            f"'{existing_domain}' already claimed by plugin '{owner}'. A domain may be "
+                            f"handled by only one plugin."
+                        )
+                seen.append((norm, name))
 
     @classmethod
     def registered_targets(cls) -> List[str]:
