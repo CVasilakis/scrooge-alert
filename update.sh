@@ -5,22 +5,17 @@ set -eu
 # due to git pull on the run-time
 main() {
     # ==============================================================================
-    # COLORS
-    # ==============================================================================
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    CYAN='\033[0;36m'
-    NC='\033[0m' # No Color
-
-    # ==============================================================================
     # GLOBAL VARIABLES
     # ==============================================================================
 
-    # Get the directory where the script is located
+    # Get the directory where the script is located (repository root)
     SCRIPT_DIR="$( cd "$( dirname "$0" )" >/dev/null 2>&1 && pwd )"
+    BASE_DIR="$SCRIPT_DIR"
 
-    SERVICE_NAME="skroutz-scraper"
+    # Shared helpers. Sourced here, inside main(), so the library is fully read
+    # into memory BEFORE 'git reset' may rewrite it on disk - the same reason the
+    # whole update runs from within this function.
+    . "$SCRIPT_DIR/scripts/lib/common.sh"
 
     # ==============================================================================
     # EXECUTION
@@ -47,9 +42,13 @@ main() {
         printf "%b\n" "\n${YELLOW}Switching from branch '${CURRENT_BRANCH}' to 'main'.${NC}"
     fi
 
-    # Ensure the script isn't actively running while we change the files out from under it
+    # Ensure no scraper is actively running while we change the files out from
+    # under it. Glob the installed services (no venv dependency, and robust to
+    # plugin renames in the incoming version).
     if command -v systemctl > /dev/null 2>&1; then
-        systemctl --user stop "$SERVICE_NAME.service" 2>/dev/null || true
+        for plugin in $(list_installed_plugins service); do
+            systemctl --user stop "$(unit_name "$plugin" service)" 2>/dev/null || true
+        done
     fi
 
     if ! git checkout -f main --quiet; then

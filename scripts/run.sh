@@ -2,15 +2,6 @@
 set -eu
 
 # ==============================================================================
-# COLORS
-# ==============================================================================
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
-
-# ==============================================================================
 # GLOBAL VARIABLES
 # ==============================================================================
 
@@ -18,23 +9,29 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$( cd "$( dirname "$0" )" >/dev/null 2>&1 && pwd )"
 BASE_DIR="$( dirname "$SCRIPT_DIR" )"
 
+# Shared helpers (colors, plugin enumeration)
+. "$SCRIPT_DIR/lib/common.sh"
+
+# Registered plugins (one --<plugin> flag is accepted per registered scraper).
+PLUGINS="$(list_plugins || true)"
+
 # ==============================================================================
 # HELPER FUNCTIONS
 # ==============================================================================
 
 print_help() {
-    cat << 'EOF'
-
-Usage: run.sh [-h] [--quiet] [--status] [--ping] [--skroutz]
-
-Optional arguments:
-  -h, --help        show this help message and exit
-  --quiet           Run script with no console output
-  --status          Perform a health check of the background service
-  --ping            Send a test notification via Apprise
-  --skroutz         Run exclusively the Skroutz scraper
-
-EOF
+    printf '\n'
+    printf '%s\n' "Usage: run.sh [-h] [--quiet] [--status] [--ping] [--<plugin>]"
+    printf '\n'
+    printf '%s\n' "Optional arguments:"
+    printf '%s\n' "  -h, --help        show this help message and exit"
+    printf '%s\n' "  --quiet           Run script with no console output"
+    printf '%s\n' "  --status          Perform a health check of the background service"
+    printf '%s\n' "  --ping            Send a test notification via Apprise"
+    for plugin in $PLUGINS; do
+        printf '  --%-14s Run exclusively the %s scraper\n' "$plugin" "$plugin"
+    done
+    printf '\n'
 }
 
 # ==============================================================================
@@ -48,7 +45,7 @@ ARGS=""
 FLAG_PING=0
 FLAG_STATUS=0
 FLAG_QUIET=0
-FLAG_SKROUTZ=0
+FLAG_PLUGIN=0
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -71,10 +68,19 @@ while [ "$#" -gt 0 ]; do
             ARGS="$ARGS --quiet"
             shift
             ;;
-        --skroutz)
-            FLAG_SKROUTZ=1
-            ARGS="$ARGS --skroutz"
-            shift
+        --*)
+            # Any registered plugin (e.g. --skroutz) selects that scraper and is
+            # forwarded to main.py, which builds a matching flag per plugin.
+            name="${1#--}"
+            if plugin_in_list "$name" $PLUGINS; then
+                FLAG_PLUGIN=$((FLAG_PLUGIN + 1))
+                ARGS="$ARGS $1"
+                shift
+            else
+                printf "%b\n" "${RED}\nError: Invalid flag provided: $1${NC}"
+                print_help
+                exit 1
+            fi
             ;;
         *)
             printf "%b\n" "${RED}\nError: Invalid flag provided: $1${NC}"
@@ -88,7 +94,7 @@ done
 # VALIDATION
 # ==============================================================================
 
-TOTAL_FLAGS=$((FLAG_PING + FLAG_STATUS + FLAG_QUIET + FLAG_SKROUTZ))
+TOTAL_FLAGS=$((FLAG_PING + FLAG_STATUS + FLAG_QUIET + FLAG_PLUGIN))
 
 # Check --ping rules
 if [ "$FLAG_PING" -eq 1 ]; then

@@ -218,3 +218,6 @@ __marimo__/
 GEMINI.md
 CLAUDE.md
 WARP.md
+
+# Keep the POSIX shell helper library (the generic 'lib/' rule above would ignore it)
+!scripts/lib/
