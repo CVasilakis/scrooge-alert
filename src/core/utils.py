@@ -3,11 +3,9 @@ import re
 import sys
 import signal
 import subprocess
-import apprise
 from dotenv import load_dotenv
 
 from typing import Optional
-from rich.console import Console
 
 from constants import BASE_DIR, APPRISE_PLACEHOLDERS, EXIT_CODE_INTERRUPT
 from exceptions import EnvFileError, UpdateCheckError
@@ -81,6 +79,9 @@ def is_valid_apprise_url(url: str) -> bool:
         return False
     if any(p in url for p in APPRISE_PLACEHOLDERS):
         return False
+    # Deferred so importing utils (pulled in almost everywhere via parse_price)
+    # does not load apprise (~88ms) for commands that never validate a URL.
+    import apprise
     return bool(apprise.Apprise.instantiate(url))
 
 def classify_notification_urls(notification_urls: str) -> tuple[list, list]:
@@ -177,6 +178,10 @@ def install_interrupt_handler() -> None:
     ``EXIT_CODE_INTERRUPT``. The long-running scrape loop installs its own
     deferred handler instead (see ScrapingOrchestrator.signal_handler).
     """
+    # Deferred so importing utils does not load rich (~30ms) for paths that never
+    # render output (e.g. the registry's list_plugins enumeration in the scripts).
+    from rich.console import Console
+
     def _handler(signum, _frame):
         os.write(1, b"\033[2K\r")
         Console().print(f"🛑 Interrupted! Received signal {describe_signal(signum)}.\n")

@@ -1,15 +1,12 @@
-from .client import BaseScraperClient
-from .http_client import HttpScraperClient
-from .model import BaseTrackedItem, ScrapeResult
-from .storage import BaseDataManager, JsonProductDataManager
-from .plugin import BasePlugin
+"""Abstract base contracts for scraper plugins.
 
-__all__ = [
-    "BaseScraperClient",
-    "HttpScraperClient",
-    "BaseTrackedItem",
-    "ScrapeResult",
-    "BaseDataManager",
-    "JsonProductDataManager",
-    "BasePlugin",
-]
+This package intentionally performs NO imports at the package level. Its modules
+are imported directly via their full submodule path
+(e.g. ``from scrapers.base.http_client import HttpScraperClient``), never as
+re-exports from here. Keeping this ``__init__`` import-free guarantees the base
+package can never transitively pull in a transport library (``tls_client``,
+``selenium``, ...) merely because someone imported, say,
+``scrapers.base.plugin`` during plugin discovery. Heavy transport imports live
+at the top of their concrete client module and load only when that client is
+actually instantiated for a scrape.
+"""

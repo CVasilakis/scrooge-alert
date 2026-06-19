@@ -62,10 +62,12 @@ plugin_in_list() {
 # ------------------------------------------------------------------------------
 
 # list_plugins: print the machine name of every registered plugin, one per line,
-# by querying the ScraperRegistry (the single source of truth). Requires the venv
-# and installed dependencies, since plugin discovery imports each plugin's client/
-# storage modules. Returns non-zero (printing nothing) if the venv is unavailable,
-# so callers can decide whether to fall back to list_installed_plugins.
+# by querying the ScraperRegistry (the single source of truth). Requires the venv,
+# but plugin discovery only imports each plugin's lightweight descriptor (plugin.py)
+# - never its client/storage or transport libraries (tls_client, selenium, ...),
+# which load lazily only when a scrape actually runs. Returns non-zero (printing
+# nothing) if the venv is unavailable, so callers can fall back to
+# list_installed_plugins.
 list_plugins() {
     [ -x "$BASE_DIR/venv/bin/python3" ] || return 1
     PYTHONPATH="$BASE_DIR/src/core" "$BASE_DIR/venv/bin/python3" - 2>/dev/null <<'PY'

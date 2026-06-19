@@ -50,12 +50,18 @@ class ScraperRegistry:
         a :class:`PluginDiscoveryError` naming the offending package rather than
         silently skipping it.
 
-        Every discovered plugin is additionally validated against the descriptor
-        contract (:meth:`_validate_plugin_contract`) and, once all are registered,
-        the full set is checked for overlapping domains
+        Every discovered plugin is additionally validated against the lightweight
+        descriptor contract (:meth:`_validate_plugin_contract`) and, once all are
+        registered, the full set is checked for overlapping domains
         (:meth:`_check_domain_conflicts`). This turns a malformed plugin or an
         ambiguously-routed domain into a loud failure at startup rather than a
-        confusing error (or silent misrouting) at first scrape.
+        confusing error (or silent misrouting) at first scrape. Validation of the
+        bound client/storage *classes* is deliberately NOT done here: resolving
+        them would trigger each plugin's deferred import of its concrete
+        client/storage module (and any heavy transport library it pulls in, e.g.
+        ``tls_client`` or ``selenium``), defeating lazy loading for callers that
+        only enumerate plugins (argparse flags, ``list_plugins``, ``--status``).
+        That check is deferred to first instantiation in :meth:`_resolve_bound_class`.
 
         Raises:
             PluginDiscoveryError: If a plugin package cannot be imported, does not
@@ -66,8 +72,6 @@ class ScraperRegistry:
             return
 
         from scrapers.base.plugin import BasePlugin
-        from scrapers.base.client import BaseScraperClient
-        from scrapers.base.storage import BaseDataManager
 
         package_dir = Path(__file__).parent
         for _importer, modname, ispkg in pkgutil.iter_modules([str(package_dir)]):
@@ -93,28 +97,30 @@ class ScraperRegistry:
                     f"The 'plugin' attribute of scraper package 'scrapers.{modname}' is "
                     f"a {type(plugin).__name__}, not a BasePlugin instance."
                 )
-            cls._validate_plugin_contract(modname, plugin, BaseScraperClient, BaseDataManager)
+            cls._validate_plugin_contract(modname, plugin)
             cls.register(plugin)
 
         cls._check_domain_conflicts()
         cls._discovered = True
 
     @classmethod
-    def _validate_plugin_contract(cls, modname: str, plugin: 'BasePlugin', client_base: type, storage_base: type) -> None:
+    def _validate_plugin_contract(cls, modname: str, plugin: 'BasePlugin') -> None:
         """Validates that a discovered plugin returns usable descriptor values.
 
         The :class:`BasePlugin` ABC only guarantees the descriptor methods *exist*;
         this additionally checks they return usable values — a non-empty, unique
-        name, a non-empty display name and config filename, a non-empty list of
-        string domains, and client/storage classes that actually subclass the
-        scraper bases. A plugin that fails any check is rejected here so the mistake
-        surfaces at startup instead of breaking later at first scrape.
+        name, a non-empty display name and config filename, and a non-empty list of
+        string domains. A plugin that fails any check is rejected here so the
+        mistake surfaces at startup instead of breaking later at first scrape.
+
+        Only the *cheap* descriptor metadata is checked here. The bound
+        client/storage classes are intentionally NOT resolved (that would import a
+        plugin's transport stack just to enumerate it); their type is validated
+        lazily in :meth:`_resolve_bound_class` at first instantiation.
 
         Args:
             modname (str): The plugin package name, for error messages.
             plugin (BasePlugin): The plugin descriptor to validate.
-            client_base (type): The BaseScraperClient class to check the client against.
-            storage_base (type): The BaseDataManager class to check the storage against.
 
         Raises:
             PluginDiscoveryError: If any part of the descriptor contract is unmet.
@@ -141,16 +147,40 @@ class ScraperRegistry:
         if any(not isinstance(d, str) or not d.strip() for d in domains):
             raise PluginDiscoveryError(f"Plugin '{name}' ({where}) returned an empty or non-string entry in get_supported_domains().")
 
-        for getter_name, getter, base in (("get_client_class", plugin.get_client_class, client_base),
-                                          ("get_storage_class", plugin.get_storage_class, storage_base)):
-            try:
-                bound_class = getter()
-            except Exception as e:
-                raise PluginDiscoveryError(f"Plugin '{name}' ({where}) failed to provide {getter_name}(): {e}") from e
-            if not (isinstance(bound_class, type) and issubclass(bound_class, base)):
-                raise PluginDiscoveryError(
-                    f"Plugin '{name}' ({where}): {getter_name}() must return a {base.__name__} subclass, got {bound_class!r}."
-                )
+    @staticmethod
+    def _resolve_bound_class(plugin: 'BasePlugin', getter_name: str, base: type) -> type:
+        """Resolves and type-checks a plugin's bound client/storage class on first use.
+
+        Calling the getter triggers the plugin's deferred import of its concrete
+        client/storage module — and any heavy transport library it pulls in (e.g.
+        ``tls_client`` or ``selenium``). This is done lazily here, at first
+        instantiation, rather than during discovery, so merely enumerating plugins
+        never loads a scraper's transport stack. The subclass check that used to
+        live in discovery moves with it, so a mis-bound class still fails loudly —
+        just at the point the store is first used.
+
+        Args:
+            plugin (BasePlugin): The plugin whose class binding to resolve.
+            getter_name (str): The descriptor method name ('get_client_class' or
+                'get_storage_class').
+            base (type): The base class the resolved class must subclass.
+
+        Returns:
+            type: The validated client/storage class.
+
+        Raises:
+            PluginDiscoveryError: If the getter raises or returns a non-subclass.
+        """
+        name = plugin.get_name()
+        try:
+            bound_class = getattr(plugin, getter_name)()
+        except Exception as e:
+            raise PluginDiscoveryError(f"Plugin '{name}' failed to provide {getter_name}(): {e}") from e
+        if not (isinstance(bound_class, type) and issubclass(bound_class, base)):
+            raise PluginDiscoveryError(
+                f"Plugin '{name}': {getter_name}() must return a {base.__name__} subclass, got {bound_class!r}."
+            )
+        return bound_class
 
     @staticmethod
     def _domains_overlap(d1: str, d2: str) -> bool:
@@ -281,8 +311,10 @@ class ScraperRegistry:
         target = self.resolve_target(url)
 
         if target not in self._scrapers:
+            from scrapers.base.client import BaseScraperClient
             plugin = self._plugins[target]
-            self._scrapers[target] = plugin.get_client_class()()
+            client_cls = self._resolve_bound_class(plugin, "get_client_class", BaseScraperClient)
+            self._scrapers[target] = client_cls()
 
         return self._scrapers[target]
 
@@ -303,11 +335,13 @@ class ScraperRegistry:
             if target not in self._plugins:
                 raise ValueError(f"Unsupported storage target: {target}")
 
+            from scrapers.base.storage import BaseDataManager
             plugin = self._plugins[target]
+            storage_cls = self._resolve_bound_class(plugin, "get_storage_class", BaseDataManager)
             path = os.path.join(self.config_dir, plugin.get_config_filename())
             # Inject the plugin so the manager resolves supported domains through
             # it (the single source of truth) instead of importing a concrete plugin.
-            self._managers[target] = plugin.get_storage_class()(path, plugin)
+            self._managers[target] = storage_cls(path, plugin)
 
         return self._managers[target]
 
