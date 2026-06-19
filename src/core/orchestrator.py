@@ -7,7 +7,7 @@ from typing import Optional
 
 from locks import acquire_lock
 from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, TIMESTAMP_FORMAT
-from exceptions import RateLimitError, ServerError, ScraperParseError, LockAcquisitionError, StorageFileError, ProductNotFoundError, ProductUnavailableError, InvalidURLError
+from exceptions import RateLimitError, ServerError, ScraperParseError, LockAcquisitionError, StorageFileError, ProductNotFoundError, ProductUnavailableError, InvalidURLError, PluginDependencyError
 from scrapers.base.model import BaseTrackedItem
 from scrapers.base.storage import BaseDataManager
 from scrapers.registry import ScraperRegistry
@@ -488,6 +488,14 @@ class ScrapingOrchestrator:
                 self.ui_strategy.log_error("System", "Another instance is currently running. Aborting...")
                 self.ui_strategy.complete_target()
                 skipped_count += 1
+                continue
+
+            except PluginDependencyError as e:
+                # This scraper's dependencies are not installed (e.g. run manually
+                # after a single-plugin install). Skip just this target with an
+                # actionable message; other targets and the rest of the run proceed.
+                self.ui_strategy.log_error("System", str(e))
+                self.ui_strategy.complete_target()
                 continue
 
             if self.interrupted:

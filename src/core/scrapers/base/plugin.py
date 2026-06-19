@@ -1,5 +1,7 @@
+import inspect
 from abc import ABC, abstractmethod
-from typing import List, Type
+from pathlib import Path
+from typing import Dict, List, Optional, Type
 from urllib.parse import urlparse
 from scrapers.base.client import BaseScraperClient
 from scrapers.base.storage import BaseDataManager
@@ -13,6 +15,19 @@ class BasePlugin(ABC):
     for domain lists, config filenames, display names, and class bindings.
     This prevents drift between components (e.g. a client supporting domains
     that its storage does not recognize).
+
+    Import-light contract (load-bearing — do not break):
+        The descriptor module (``plugin.py``) and the package ``__init__`` are
+        imported for *every* plugin during discovery, merely to enumerate the
+        available scrapers (argparse flags, ``list_plugins``, ``--status``,
+        ``install.sh``). They must therefore import only stdlib and the base
+        contracts — never a transport/parsing library (``tls_client``,
+        ``selenium``, ``lxml``, ...). Those belong behind the deferred imports in
+        :meth:`get_client_class` / :meth:`get_storage_class`, which run only when a
+        scrape actually instantiates the bound class. This is what lets a plugin
+        ship its dependencies in its own ``requirements.txt`` (see
+        :meth:`get_requirements_path`) and stay uninstalled without breaking
+        discovery for every other command.
     """
 
     @staticmethod
@@ -54,6 +69,44 @@ class BasePlugin(ABC):
     def get_storage_class() -> Type[BaseDataManager]:
         """Returns the data manager class for this scraper."""
         ...
+
+    def get_requirements_path(self) -> Optional[str]:
+        """Absolute path to this plugin's own ``requirements.txt``, or None.
+
+        Resolved next to the plugin's descriptor module, so a new plugin gets
+        optional-dependency support for free just by dropping a ``requirements.txt``
+        beside its ``plugin.py`` — ``install.sh`` installs it only when the plugin
+        is provisioned, and no installer or registry code changes. A plugin that
+        needs nothing beyond the core framework simply ships no such file.
+
+        Returns:
+            Optional[str]: The absolute path if the file exists, otherwise None.
+        """
+        req = Path(inspect.getfile(type(self))).with_name("requirements.txt")
+        return str(req) if req.is_file() else None
+
+    def get_timer_directives(self) -> Dict[str, str]:
+        """systemd ``[Timer]`` *trigger* directives for this plugin's generated unit.
+
+        ``install.sh`` builds each plugin's ``<plugin>-scraper.timer`` from this
+        mapping, so a plugin can declare its own cadence (e.g. a heavy browser
+        scraper that should run less often than the default) without editing any
+        shell script. The framework owns *how* a plugin runs (the ``[Service]``
+        ExecStart dispatches through ``run.sh --quiet --<plugin>``); the plugin
+        owns *when* it runs. Override to change the schedule.
+
+        Only the schedule/trigger is configurable here. ``RandomizedDelaySec`` and
+        ``Persistent`` are framework-managed (hardcoded by ``install.sh`` for every
+        plugin) and are deliberately *not* settable per plugin — any such keys
+        returned here are dropped when the timer is generated.
+
+        Returns:
+            Dict[str, str]: ``[Timer]`` trigger ``key -> value`` directives. Must
+                contain at least one ``OnCalendar`` (or other) trigger for a valid timer.
+        """
+        return {
+            "OnCalendar": "hourly",
+        }
 
     def matches_url(self, url: str) -> bool:
         """Returns True if the URL's host is one this plugin handles.

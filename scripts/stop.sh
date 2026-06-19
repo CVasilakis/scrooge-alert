@@ -32,10 +32,12 @@ if [ "$#" -gt 0 ]; then
 fi
 
 if [ -n "$TARGET" ]; then
-    ALL_PLUGINS="$(list_plugins || true)"
-    if [ -n "$ALL_PLUGINS" ] && ! plugin_in_list "$TARGET" $ALL_PLUGINS; then
+    # Teardown acts on installed units, so accept a plugin that is registered OR
+    # still has an installed service (e.g. a leftover from a plugin removed upstream);
+    # reject only a name in neither set.
+    if ! is_known_target "$TARGET" service; then
         printf "%b\n" "${RED}Error: Unknown plugin '$TARGET'.${NC}"
-        printf "%b\n" "Available plugins: ${CYAN}$(printf '%s ' $ALL_PLUGINS)${NC}"
+        printf "%b\n" "Available plugins: ${CYAN}$(printf '%s ' $(known_targets service))${NC}"
         exit 1
     fi
     PLUGINS="$TARGET"

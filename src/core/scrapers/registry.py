@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from typing import Dict, List, Optional, TYPE_CHECKING
 
-from exceptions import PluginDiscoveryError
+from exceptions import PluginDiscoveryError, PluginDependencyError
 
 if TYPE_CHECKING:
     from scrapers.base.plugin import BasePlugin
@@ -174,6 +174,16 @@ class ScraperRegistry:
         name = plugin.get_name()
         try:
             bound_class = getattr(plugin, getter_name)()
+        except ImportError as e:
+            # The plugin's deferred import pulled in a transport/parsing library
+            # that is not installed (its requirements.txt was never installed).
+            # Surface a clear, actionable message instead of a raw ModuleNotFoundError.
+            missing = getattr(e, "name", None)
+            missing_note = f" (missing module: {missing})" if missing else ""
+            raise PluginDependencyError(
+                f"Scraper '{name}' requires dependencies that are not installed{missing_note}. "
+                f"Install them with: ./install.sh --{name}"
+            ) from e
         except Exception as e:
             raise PluginDiscoveryError(f"Plugin '{name}' failed to provide {getter_name}(): {e}") from e
         if not (isinstance(bound_class, type) and issubclass(bound_class, base)):

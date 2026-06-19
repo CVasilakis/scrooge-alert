@@ -176,7 +176,7 @@ There are two ways to execute the script: automatically via the scheduled system
 
 ### Option 1: Automated Run
 
-Once `install.sh` has run successfully, the script executes automatically via a systemd timer every hour. The systemd timer applies a randomized up-to-5m startup delay before launching the execution wrapper (`scripts/run.sh`) to simulate human timing and avoid exact scheduling footprints.
+Once `install.sh` has run successfully, the script executes automatically via a systemd timer every hour. The systemd timer applies a randomized up-to-3m startup delay before launching the execution wrapper (`scripts/run.sh`) to simulate human timing and avoid exact scheduling footprints.
 
 ### Option 2: Manual Run (CLI Flags)
 
@@ -302,7 +302,7 @@ The application maintains comprehensive logs to help you monitor background exec
 
 The default configuration applies rate limiting to reduce traffic and increase the success rate of the web scraper:
 
-*   A randomized startup delay (up to 5 minutes) is applied by the systemd timer before each background execution to avoid exact scheduling footprints.
+*   A randomized startup delay (up to 3 minutes) is applied by the systemd timer before each background execution to avoid exact scheduling footprints.
 *   Products are checked sequentially, not concurrently.
 *   A base 20s delay, plus randomized jitter (1-5s), is enforced between requests.
 
@@ -363,7 +363,7 @@ Because the script intentionally pauses for about 25 seconds per product to avoi
 <summary><b>6. How long does a full scrape take to complete?</b></summary>
 <br>
 
-To mimic human behavior, the script spaces out its requests. It applies a base delay of 20 seconds per product, plus an unpredictable jitter of 1–5 seconds. If you are tracking 10 products, a full manual run will take approximately 4 minutes. *(Note: Background runs via systemd also have a randomized startup delay of up to 5 minutes, which is not applied to manual executions).*
+To mimic human behavior, the script spaces out its requests. It applies a base delay of 20 seconds per product, plus an unpredictable jitter of 1–5 seconds. If you are tracking 10 products, a full manual run will take approximately 4 minutes. *(Note: Background runs via systemd also have a randomized startup delay of up to 3 minutes, which is not applied to manual executions).*
 </details>
 
 <details>

@@ -1,5 +1,6 @@
 import sys
 import os
+import glob
 import signal
 import subprocess
 
@@ -18,6 +19,37 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
+def get_systemd_user_dir() -> str:
+    """Returns the systemd user unit directory, honoring ``XDG_CONFIG_HOME``.
+
+    Mirrors ``${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user`` from the shell
+    helpers (``common.sh``), so Python and the management scripts agree on where
+    units live even under a non-default ``XDG_CONFIG_HOME``.
+    """
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(base, "systemd", "user")
+
+def get_installed_plugin_units() -> dict:
+    """Maps each installed scraper plugin to the set of unit suffixes it has.
+
+    Globs ``<plugin>-scraper.{timer,service}`` in the systemd user directory -
+    the same naming convention install.sh provisions and the shell helpers
+    enumerate. Glob-based (no registry), so it also finds units whose plugin was
+    removed from the source tree, which is exactly how orphans are detected.
+
+    Returns:
+        dict: ``{plugin_name: {"timer", "service"}}`` for every installed unit.
+    """
+    unit_dir = get_systemd_user_dir()
+
+    found: dict = {}
+    for suffix in ("timer", "service"):
+        marker = f"-scraper.{suffix}"
+        for path in glob.glob(os.path.join(unit_dir, f"*{marker}")):
+            name = os.path.basename(path)[:-len(marker)]
+            found.setdefault(name, set()).add(suffix)
+    return found
+
 def get_systemd_properties(unit: str, properties: str) -> dict:
     """Retrieves specified properties for a given systemd user unit.
 
@@ -28,7 +60,7 @@ def get_systemd_properties(unit: str, properties: str) -> dict:
     Returns:
         dict: A dictionary mapping property names to their values.
     """
-    service_file_path = os.path.expanduser(f'~/.config/systemd/user/{unit}')
+    service_file_path = os.path.join(get_systemd_user_dir(), unit)
     if not os.path.exists(service_file_path) or os.path.getsize(service_file_path) == 0:
         return {}
 
@@ -139,6 +171,29 @@ def main():
 
         console.print()
         service_panel.render(console)
+
+    # --- Orphaned Unit Panels ---
+    # Units installed for a plugin that is no longer registered (removed or
+    # renamed in the source tree). They never appear in the loop above (it
+    # iterates registered plugins) and can never run - the service's
+    # `run.sh --quiet --<plugin>` would be rejected as an unknown flag - so each
+    # one is surfaced explicitly, in its own red panel, with removal instructions.
+    registered_set = set(registered_scrapers)
+    installed_units = get_installed_plugin_units()
+    orphans = sorted(name for name in installed_units if name not in registered_set)
+
+    for name in orphans:
+        # One panel per orphan: a single error line, with the removal command
+        # carried as a footnote (rendered cyan from the backticks). The exact unit
+        # filenames are intentionally omitted - the plugin name in the title and
+        # the command are enough to identify and remove it. The "❗" icon makes
+        # StatusPanelBuilder color the border red on its own (no forced override).
+        orphan_panel = StatusPanelBuilder(f"{name.capitalize()} Service Status (Orphaned)")
+        ref = orphan_panel.add_note_ref(f"Run `./scripts/uninstall.sh --{name}` to remove it")
+        orphan_panel.add_row("❗", f"[red]This scraper was removed but is still scheduled.[/red]{ref}", "")
+
+        console.print()
+        orphan_panel.render(console)
 
     console.print()
 

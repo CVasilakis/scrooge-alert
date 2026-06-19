@@ -42,10 +42,22 @@ main() {
         printf "%b\n" "\n${YELLOW}Switching from branch '${CURRENT_BRANCH}' to 'main'.${NC}"
     fi
 
-    # Ensure no scraper is actively running while we change the files out from
-    # under it. Glob the installed services (no venv dependency, and robust to
-    # plugin renames in the incoming version).
+    # Derive which plugins to reprovision from the units already installed, so an
+    # update preserves the user's original selection (a single-plugin install stays
+    # single) instead of silently provisioning every registered plugin - including
+    # new or heavy ones the user never opted into. A store added in the new version
+    # is adopted only by an explicit ./install.sh --<store>. Glob-based, so it needs
+    # no venv and is robust to plugin renames in the incoming version.
+    #
+    # Captured before 'git reset' for clarity, though the unit files live under
+    # ~/.config/systemd/user and are unaffected by it.
+    INSTALLED_PLUGINS=""
     if command -v systemctl > /dev/null 2>&1; then
+        INSTALLED_PLUGINS="$(list_installed_plugins timer)"
+
+        # Ensure no scraper is actively running while we change the files out from
+        # under it. Glob the installed services (also catches an orphaned service
+        # whose timer is gone).
         for plugin in $(list_installed_plugins service); do
             systemctl --user stop "$(unit_name "$plugin" service)" 2>/dev/null || true
         done
@@ -68,7 +80,20 @@ main() {
 
     if [ -f "$SCRIPT_DIR/install.sh" ]; then
         chmod +x "$SCRIPT_DIR/install.sh"
-        if ! "$SCRIPT_DIR/install.sh" --update; then
+
+        # Turn the bare plugin names from the glob into install.sh's --<plugin>
+        # flags. When nothing was installed this stays empty and the call below
+        # collapses to a bare '--update', i.e. a full install (fresh bootstrap /
+        # legacy behavior).
+        UPDATE_FLAGS=""
+        for plugin in $INSTALLED_PLUGINS; do
+            UPDATE_FLAGS="$UPDATE_FLAGS --$plugin"
+        done
+
+        # Reprovision exactly the previously-installed plugins. Intentionally
+        # unquoted so the flag list splits into separate arguments.
+        # shellcheck disable=SC2086
+        if ! "$SCRIPT_DIR/install.sh" --update $UPDATE_FLAGS; then
             printf "%b\n" "\n${RED}Error: Installation failed during update. Please run ./install.sh manually.${NC}\n"
             exit 1
         fi

@@ -36,6 +36,16 @@ fi
 # ------------------------------------------------------------------------------
 
 if [ -n "$TARGET" ]; then
+    # Removable if the plugin is registered OR has a leftover timer/service unit
+    # (so orphans of a plugin deleted upstream can still be purged). A name in
+    # none of those sets is a typo: reject it instead of silently "succeeding"
+    # (rm -f on absent unit files would otherwise report a misleading success).
+    if ! is_known_target "$TARGET" timer && ! is_known_target "$TARGET" service; then
+        printf "%b\n" "${RED}Error: Unknown plugin '$TARGET'.${NC}"
+        printf "%b\n" "Available plugins: ${CYAN}$(printf '%s ' $(known_targets timer))${NC}"
+        exit 1
+    fi
+
     printf "%b\n" "\n${CYAN}Removing systemd units for '$TARGET'...${NC}"
 
     disable_one "$TARGET"

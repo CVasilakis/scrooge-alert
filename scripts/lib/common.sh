@@ -89,6 +89,38 @@ for target in ScraperRegistry.registered_targets():
 PY
 }
 
+# list_plugin_requirements: print "<plugin> <abs_requirements_path>" for every
+# registered plugin that ships its own requirements.txt (one pair per line),
+# reusing plugin.get_requirements_path(). Plugins with no extra dependencies are
+# omitted. The path is absolute, so it installs regardless of cwd. Same venv
+# requirement as list_plugins.
+list_plugin_requirements() {
+    [ -x "$BASE_DIR/venv/bin/python3" ] || return 1
+    PYTHONPATH="$BASE_DIR/src/core" "$BASE_DIR/venv/bin/python3" - 2>/dev/null <<'PY'
+from scrapers.registry import ScraperRegistry
+for target in ScraperRegistry.registered_targets():
+    path = ScraperRegistry.get_plugin(target).get_requirements_path()
+    if path:
+        print(target, path)
+PY
+}
+
+# list_plugin_timer_directives: print "<plugin><TAB><Key>=<Value>" for every
+# systemd [Timer] directive of every registered plugin (one per line), from
+# plugin.get_timer_directives(). The plugin name is machine-readable (no
+# whitespace), so a literal tab cleanly separates it from the directive, whose
+# value may itself contain spaces (e.g. an OnCalendar like "*-*-* 06:00:00").
+# Same venv requirement as list_plugins.
+list_plugin_timer_directives() {
+    [ -x "$BASE_DIR/venv/bin/python3" ] || return 1
+    PYTHONPATH="$BASE_DIR/src/core" "$BASE_DIR/venv/bin/python3" - 2>/dev/null <<'PY'
+from scrapers.registry import ScraperRegistry
+for target in ScraperRegistry.registered_targets():
+    for key, value in ScraperRegistry.get_plugin(target).get_timer_directives().items():
+        print(f"{target}\t{key}={value}")
+PY
+}
+
 # list_installed_plugins <suffix>: print the plugin name behind every installed
 # "<plugin>-scraper.<suffix>" unit file in SYSTEMD_USER_DIR (<suffix> is "service"
 # or "timer"). Glob based, so it needs no venv and still finds units whose plugin
@@ -110,6 +142,30 @@ all_targets() {
     _targets="$(list_plugins || true)"
     [ -n "$_targets" ] || _targets="$(list_installed_plugins "$1")"
     printf '%s\n' "$_targets"
+}
+
+# known_targets <suffix>: print every plugin a teardown command may act on - the
+# union of registered plugins and installed "<plugin>-scraper.<suffix>" units -
+# one per line, de-duplicated, preserving first-seen order. Unlike all_targets
+# (the registry with an installed-units *fallback*), this is the true union, so a
+# plugin removed from the source tree but still installed continues to appear.
+known_targets() {
+    _seen=" "
+    for _t in $(list_plugins) $(list_installed_plugins "$1"); do
+        case "$_seen" in
+            *" $_t "*) ;;                          # already emitted
+            *) _seen="$_seen$_t "; printf '%s\n' "$_t" ;;
+        esac
+    done
+}
+
+# is_known_target <plugin> <suffix>: succeed if <plugin> is a registered plugin
+# OR has an installed "<plugin>-scraper.<suffix>" unit. The membership test for
+# the teardown commands (disable/stop/uninstall): they only need a unit to act
+# on, so they accept this union, whereas install/enable validate against the
+# registry alone (they need code to run). A name in neither set is a real typo.
+is_known_target() {
+    plugin_in_list "$1" $(known_targets "$2")
 }
 
 # ------------------------------------------------------------------------------

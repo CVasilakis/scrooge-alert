@@ -20,29 +20,35 @@ REQUIREMENTS_FILE="requirements.txt"
 # ARGUMENTS
 # ==============================================================================
 # Usage:
-#   ./install.sh              Install everything and provision every plugin.
-#   ./install.sh --update     Like above, but invoked by update.sh (quiet banner).
-#   ./install.sh --<plugin>   (Re)provision and enable only that plugin's unit.
+#   ./install.sh                        Install everything and provision every plugin.
+#   ./install.sh --<plugin> [...]       (Re)provision and enable only the named plugin(s).
+#   ./install.sh --update [<plugin>..]  Invoked by update.sh (quiet banner). Reprovisions
+#                                       only the named plugins (the set update.sh derived
+#                                       from the already-installed units), or every plugin
+#                                       when none are named. Plugins that no longer exist in
+#                                       the registry (removed/renamed in the new version) are
+#                                       skipped instead of aborting the update.
 
-INSTALL_MODE="all"   # all | single
+INSTALL_MODE="all"   # all | selected
 IS_UPDATE=0
-TARGET=""
+SELECTED=""
 
-if [ "$#" -gt 0 ]; then
+while [ "$#" -gt 0 ]; do
     case "$1" in
         --update)
             IS_UPDATE=1
             ;;
         --*)
-            INSTALL_MODE="single"
-            TARGET="${1#--}"
+            INSTALL_MODE="selected"
+            SELECTED="$SELECTED ${1#--}"
             ;;
         *)
             printf "%b\n" "${RED}Error: Invalid argument: $1${NC}"
             exit 1
             ;;
     esac
-fi
+    shift
+done
 
 # ==============================================================================
 # PREREQUISITES
@@ -121,16 +127,54 @@ if [ -z "$ALL_PLUGINS" ]; then
     exit 1
 fi
 
-if [ "$INSTALL_MODE" = "single" ]; then
-    if ! plugin_in_list "$TARGET" $ALL_PLUGINS; then
-        printf "%b\n" "${RED}Error: Unknown plugin '$TARGET'.${NC}"
-        printf "%b\n" "Available plugins: ${CYAN}$(printf '%s ' $ALL_PLUGINS)${NC}"
-        exit 1
-    fi
-    PLUGINS="$TARGET"
+if [ "$INSTALL_MODE" = "selected" ]; then
+    PLUGINS=""
+    for sel in $SELECTED; do
+        if plugin_in_list "$sel" $ALL_PLUGINS; then
+            PLUGINS="$PLUGINS $sel"
+        elif [ "$IS_UPDATE" -eq 1 ]; then
+            # During an update the selection is derived from the installed units;
+            # a plugin removed or renamed in the incoming version is no longer in
+            # the registry. Skip it (its orphaned unit was already stopped by
+            # update.sh; uninstall clears it) rather than aborting the whole update.
+            printf "%b\n" "${YELLOW}Note: Skipping '$sel' - no longer a registered scraper in this version.${NC}"
+            printf "%b\n" "${YELLOW}      Its leftover units can be removed with: ${CYAN}./scripts/uninstall.sh --$sel${NC}"
+        else
+            printf "%b\n" "${RED}Error: Unknown plugin '$sel'.${NC}"
+            printf "%b\n" "Available plugins: ${CYAN}$(printf '%s ' $ALL_PLUGINS)${NC}"
+            exit 1
+        fi
+    done
 else
     PLUGINS="$ALL_PLUGINS"
 fi
+
+# ------------------------------------------------------------------------------
+# PER-PLUGIN DEPENDENCIES
+# ------------------------------------------------------------------------------
+# The root requirements.txt installed above carries only the core framework. Each
+# plugin may ship its own requirements.txt (next to its plugin.py) listing the
+# transport/parsing libraries only it needs (e.g. tls-client, selenium). Only the
+# requirements of the plugin(s) being provisioned are installed, so an install
+# that skips a heavy scraper never pulls that scraper's dependencies.
+
+PLUGIN_REQS="$(list_plugin_requirements || true)"
+OLD_IFS="$IFS"
+IFS='
+'
+for pair in $PLUGIN_REQS; do
+    req_name="${pair%% *}"
+    req_path="${pair#* }"
+    plugin_in_list "$req_name" $PLUGINS || continue
+
+    printf "%b\n" "${CYAN}Installing dependencies for the '$req_name' scraper...${NC}"
+    if ! "$VENV_DIR/bin/python3" -m pip install -q --upgrade -r "$req_path"; then
+        IFS="$OLD_IFS"
+        printf "%b\n" "${RED}Error: Failed to install dependencies for the '$req_name' scraper.${NC}\n"
+        exit 1
+    fi
+done
+IFS="$OLD_IFS"
 
 # ------------------------------------------------------------------------------
 # SYSTEMD SETUP
@@ -140,9 +184,40 @@ printf "%b\n" "\n${CYAN}Setting up Systemd timer(s)...${NC}"
 
 mkdir -p "$SYSTEMD_USER_DIR"
 
+# Each plugin declares only its own [Timer] *trigger* (cadence) via
+# plugin.get_timer_directives(); RandomizedDelaySec and Persistent are
+# framework-managed (hardcoded in the timer below, identically for every plugin)
+# and the [Service] dispatches identically through run.sh. Fetched once, then
+# filtered per plugin.
+TAB="$(printf '\t')"
+ALL_TIMER_DIRECTIVES="$(list_plugin_timer_directives || true)"
+
 for plugin in $PLUGINS; do
     service_file="$SYSTEMD_USER_DIR/$(unit_name "$plugin" service)"
     timer_file="$SYSTEMD_USER_DIR/$(unit_name "$plugin" timer)"
+
+    # Collect this plugin's [Timer] trigger directives (one "Key=Value" per line).
+    timer_directives=""
+    OLD_IFS="$IFS"
+    IFS='
+'
+    for line in $ALL_TIMER_DIRECTIVES; do
+        [ "${line%%"$TAB"*}" = "$plugin" ] || continue
+        directive="${line#*"$TAB"}"
+        # RandomizedDelaySec and Persistent are framework-managed (hardcoded
+        # below), not plugin-configurable; drop any a plugin tries to set.
+        case "$directive" in
+            RandomizedDelaySec=*|Persistent=*) continue ;;
+        esac
+        timer_directives="$timer_directives$directive
+"
+    done
+    IFS="$OLD_IFS"
+
+    if [ -z "$timer_directives" ]; then
+        printf "%b\n" "${RED}Error: Plugin '$plugin' declares no [Timer] directives.${NC}\n"
+        exit 1
+    fi
 
     cat > "$service_file" << EOF
 [Unit]
@@ -156,11 +231,10 @@ EOF
 
     cat > "$timer_file" << EOF
 [Unit]
-Description=Run $plugin scraper hourly
+Description=Run $plugin scraper
 
 [Timer]
-OnCalendar=hourly
-RandomizedDelaySec=300s
+${timer_directives}RandomizedDelaySec=180s
 Persistent=true
 
 [Install]
