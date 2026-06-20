@@ -19,13 +19,14 @@ BASE_DIR="$( dirname "$SCRIPT_DIR" )"
 # registered scrapers and any still-installed timers (known_targets) - a timer
 # left behind by a plugin removed upstream stays disable-able and so is listed.
 
+# Note for developers/agents: In user-facing text, a "plugin" is referred to as a "target".
 print_help() {
     printf '\n'
-    printf '%s\n' "Usage: disable.sh [-h] [--<plugin> ...]"
+    printf '%s\n' "Usage: disable.sh [-h] [--<target> ...]"
     printf '\n'
     printf '%s\n' "Stop and disable the background schedule (systemd timer) for the scraper(s)."
-    printf '%s\n' "With no plugin flag every installed scraper's timer is disabled; pass one"
-    printf '%s\n' "or more --<plugin> flags to disable only those."
+    printf '%s\n' "With no target flag every installed scraper's timer is disabled; pass one"
+    printf '%s\n' "or more --<target> flags to disable only those."
     printf '\n'
     printf '%s\n' "Optional arguments:"
     printf '%s\n' "  -h, --help        show this help message and exit"
@@ -73,8 +74,8 @@ if [ -n "$SELECTED" ]; then
             printf "%b\n" "\n${YELLOW}[$sel] is registered but not installed - nothing to disable.${NC}"
             printf "%b\n" "Install it first with: ${CYAN}./install.sh --$sel${NC}"
         else
-            printf "%b\n" "${RED}Error: Unknown plugin '$sel'.${NC}"
-            printf "%b\n" "Available plugins: ${CYAN}$(printf '%s ' $(known_targets timer))${NC}"
+            printf "%b\n" "${RED}Error: Unknown target '$sel'.${NC}"
+            printf "%b\n" "Available targets: ${CYAN}$(printf '%s ' $(known_targets timer))${NC}"
             exit 1
         fi
     done

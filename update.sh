@@ -133,7 +133,7 @@ main() {
     done
     if [ -n "$NEW_SCRAPERS" ]; then
         printf "%b\n" "\n${YELLOW}Scrapers available but not installed:${NC}${CYAN}$(printf ' %s' $NEW_SCRAPERS)${NC}"
-        printf "%b\n" "Install any of them with: ${CYAN}./install.sh --<plugin>${NC}"
+        printf "%b\n" "Install any of them with: ${CYAN}./install.sh --<target>${NC}"
     fi
 
     printf "%b\n" "\n${GREEN}Update complete! You are now running the latest version.${NC}\n"

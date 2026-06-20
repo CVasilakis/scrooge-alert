@@ -21,10 +21,11 @@
 4. [Installation](#-installation)
 5. [Configuration](#%EF%B8%8F-configuration)
    - [Notification Settings (.env)](#file-1-notification-settings-env)
-   - [Product Tracking (config/skroutz.json)](#file-2-product-tracking-configproductsjson)
+   - [Product Tracking (config/<target>.json)](#file-2-product-tracking-configtargetjson)
 6. [Usage](#-usage)
-   - [Automated Systemd Run](#option-1-automated-run)
-   - [Manual Run (CLI Flags)](#option-2-manual-run-cli-flags)
+   - [Automated Systemd Execution](#automated-systemd-execution)
+   - [Manual Execution](#manual-execution)
+   - [Helper Scripts](#helper-scripts)
 7. [Notifications & Messages](#-notifications--messages)
 8. [Uninstallation](#%EF%B8%8F-uninstallation)
 9. [Troubleshooting & Debugging](#-troubleshooting--debugging)
@@ -108,11 +109,11 @@ The scraper supports all Skroutz domains, dynamically detecting the locale and c
 
 4. **Configure your settings:**
 
-    Proceed to the [Configuration](#%EF%B8%8F-configuration) section for more information regarding your [Push Notification Settings](#file-1-notification-settings-env) and your [Product Tracking List](#file-2-product-tracking-dataproductsjson)
+    Proceed to the [Configuration](#%EF%B8%8F-configuration) section for more information regarding your [Push Notification Settings](#file-1-notification-settings-env) and your [Product Tracking List](#file-2-product-tracking-configtargetjson)
 
 ## ⚙️ Configuration
 
-All custom user parameters reside outside the source code logic. Apprise Notification URLs go in the `.env` file, and the Skroutz products you want to monitor go inside the `config/skroutz.json` file.
+All custom user parameters reside outside the source code logic. Apprise Notification URLs go in the `.env` file, and the products you want to monitor go inside a `config/<target>.json` file (e.g., `config/skroutz.json` for Skroutz).
 
 ### File 1: Notification Settings (`.env`)
 
@@ -129,16 +130,16 @@ You can specify multiple platforms by separating their URLs with commas. For ins
 NOTIFICATION_URLS = tgram://<token>/<chat_id>, discord://<webhook_id>/<webhook_token>
 ```
 
-### File 2: Product Tracking (`config/skroutz.json`)
+### File 2: Product Tracking (`config/<target>.json`)
 
-The `config/` directory stores your product monitoring list. Copy the provided `config/skroutz.json.example` template to create your initial tracking file:
+The `config/` directory stores your product monitoring lists. Copy the provided `config/skroutz.json.example` template to create your initial tracking file for Skroutz:
 
 ```sh
 cp config/skroutz.json.example config/skroutz.json
 nano config/skroutz.json
 ```
 
-Afterwards, open `config/skroutz.json` and populate it with the items you want to keep an eye on. For example, if you wish to track two products, your file should be structured like this:
+Afterwards, open your config file (e.g., `config/skroutz.json`) and populate it with the items you want to keep an eye on. For example, if you wish to track two products, your file should be structured like this:
 
 ```json
 {
@@ -174,16 +175,16 @@ Afterwards, open `config/skroutz.json` and populate it with the items you want t
 
 There are two ways to execute the script: automatically via the scheduled systemd timer, or manually for testing.
 
-### Option 1: Automated Run
+### Automated Systemd Execution
 
 Once `install.sh` has run successfully, the script executes automatically via a systemd timer every hour. The systemd timer applies a randomized up-to-3m startup delay before launching the execution wrapper (`scripts/run.sh`) to simulate human timing and avoid exact scheduling footprints.
 
-### Option 2: Manual Run (CLI Flags)
+### Manual Execution
 
-You can manually interact with the application using the wrapper script. The wrapper safely loads the virtual environment and passes commands along to the backend application.
+You can manually interact with the application using the wrapper script. You can safely interrupt the manual execution at any time by pressing `Ctrl+C`.
 
-```sh
-./scripts/run.sh [FLAGS]
+```
+./scripts/run.sh [-h] [--quiet] [--status] [--ping] [--<target> ...]
 ```
 
 #### Available CLI Flags:
@@ -191,8 +192,9 @@ You can manually interact with the application using the wrapper script. The wra
 **Execution Flags:**
 These flags modify the overall behavior of the script or trigger user assistance routines.
 
-| Flag&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Action |
+| Flag&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Action |
 | :--- | :--- |
+| `-h`, `--help` | Displays the help message with all available script arguments. |
 | `--quiet` | Suppresses all console output and redirects execution logs to the `logs/` directory. This is utilized by the systemd setup to ensure silent background operation. |
 | `--status` | Performs a comprehensive health check. It validates the configuration, and verifies the background systemd service and timer status. |
 | `--ping` | Sends a test notification directly to your configured Apprise URLs, then immediately exits. Helps pinpoint `.env` misconfigurations. |
@@ -200,26 +202,18 @@ These flags modify the overall behavior of the script or trigger user assistance
 **Target Scraper Flags:**
 These flags allow you to isolate execution to specific platforms. If no target flags are provided, the script defaults to running all registered scrapers sequentially. They can be combined with `--quiet`.
 
-| Flag&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Action |
+| Flag&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Action |
 | :--- | :--- |
-| `--skroutz` | Activates the Skroutz scraper. |
-
-#### Normal Execution:
-
-If you run the script without any flags, it will execute normally and output its progress logs directly to the terminal. You can safely interrupt the manual execution at any time by pressing `Ctrl+C`.
-
-```sh
-./scripts/run.sh
-```
+| `--<target>` | Activates only the specified target's scraper (e.g., `--skroutz`). You can pass one or more target flags simultaneously. |
 
 > [!NOTE]
-> Only one instance of a specific scraper is allowed to run at a time to avoid triggering anti-bot protections. If a background execution for a domain (e.g., Skroutz) is currently in progress, your manual run for that domain will be blocked and skipped. If you need to forcefully stop all active background executions to run the scraper manually, you can safely use the stop script: `./scripts/stop.sh`. This stops all the current background runs but will not break any future scheduled executions.
+> Only one instance of a specific scraper is allowed to run at a time to avoid triggering anti-bot protections. If a background execution for a domain (e.g., Skroutz) is currently in progress, your manual run for that domain will be blocked and skipped. If you need to forcefully stop all active background executions to run the scraper manually, you can safely use the [stop script](#stop-active-runs): `./scripts/stop.sh`. This stops all the current background runs but will not break any future scheduled executions.
 
 #### Status Check:
 
-If you run the script using the `--status` flag, the script verifies the integrity of your `config/skroutz.json` file, validates your environment variables in `.env` file, and queries systemd to display the following background execution details:
+If you run the script using the `--status` flag, the script verifies the integrity of your `config/<target>.json` files, validates your environment variables in `.env` file, and queries systemd to display the following background execution details:
 
-```sh
+```
 ./scripts/run.sh --status
 ```
 
@@ -232,7 +226,7 @@ If you run the script using the `--status` flag, the script verifies the integri
 
 If you want to test whether your `.env` notification URLs are configured correctly without waiting for a scheduled run or a real price drop, you can use the `--ping` flag.
 
-```sh
+```
 ./scripts/run.sh --ping
 ```
 
@@ -240,6 +234,77 @@ This will send a test message to each configured Apprise URL(s). It will output 
 
 > [!TIP]
 > If the script fails to run in the background or you do not receive expected notifications, please consult the [Troubleshooting & Debugging](#-troubleshooting--debugging) section. If your problem persists, feel free to [open an issue](https://github.com/CVasilakis/scrooge-alert/issues).
+
+### Helper Scripts
+
+The project includes several helper scripts to manage your background scraper services and update the application. Most are located in the `scripts/` directory, while the install and update scripts are in the root directory. They support a `--help` flag and can be applied to specific targets.
+
+#### Install & Add Scrapers
+Sets up the Python virtual environment and installs the systemd timer(s) and service(s). Run it as many times as you like to add more scrapers later:
+
+```
+./install.sh [-h] [--<target> ...]
+```
+
+| Flag&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Action |
+| :--- | :--- |
+| `-h`, `--help` | Show the help message and exit. |
+| `--<target>` | Install and enable only the specified target's scraper (e.g., `--skroutz`). You can pass one or more target flags simultaneously. If no target flag is provided, every registered scraper is installed and enabled. |
+
+#### Stop Active Runs
+Stops the currently running scraper service(s), aborting any scrape in progress:
+
+```
+./scripts/stop.sh [-h] [--<target> ...]
+```
+
+| Flag&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Action |
+| :--- | :--- |
+| `-h`, `--help` | Show the help message and exit. |
+| `--<target>` | Stop only the specified target's scraper (e.g., `--skroutz`). You can pass one or more target flags simultaneously. If no target flag is provided, every running scraper service is stopped. |
+
+#### Pause Background Schedule
+Stops and disables the background schedule (systemd timer) so the scraper(s) no longer run automatically:
+
+```
+./scripts/disable.sh [-h] [--<target> ...]
+```
+
+| Flag&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Action |
+| :--- | :--- |
+| `-h`, `--help` | Show the help message and exit. |
+| `--<target>` | Disable only the specified target's scraper. You can pass one or more target flags simultaneously. If no flag is provided, every installed scraper's timer is disabled. |
+
+#### Resume Background Schedule
+Re-enables and starts the background schedule (systemd timer) for the installed scraper(s):
+
+```
+./scripts/enable.sh [-h] [--<target> ...]
+```
+
+| Flag&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Action |
+| :--- | :--- |
+| `-h`, `--help` | Show the help message and exit. |
+| `--<target>` | Enable only the specified target's scraper. You can pass one or more target flags simultaneously. If no flag is provided, every installed scraper's timer is enabled. |
+
+#### Remove Scrapers & Uninstall
+Performs a full or partial teardown of the background services:
+
+```
+./scripts/uninstall.sh [-h] [--<target> ...]
+```
+
+| Flag&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Action |
+| :--- | :--- |
+| `-h`, `--help` | Show the help message and exit. |
+| `--<target>` | Removes only the specified scrapers' units, leaving the virtual environment and other targets intact. You can pass one or more target flags simultaneously. With no flag, removes every installed systemd timer/service and deletes the Python virtual environment. |
+
+#### Update to Latest Version
+Updates Scrooge Alert to the latest version by pulling from the repository and reinstalling the scraper(s) you previously installed:
+
+```
+./update.sh
+```
 
 ## 🔔 Notifications & Messages
 
@@ -267,7 +332,7 @@ The uninstallation process safely performs the following actions:
 * Deletes the Python virtual environment (`venv`).
 
 > [!NOTE]
-> **User Data:** Your personal configurations, specifically the `.env` and `config/skroutz.json` files, are preserved by the uninstallation script to prevent accidental data loss. If you wish to completely purge the application, simply delete the `scrooge-alert` directory after running the uninstallation script.
+> **User Data:** Your personal configurations, specifically the `.env` and `config/<target>.json` files, are preserved by the uninstallation script to prevent accidental data loss. If you wish to completely purge the application, simply delete the `scrooge-alert` directory after running the uninstallation script.
 > 
 > **User Lingering:** The script purposefully leaves systemd user lingering enabled, as other background services on your system may rely on it. If you are certain that no other services require this functionality, you can manually disable it by running: `loginctl disable-linger $USER`
 
@@ -275,8 +340,8 @@ The uninstallation process safely performs the following actions:
 
 **1. Failing to Fetch Products:**
 
-If the script cannot retrieve data for certain items, begin by checking for broken links in your `config/skroutz.json` file. Invalid URLs are often redirected to similar products by Skroutz.
-If the URLs are correct but failures persist across multiple products, your connection has likely been temporarily restricted by the website's anti-bot protection. To mitigate this, reduce your network traffic by tracking fewer products, or decrease the script's run frequency by editing `~/.config/systemd/user/skroutz-scraper.timer`.
+If the script cannot retrieve data for certain items, begin by checking for broken links in your `config/<target>.json` file. Invalid URLs are often redirected to similar products.
+If the URLs are correct but failures persist across multiple products, your connection has likely been temporarily restricted by the website's anti-bot protection. To mitigate this, reduce your network traffic by tracking fewer products, or decrease the script's run frequency by editing the respective timer (e.g., `~/.config/systemd/user/skroutz-scraper.timer`).
 
 > [!TIP]  
 > For the best results, this script should **not** be run behind a VPN and should ideally be executed from a standard Greek residential IP address. High traffic coming from known VPS providers, data centers, or VPNs is very likely to trigger strict anti-bot mechanisms, causing the script to fail.
@@ -294,8 +359,8 @@ You can easily test your notification setup using the `--ping` flag:
 
 The application maintains comprehensive logs to help you monitor background executions and diagnose issues. You can find these files in the `logs/` directory:
 
-*   **Background Execution Logs (`logs/skroutz/output.log`):** When the script runs automatically in the background, all standard output is saved here (one subdirectory per scraper target). Log line timestamps are recorded in UTC (and labelled as such). These logs rotate daily at midnight UTC, and the system automatically retains the last 7 days of history to prevent excessive disk usage.
-*   **Scraper Error Logs (`logs/skroutz/errors.txt`):** When a specific scraper hits a critical exception during a run, the detailed stack trace and error information are saved to that scraper's own `errors.txt` (one per target, e.g. `logs/skroutz/errors.txt`).
+*   **Background Execution Logs (`logs/<target>/output.log`):** When the script runs automatically in the background, all standard output is saved here (one subdirectory per scraper target). Log line timestamps are recorded in UTC (and labelled as such). These logs rotate daily at midnight UTC, and the system automatically retains the last 7 days of history to prevent excessive disk usage.
+*   **Scraper Error Logs (`logs/<target>/errors.txt`):** When a specific scraper hits a critical exception during a run, the detailed stack trace and error information are saved to that scraper's own `errors.txt` (one per target, e.g., `logs/skroutz/errors.txt`).
 *   **General Error Logs (`logs/errors.txt`):** Top-level failures that occur with no specific scraper context (e.g. a total crash before any target starts) are saved to the root `logs/errors.txt` instead. Both error logs are timestamped in UTC.
 
 ## ⚖️ Rate Limiting
@@ -307,7 +372,7 @@ The default configuration applies rate limiting to reduce traffic and increase t
 *   A base 20s delay, plus randomized jitter (1-5s), is enforced between requests.
 
 > [!TIP]
-> Periodically remove items from `config/skroutz.json` once you purchase them or abandon interest. Also avoid decreasing the scraping delays. Over-frequent scraping will trigger strict anti-bot mechanisms and the script will fail to fetch the product data.
+> Periodically remove items from your `config/<target>.json` file once you purchase them or abandon interest. Also avoid decreasing the scraping delays. Over-frequent scraping will trigger strict anti-bot mechanisms and the script will fail to fetch the product data.
 
 ## ❓ Frequently Asked Questions
 
@@ -370,7 +435,7 @@ To mimic human behavior, the script spaces out its requests. It applies a base d
 <summary><b>7. Why do the timestamps in my product list look a few hours off from my local time?</b></summary>
 <br>
 
-This is expected. The `last_checked` timestamps saved in `config/skroutz.json` are intentionally stored in **UTC** (Coordinated Universal Time), not your local time, so they will differ from your wall clock by your timezone's UTC offset. Storing them in UTC keeps the script's "stale product" calculations correct across timezone changes and Daylight Saving Time transitions. If the time still looks wrong even after accounting for your UTC offset, then your operating system's clock is genuinely out of sync and should be corrected in your server's time settings.
+This is expected. The `last_checked` timestamps saved in the `config/<target>.json` files are intentionally stored in **UTC** (Coordinated Universal Time), not your local time, so they will differ from your wall clock by your timezone's UTC offset. Storing them in UTC keeps the script's "stale product" calculations correct across timezone changes and Daylight Saving Time transitions. If the time still looks wrong even after accounting for your UTC offset, then your operating system's clock is genuinely out of sync and should be corrected in your server's time settings.
 </details>
 
 <details>
@@ -379,7 +444,7 @@ This is expected. The `last_checked` timestamps saved in `config/skroutz.json` a
 
 1. Run `./scripts/uninstall.sh` in the old folder to clean up the existing background processes.
 2. Clone the repository into your new desired folder using Git.
-3. Move your `config/skroutz.json` and `.env` files from the old folder to the new one.
+3. Move your `config/<target>.json` and `.env` files from the old folder to the new one.
 4. Run `./install.sh` in the new location to rebuild the environment and background timers.
 5. Safely delete the old project folder.
 </details>

@@ -198,10 +198,10 @@ class ScraperRegistry:
                 f"Install them with: ./install.sh --{name}"
             ) from e
         except Exception as e:
-            raise PluginDiscoveryError(f"Plugin '{name}' failed to provide {getter_name}(): {e}") from e
+            raise PluginDiscoveryError(f"Target '{name}' failed to provide {getter_name}(): {e}") from e
         if not (isinstance(bound_class, type) and issubclass(bound_class, base)):
             raise PluginDiscoveryError(
-                f"Plugin '{name}': {getter_name}() must return a {base.__name__} subclass, got {bound_class!r}."
+                f"Target '{name}': {getter_name}() must return a {base.__name__} subclass, got {bound_class!r}."
             )
         return bound_class
 

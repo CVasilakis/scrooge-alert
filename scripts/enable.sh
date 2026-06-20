@@ -19,12 +19,13 @@ BASE_DIR="$( dirname "$SCRIPT_DIR" )"
 print_help() {
     _registered="$(list_plugins 2>/dev/null || true)"
 
+    # Note for developers/agents: In user-facing text, a "plugin" is referred to as a "target".
     printf '\n'
-    printf '%s\n' "Usage: enable.sh [-h] [--<plugin> ...]"
+    printf '%s\n' "Usage: enable.sh [-h] [--<target> ...]"
     printf '\n'
     printf '%s\n' "Enable and start the background schedule (systemd timer) for the installed"
-    printf '%s\n' "scraper(s). With no plugin flag every installed scraper's timer is enabled;"
-    printf '%s\n' "pass one or more --<plugin> flags to enable only those."
+    printf '%s\n' "scraper(s). With no target flag every installed scraper's timer is enabled;"
+    printf '%s\n' "pass one or more --<target> flags to enable only those."
     printf '\n'
     printf '%s\n' "Optional arguments:"
     printf '%s\n' "  -h, --help        show this help message and exit"
@@ -101,7 +102,7 @@ if [ -n "$SELECTED" ]; then
             printf "%b\n" "Install it first with: ${CYAN}./install.sh --$sel${NC}"
             exit 1
         else
-            printf "%b\n" "${RED}Error: Unknown plugin '$sel'.${NC}"
+            printf "%b\n" "${RED}Error: Unknown target '$sel'.${NC}"
             [ -z "$INSTALLED_PLUGINS" ] || \
                 printf "%b\n" "Installed scrapers: ${CYAN}$(printf '%s ' $INSTALLED_PLUGINS)${NC}"
             exit 1

@@ -19,9 +19,10 @@ PLUGINS="$(list_plugins || true)"
 # HELPER FUNCTIONS
 # ==============================================================================
 
+# Note for developers/agents: In user-facing text, a "plugin" is referred to as a "target".
 print_help() {
     printf '\n'
-    printf '%s\n' "Usage: run.sh [-h] [--quiet] [--status] [--ping] [--<plugin> ...]"
+    printf '%s\n' "Usage: run.sh [-h] [--quiet] [--status] [--ping] [--<target> ...]"
     printf '\n'
     printf '%s\n' "Optional arguments:"
     printf '%s\n' "  -h, --help        show this help message and exit"

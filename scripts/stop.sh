@@ -20,13 +20,14 @@ BASE_DIR="$( dirname "$SCRIPT_DIR" )"
 # service left behind by a plugin removed upstream stays stoppable and so is
 # listed.
 
+# Note for developers/agents: In user-facing text, a "plugin" is referred to as a "target".
 print_help() {
     printf '\n'
-    printf '%s\n' "Usage: stop.sh [-h] [--<plugin> ...]"
+    printf '%s\n' "Usage: stop.sh [-h] [--<target> ...]"
     printf '\n'
     printf '%s\n' "Stop the currently running scraper service(s), aborting any in-progress"
-    printf '%s\n' "scrape. With no plugin flag every running scraper service is stopped; pass"
-    printf '%s\n' "one or more --<plugin> flags to stop only those."
+    printf '%s\n' "scrape. With no target flag every running scraper service is stopped; pass"
+    printf '%s\n' "one or more --<target> flags to stop only those."
     printf '\n'
     printf '%s\n' "Optional arguments:"
     printf '%s\n' "  -h, --help        show this help message and exit"
@@ -74,8 +75,8 @@ if [ -n "$SELECTED" ]; then
             printf "%b\n" "\n${YELLOW}[$sel] is registered but not installed - nothing to stop.${NC}"
             printf "%b\n" "Install it first with: ${CYAN}./install.sh --$sel${NC}"
         else
-            printf "%b\n" "${RED}Error: Unknown plugin '$sel'.${NC}"
-            printf "%b\n" "Available plugins: ${CYAN}$(printf '%s ' $(known_targets service))${NC}"
+            printf "%b\n" "${RED}Error: Unknown target '$sel'.${NC}"
+            printf "%b\n" "Available targets: ${CYAN}$(printf '%s ' $(known_targets service))${NC}"
             exit 1
         fi
     done

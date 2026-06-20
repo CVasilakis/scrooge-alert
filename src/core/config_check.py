@@ -220,4 +220,5 @@ def preflight(console: Optional[Console], load_results: List[TargetLoad], target
     """
     if quiet:
         return _silent_preflight(load_results, targets_to_run)
+    assert console is not None, "console is required for interactive (non-quiet) preflight"
     return render_config_panel(console, load_results, gate=True)

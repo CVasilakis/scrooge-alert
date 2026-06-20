@@ -20,13 +20,14 @@ REQUIREMENTS_FILE="requirements.txt"
 # HELPER FUNCTIONS
 # ==============================================================================
 
+# Note for developers/agents: In user-facing text, a "plugin" is referred to as a "target".
 print_help() {
     printf '\n'
-    printf '%s\n' "Usage: install.sh [-h] [--<plugin> ...]"
+    printf '%s\n' "Usage: install.sh [-h] [--<target> ...]"
     printf '\n'
     printf '%s\n' "Set up the Python virtual environment and install the systemd timer(s) and"
-    printf '%s\n' "service(s). With no plugin flag every registered scraper is installed and"
-    printf '%s\n' "enabled; pass one or more --<plugin> flags to install only those. You can"
+    printf '%s\n' "service(s). With no target flag every registered scraper is installed and"
+    printf '%s\n' "enabled; pass one or more --<target> flags to install only those. You can"
     printf '%s\n' "run this command as many times as you like - run it again in the future"
     printf '%s\n' "to install additional scrapers."
     printf '\n'
@@ -149,7 +150,7 @@ fi
 
 ALL_PLUGINS="$(list_plugins || true)"
 if [ -z "$ALL_PLUGINS" ]; then
-    printf "%b\n" "${RED}Error: Failed to enumerate scraper plugins. The virtual environment may be broken.${NC}\n"
+    printf "%b\n" "${RED}Error: Failed to enumerate scraper targets. The virtual environment may be broken.${NC}\n"
     exit 1
 fi
 
@@ -166,8 +167,8 @@ if [ "$INSTALL_MODE" = "selected" ]; then
             printf "%b\n" "${YELLOW}Note: Skipping '$sel' - no longer a registered scraper in this version.${NC}"
             printf "%b\n" "${YELLOW}      Its leftover units can be removed with: ${CYAN}./scripts/uninstall.sh --$sel${NC}"
         else
-            printf "%b\n" "${RED}Error: Unknown plugin '$sel'.${NC}"
-            printf "%b\n" "Available plugins: ${CYAN}$(printf '%s ' $ALL_PLUGINS)${NC}"
+            printf "%b\n" "${RED}Error: Unknown target '$sel'.${NC}"
+            printf "%b\n" "Available targets: ${CYAN}$(printf '%s ' $ALL_PLUGINS)${NC}"
             exit 1
         fi
     done
@@ -241,7 +242,7 @@ for plugin in $PLUGINS; do
     IFS="$OLD_IFS"
 
     if [ -z "$timer_directives" ]; then
-        printf "%b\n" "${RED}Error: Plugin '$plugin' declares no [Timer] directives.${NC}\n"
+        printf "%b\n" "${RED}Error: Target '$plugin' declares no [Timer] directives.${NC}\n"
         exit 1
     fi
 

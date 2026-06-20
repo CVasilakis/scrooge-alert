@@ -21,13 +21,14 @@ VENV_DIR="venv"
 print_help() {
     _registered="$(list_plugins 2>/dev/null || true)"
 
+    # Note for developers/agents: In user-facing text, a "plugin" is referred to as a "target".
     printf '\n'
-    printf '%s\n' "Usage: uninstall.sh [-h] [--<plugin> ...]"
+    printf '%s\n' "Usage: uninstall.sh [-h] [--<target> ...]"
     printf '\n'
     printf '%s\n' "With no flag, performs a full teardown: removes every installed systemd"
     printf '%s\n' "timer/service and deletes the Python virtual environment (your .env and"
-    printf '%s\n' "config/*.json are kept). With one or more --<plugin> flags, removes only"
-    printf '%s\n' "those scrapers' units, leaving the virtual environment and other plugins"
+    printf '%s\n' "config/*.json are kept). With one or more --<target> flags, removes only"
+    printf '%s\n' "those scrapers' units, leaving the virtual environment and other targets"
     printf '%s\n' "intact."
     printf '\n'
     printf '%s\n' "Optional arguments:"
@@ -91,8 +92,8 @@ if [ -n "$SELECTED" ]; then
     # a misleading success).
     for sel in $SELECTED; do
         if ! is_known_target "$sel" timer && ! is_known_target "$sel" service; then
-            printf "%b\n" "${RED}Error: Unknown plugin '$sel'.${NC}"
-            printf "%b\n" "Available plugins: ${CYAN}$(printf '%s ' $(known_targets timer))${NC}"
+            printf "%b\n" "${RED}Error: Unknown target '$sel'.${NC}"
+            printf "%b\n" "Available targets: ${CYAN}$(printf '%s ' $(known_targets timer))${NC}"
             exit 1
         fi
     done
@@ -106,7 +107,7 @@ if [ -n "$SELECTED" ]; then
     done
     systemctl --user daemon-reload
 
-    printf "%b\n" "The virtual environment and any other plugins were left intact.\n"
+    printf "%b\n" "The virtual environment and any other targets were left intact.\n"
     exit 0
 fi
 
