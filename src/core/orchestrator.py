@@ -443,6 +443,15 @@ class ScrapingOrchestrator:
                 data_manager = self.registry.get_manager(target)
             except ValueError:
                 continue
+            except PluginDependencyError as e:
+                # This scraper's storage layer needs dependencies that are not
+                # installed. Skip just this target with an actionable message
+                # (mirroring the client-instantiation handler below); other
+                # targets and the rest of the run proceed.
+                self.ui_strategy.start_target(target, self._current_logger)
+                self.ui_strategy.log_error("System", str(e))
+                self.ui_strategy.complete_target()
+                continue
 
             # Storage was already read and validated during the preflight load phase;
             # the registry returns that same cached, in-memory snapshot here.

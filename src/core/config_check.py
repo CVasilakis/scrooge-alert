@@ -6,7 +6,7 @@ from typing import List, Optional
 from rich.console import Console
 
 from constants import EXIT_CODE_PRODUCTS_ERROR, EXIT_CODE_ENV_ERROR
-from exceptions import StorageFileError, EnvFileError, UpdateCheckError
+from exceptions import StorageFileError, EnvFileError, UpdateCheckError, PluginDependencyError
 from utils import check_env_file, check_for_updates, classify_notification_urls
 from logger import get_target_logger
 from panel import StatusPanelBuilder
@@ -49,6 +49,13 @@ def load_targets(registry: ScraperRegistry, targets: list) -> List[TargetLoad]:
         try:
             manager = registry.get_manager(target)
         except ValueError:
+            continue
+        except PluginDependencyError:
+            # The plugin's storage layer needs dependencies that are not
+            # installed. Skip it here so preflight does not crash; the
+            # orchestrator surfaces the actionable './install.sh --<plugin>'
+            # message per-target and lets the other targets proceed, matching
+            # how a missing transport (client) dependency is handled at runtime.
             continue
         try:
             manager.load()

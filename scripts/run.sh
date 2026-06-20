@@ -29,7 +29,7 @@ print_help() {
     printf '%s\n' "  --status          Perform a health check of the background service"
     printf '%s\n' "  --ping            Send a test notification via Apprise"
     for plugin in $PLUGINS; do
-        printf '  --%-14s Run exclusively the %s scraper\n' "$plugin" "$plugin"
+        printf '  --%-15s Run exclusively the %s scraper\n' "$plugin" "$plugin"
     done
     printf '\n'
 }

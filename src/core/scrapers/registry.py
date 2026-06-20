@@ -1,4 +1,5 @@
 import os
+import re
 import importlib
 import pkgutil
 from pathlib import Path
@@ -130,6 +131,18 @@ class ScraperRegistry:
         name = plugin.get_name()
         if not isinstance(name, str) or not name.strip():
             raise PluginDiscoveryError(f"Plugin '{where}' must return a non-empty string from get_name().")
+        if not re.fullmatch(r"[A-Za-z0-9_]+", name):
+            # The name becomes a '--<name>' CLI flag and a '<name>-scraper'
+            # systemd unit. argparse maps a flag's hyphens to underscores in the
+            # parsed attribute, so a hyphenated name would never match the
+            # registered-target lookup and would silently fall through to running
+            # *every* scraper. Reject anything but letters, digits and
+            # underscores here so the mistake surfaces at discovery.
+            raise PluginDiscoveryError(
+                f"Plugin '{where}' returned an invalid get_name() value {name!r}: names must "
+                f"contain only letters, digits and underscores (no hyphens, dots or spaces) so "
+                f"they map cleanly to '--<name>' CLI flags and '<name>-scraper' systemd units."
+            )
         if name in cls._plugins:
             raise PluginDiscoveryError(
                 f"Duplicate plugin name '{name}' (from '{where}'): another registered plugin "

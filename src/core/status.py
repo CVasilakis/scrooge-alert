@@ -132,7 +132,6 @@ def main():
         service_active = service_props.get("ActiveState", "")
 
         is_currently_running = service_active in ("active", "activating")
-        is_pending_first_execution = timer_active_val and not last_exec_time
 
         next_exec = timer_props.get("NextElapseUSecRealtime", "")
         if is_currently_running:
@@ -145,28 +144,22 @@ def main():
         else:
             next_exec_icon = "✅"
 
-        if not last_exec_time:
-            last_exec_time = "[red]Never[/red]"
-            if is_pending_first_execution:
-                ref = service_panel.add_note_ref("Background service is pending its first execution.")
-            else:
-                ref = service_panel.add_note_ref("The background service has not been executed yet.")
-            completed_str = f"[red]Not executed yet{ref}[/red]"
-            last_exec_icon = "❗"
-            completed_icon = "❗"
-        else:
-            last_exec_icon = "✅"
-            # Exit-code presentation lives in one table (exit_status.py); status only
-            # renders the resolved verdict and links its note as a footnote.
+        service_panel.add_row(timer_icon, "Systemd Timer Active", timer_active)
+
+        # A service that has never run yet is a healthy pending state, already
+        # conveyed by the Timer Active and Next Scheduled Execution rows, so the
+        # Last Execution rows are added only once it has actually executed -
+        # otherwise they would read an alarming red "Never" (and any footnote
+        # they carried would have no visible row to reference it).
+        if last_exec_time:
+            # Exit-code presentation lives in one table (exit_status.py); status
+            # only renders the resolved verdict and links its note as a footnote.
             verdict = classify_service_state(result, exec_status, ScraperRegistry.get_plugin(target).get_config_filename())
-            completed_icon = verdict.icon
             ref = service_panel.add_note_ref(verdict.note) if verdict.note else ""
             completed_str = f"[{verdict.color}]{verdict.label}{ref}[/{verdict.color}]"
+            service_panel.add_row("✅", "Last Execution Time", last_exec_time)
+            service_panel.add_row(verdict.icon, "Last Execution Status", completed_str)
 
-        service_panel.add_row(timer_icon, "Systemd Timer Active", timer_active)
-        if last_exec_time != "[red]Never[/red]":
-            service_panel.add_row(last_exec_icon, "Last Execution Time", last_exec_time)
-            service_panel.add_row(completed_icon, "Last Execution Status", completed_str)
         service_panel.add_row(next_exec_icon, "Next Scheduled Execution", next_exec)
 
         console.print()
