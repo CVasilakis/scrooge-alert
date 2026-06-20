@@ -21,7 +21,7 @@ PLUGINS="$(list_plugins || true)"
 
 print_help() {
     printf '\n'
-    printf '%s\n' "Usage: run.sh [-h] [--quiet] [--status] [--ping] [--<plugin>]"
+    printf '%s\n' "Usage: run.sh [-h] [--quiet] [--status] [--ping] [--<plugin> ...]"
     printf '\n'
     printf '%s\n' "Optional arguments:"
     printf '%s\n' "  -h, --help        show this help message and exit"
@@ -77,13 +77,13 @@ while [ "$#" -gt 0 ]; do
                 ARGS="$ARGS $1"
                 shift
             else
-                printf "%b\n" "${RED}\nError: Invalid flag provided: $1${NC}"
+                printf "%b\nError: Invalid flag provided: %s%b\n" "$RED" "$1" "$NC"
                 print_help
                 exit 1
             fi
             ;;
         *)
-            printf "%b\n" "${RED}\nError: Invalid flag provided: $1${NC}"
+            printf "%b\nError: Invalid flag provided: %s%b\n" "$RED" "$1" "$NC"
             print_help
             exit 1
             ;;

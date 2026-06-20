@@ -12,41 +12,80 @@ BASE_DIR="$( dirname "$SCRIPT_DIR" )"
 # Shared helpers (colors, plugin enumeration, systemd helpers)
 . "$SCRIPT_DIR/lib/common.sh"
 
+# ==============================================================================
+# HELPER FUNCTIONS
+# ==============================================================================
+# Teardown acts on installed units, so the listed plugins are the union of the
+# registered scrapers and any still-installed timers (known_targets) - a timer
+# left behind by a plugin removed upstream stays disable-able and so is listed.
+
+print_help() {
+    printf '\n'
+    printf '%s\n' "Usage: disable.sh [-h] [--<plugin> ...]"
+    printf '\n'
+    printf '%s\n' "Stop and disable the background schedule (systemd timer) for the scraper(s)."
+    printf '%s\n' "With no plugin flag every installed scraper's timer is disabled; pass one"
+    printf '%s\n' "or more --<plugin> flags to disable only those."
+    printf '\n'
+    printf '%s\n' "Optional arguments:"
+    printf '%s\n' "  -h, --help        show this help message and exit"
+    for plugin in $(known_targets timer); do
+        printf '  --%-15s Disable only the %s scraper\n' "$plugin" "$plugin"
+    done
+    printf '\n'
+}
+
 cd "$SCRIPT_DIR"
+
+case "${1:-}" in
+    -h|--help) print_help; exit 0 ;;
+esac
 
 require_systemctl
 
 # ------------------------------------------------------------------------------
 # TARGET RESOLUTION
 # ------------------------------------------------------------------------------
-# With no flag, disable every plugin's timer; with --<plugin>, disable just that
-# one. Disabling falls back to installed units so it still works when the venv is
-# missing or a plugin was removed from the source tree.
+# With no flag, disable every *installed* scraper's timer - glob-derived, so it
+# needs no venv and also catches an orphaned unit whose plugin was removed from
+# the source tree. With one or more --<plugin> flags, disable just those.
 
-TARGET=""
-if [ "$#" -gt 0 ]; then
+SELECTED=""
+while [ "$#" -gt 0 ]; do
     case "$1" in
-        --*) TARGET="${1#--}" ;;
-        *) printf "%b\n" "${RED}Error: Invalid argument: $1${NC}"; exit 1 ;;
+        --*) SELECTED="$SELECTED ${1#--}" ;;
+        *) printf "%bError: Invalid argument: %s%b\n" "$RED" "$1" "$NC"; exit 1 ;;
     esac
-fi
+    shift
+done
 
-if [ -n "$TARGET" ]; then
-    # Teardown acts on installed units, so accept a plugin that is registered OR
-    # still has an installed timer (e.g. a leftover from a plugin removed upstream);
-    # reject only a name in neither set.
-    if ! is_known_target "$TARGET" timer; then
-        printf "%b\n" "${RED}Error: Unknown plugin '$TARGET'.${NC}"
-        printf "%b\n" "Available plugins: ${CYAN}$(printf '%s ' $(known_targets timer))${NC}"
-        exit 1
-    fi
-    PLUGINS="$TARGET"
+if [ -n "$SELECTED" ]; then
+    # Teardown acts on installed units. A name with an installed timer (incl. an
+    # orphan leftover) is disabled. A name that is only registered (no timer on
+    # disk) has nothing to disable - tell the user it is not installed instead of
+    # acting as if there were a unit. A name in neither set is a typo: reject it.
+    INSTALLED="$(list_installed_plugins timer)"
+    PLUGINS=""
+    for sel in $SELECTED; do
+        if plugin_in_list "$sel" $INSTALLED; then
+            PLUGINS="$PLUGINS $sel"
+        elif is_known_target "$sel" timer; then
+            printf "%b\n" "\n${YELLOW}[$sel] is registered but not installed - nothing to disable.${NC}"
+            printf "%b\n" "Install it first with: ${CYAN}./install.sh --$sel${NC}"
+        else
+            printf "%b\n" "${RED}Error: Unknown plugin '$sel'.${NC}"
+            printf "%b\n" "Available plugins: ${CYAN}$(printf '%s ' $(known_targets timer))${NC}"
+            exit 1
+        fi
+    done
 else
-    PLUGINS="$(all_targets timer)"
+    PLUGINS="$(list_installed_plugins timer)"
 fi
 
 if [ -z "$PLUGINS" ]; then
-    printf "%b\n" "\n${GREEN}No scraper timers found. Nothing to do.${NC}\n"
+    # With explicit flags, any not-installed name was already reported per-plugin
+    # above; only the no-flag "nothing installed at all" case needs this notice.
+    [ -n "$SELECTED" ] || printf "%b\n" "\n${GREEN}No scraper timers found. Nothing to do.${NC}\n"
     exit 0
 fi
 

@@ -14,46 +14,98 @@ BASE_DIR="$( dirname "$SCRIPT_DIR" )"
 
 VENV_DIR="venv"
 
+# ==============================================================================
+# HELPER FUNCTIONS
+# ==============================================================================
+
+print_help() {
+    _registered="$(list_plugins 2>/dev/null || true)"
+
+    printf '\n'
+    printf '%s\n' "Usage: uninstall.sh [-h] [--<plugin> ...]"
+    printf '\n'
+    printf '%s\n' "With no flag, performs a full teardown: removes every installed systemd"
+    printf '%s\n' "timer/service and deletes the Python virtual environment (your .env and"
+    printf '%s\n' "config/*.json are kept). With one or more --<plugin> flags, removes only"
+    printf '%s\n' "those scrapers' units, leaving the virtual environment and other plugins"
+    printf '%s\n' "intact."
+    printf '\n'
+    printf '%s\n' "Optional arguments:"
+    printf '%s\n' "  -h, --help        show this help message and exit"
+    for plugin in $_registered; do
+        printf '  --%-15s Remove only the %s scraper\n' "$plugin" "$plugin"
+    done
+
+    # Leftover scrapers: a still-installed timer/service whose plugin is no longer
+    # in the registry (removed or renamed upstream). They are not in the list
+    # above but can still be purged by name, so surface them in their own section.
+    _orphans=""
+    for plugin in $(list_installed_plugins timer) $(list_installed_plugins service); do
+        plugin_in_list "$plugin" $_registered && continue
+        plugin_in_list "$plugin" $_orphans && continue
+        _orphans="$_orphans $plugin"
+    done
+
+    if [ -n "$_orphans" ]; then
+        printf '\n'
+        printf '%s\n' "Leftover scrapers (no longer registered, units still installed):"
+        for plugin in $_orphans; do
+            printf '  --%-15s Remove the orphaned %s scraper units\n' "$plugin" "$plugin"
+        done
+    fi
+    printf '\n'
+}
+
+case "${1:-}" in
+    -h|--help) print_help; exit 0 ;;
+esac
+
 require_systemctl
 
 # ------------------------------------------------------------------------------
 # ARGUMENTS
 # ------------------------------------------------------------------------------
 # Usage:
-#   ./scripts/uninstall.sh              Full teardown (all units + venv).
-#   ./scripts/uninstall.sh --<plugin>   Remove only that plugin's units (keep venv).
+#   ./scripts/uninstall.sh                  Full teardown (all units + venv).
+#   ./scripts/uninstall.sh --<plugin> [..]  Remove only the named plugins' units (keep venv).
 
-TARGET=""
-if [ "$#" -gt 0 ]; then
+SELECTED=""
+while [ "$#" -gt 0 ]; do
     case "$1" in
-        --*) TARGET="${1#--}" ;;
-        *) printf "%b\n" "${RED}Error: Invalid argument: $1${NC}"; exit 1 ;;
+        --*) SELECTED="$SELECTED ${1#--}" ;;
+        *) printf "%bError: Invalid argument: %s%b\n" "$RED" "$1" "$NC"; exit 1 ;;
     esac
-fi
+    shift
+done
 
 # ------------------------------------------------------------------------------
-# SINGLE-PLUGIN REMOVAL
+# SELECTED-PLUGIN REMOVAL
 # ------------------------------------------------------------------------------
 
-if [ -n "$TARGET" ]; then
-    # Removable if the plugin is registered OR has a leftover timer/service unit
-    # (so orphans of a plugin deleted upstream can still be purged). A name in
-    # none of those sets is a typo: reject it instead of silently "succeeding"
-    # (rm -f on absent unit files would otherwise report a misleading success).
-    if ! is_known_target "$TARGET" timer && ! is_known_target "$TARGET" service; then
-        printf "%b\n" "${RED}Error: Unknown plugin '$TARGET'.${NC}"
-        printf "%b\n" "Available plugins: ${CYAN}$(printf '%s ' $(known_targets timer))${NC}"
-        exit 1
-    fi
+if [ -n "$SELECTED" ]; then
+    # Validate every name up front, so a typo in a later one doesn't leave the
+    # earlier plugins half-removed. Removable if the plugin is registered OR has a
+    # leftover timer/service unit (so orphans of a plugin deleted upstream can
+    # still be purged). A name in none of those sets is a typo: reject it instead
+    # of silently "succeeding" (rm -f on absent unit files would otherwise report
+    # a misleading success).
+    for sel in $SELECTED; do
+        if ! is_known_target "$sel" timer && ! is_known_target "$sel" service; then
+            printf "%b\n" "${RED}Error: Unknown plugin '$sel'.${NC}"
+            printf "%b\n" "Available plugins: ${CYAN}$(printf '%s ' $(known_targets timer))${NC}"
+            exit 1
+        fi
+    done
 
-    printf "%b\n" "\n${CYAN}Removing systemd units for '$TARGET'...${NC}"
-
-    disable_one "$TARGET"
-    rm -f "$SYSTEMD_USER_DIR/$(unit_name "$TARGET" timer)"
-    rm -f "$SYSTEMD_USER_DIR/$(unit_name "$TARGET" service)"
+    for sel in $SELECTED; do
+        printf "%b\n" "\n${CYAN}Removing systemd units for '$sel'...${NC}"
+        disable_one "$sel"
+        rm -f "$SYSTEMD_USER_DIR/$(unit_name "$sel" timer)"
+        rm -f "$SYSTEMD_USER_DIR/$(unit_name "$sel" service)"
+        printf "%b\n" "${GREEN}Removed '$sel' scraper units.${NC}"
+    done
     systemctl --user daemon-reload
 
-    printf "%b\n" "${GREEN}Removed '$TARGET' scraper units.${NC}"
     printf "%b\n" "The virtual environment and any other plugins were left intact.\n"
     exit 0
 fi

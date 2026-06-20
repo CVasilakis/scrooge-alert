@@ -134,21 +134,14 @@ list_installed_plugins() {
     done
 }
 
-# all_targets <suffix>: the set of plugins to act on when no --<plugin> flag is
-# given. Prefers the live registry (single source of truth) but falls back to the
-# installed <suffix> units, so disable/stop/uninstall keep working when the venv
-# is missing/broken or a plugin was removed from the source tree.
-all_targets() {
-    _targets="$(list_plugins || true)"
-    [ -n "$_targets" ] || _targets="$(list_installed_plugins "$1")"
-    printf '%s\n' "$_targets"
-}
-
 # known_targets <suffix>: print every plugin a teardown command may act on - the
 # union of registered plugins and installed "<plugin>-scraper.<suffix>" units -
-# one per line, de-duplicated, preserving first-seen order. Unlike all_targets
-# (the registry with an installed-units *fallback*), this is the true union, so a
-# plugin removed from the source tree but still installed continues to appear.
+# one per line, de-duplicated, preserving first-seen order. It is the validation
+# set for an explicit --<plugin> (the name only has to resolve to something a
+# teardown can act on), so a plugin removed from the source tree but still
+# installed continues to appear. The no-flag set is narrower: the teardown scripts
+# act on the installed units alone (list_installed_plugins), since a registered
+# plugin that was never installed has nothing to stop/disable/remove.
 known_targets() {
     _seen=" "
     for _t in $(list_plugins) $(list_installed_plugins "$1"); do

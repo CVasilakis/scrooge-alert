@@ -18,6 +18,27 @@ main() {
     . "$SCRIPT_DIR/scripts/lib/common.sh"
 
     # ==============================================================================
+    # ARGUMENTS
+    # ==============================================================================
+    # update.sh takes no plugin flags: it always reprovisions exactly the set of
+    # scrapers that were previously installed (derived later from the units on
+    # disk). Only -h/--help is accepted; anything else is a typo.
+
+    print_help() {
+        printf '\n'
+        printf '%s\n' "Update Scrooge Alert to the latest version."
+        printf '%s\n' "Reinstalls the scraper(s) you previously installed."
+        printf '\n'
+    }
+
+    if [ "$#" -gt 0 ]; then
+        case "$1" in
+            -h|--help) print_help; exit 0 ;;
+            *) printf "%bError: Invalid argument: %s%b\n" "$RED" "$1" "$NC"; exit 1 ;;
+        esac
+    fi
+
+    # ==============================================================================
     # EXECUTION
     # ==============================================================================
 
@@ -33,7 +54,9 @@ main() {
         printf "%b\n" "${YELLOW}This update will reset to the remote 'main' branch and discard any uncommitted changes${NC}."
         printf "%b\n" "${YELLOW}Please commit or stash your work before proceeding to avoid data loss.${NC}"
         printf "Do you want to proceed and discard these changes? [y/N]: "
-        read -r response
+        # `|| response=""` keeps `set -e` from aborting on EOF (e.g. a non-interactive
+        # stdin); an empty answer then falls through to the abort case below.
+        read -r response || response=""
         case "$response" in
             [Yy]* ) ;;
             * ) printf "%b\n" "\n${RED}Update aborted by the user.${NC}\n"; exit 1 ;;
@@ -97,6 +120,20 @@ main() {
             printf "%b\n" "\n${RED}Error: Installation failed during update. Please run ./install.sh manually.${NC}\n"
             exit 1
         fi
+    fi
+
+    # Surface any scraper this version provides that the user has not installed
+    # (registry minus installed timers), so a newly-added store is discoverable
+    # instead of silently waiting to be opted into. The venv is fresh after the
+    # reprovision above, so the registry is readable here.
+    NEW_SCRAPERS=""
+    INSTALLED_NOW="$(list_installed_plugins timer)"
+    for plugin in $(list_plugins 2>/dev/null || true); do
+        plugin_in_list "$plugin" $INSTALLED_NOW || NEW_SCRAPERS="$NEW_SCRAPERS $plugin"
+    done
+    if [ -n "$NEW_SCRAPERS" ]; then
+        printf "%b\n" "\n${YELLOW}Scrapers available but not installed:${NC}${CYAN}$(printf ' %s' $NEW_SCRAPERS)${NC}"
+        printf "%b\n" "Install any of them with: ${CYAN}./install.sh --<plugin>${NC}"
     fi
 
     printf "%b\n" "\n${GREEN}Update complete! You are now running the latest version.${NC}\n"

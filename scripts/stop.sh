@@ -12,41 +12,81 @@ BASE_DIR="$( dirname "$SCRIPT_DIR" )"
 # Shared helpers (colors, plugin enumeration, systemd helpers)
 . "$SCRIPT_DIR/lib/common.sh"
 
+# ==============================================================================
+# HELPER FUNCTIONS
+# ==============================================================================
+# Teardown acts on installed units, so the listed plugins are the union of the
+# registered scrapers and any still-installed services (known_targets) - a
+# service left behind by a plugin removed upstream stays stoppable and so is
+# listed.
+
+print_help() {
+    printf '\n'
+    printf '%s\n' "Usage: stop.sh [-h] [--<plugin> ...]"
+    printf '\n'
+    printf '%s\n' "Stop the currently running scraper service(s), aborting any in-progress"
+    printf '%s\n' "scrape. With no plugin flag every running scraper service is stopped; pass"
+    printf '%s\n' "one or more --<plugin> flags to stop only those."
+    printf '\n'
+    printf '%s\n' "Optional arguments:"
+    printf '%s\n' "  -h, --help        show this help message and exit"
+    for plugin in $(known_targets service); do
+        printf '  --%-15s Stop only the %s scraper\n' "$plugin" "$plugin"
+    done
+    printf '\n'
+}
+
 cd "$SCRIPT_DIR"
+
+case "${1:-}" in
+    -h|--help) print_help; exit 0 ;;
+esac
 
 require_systemctl
 
 # ------------------------------------------------------------------------------
 # TARGET RESOLUTION
 # ------------------------------------------------------------------------------
-# With no flag, stop every plugin's running service; with --<plugin>, stop just
-# that one. Falls back to installed units so it still works when the venv is
-# missing or a plugin was removed from the source tree.
+# With no flag, stop every *installed* scraper's running service - glob-derived,
+# so it needs no venv and also catches an orphaned unit whose plugin was removed
+# from the source tree. With one or more --<plugin> flags, stop just those.
 
-TARGET=""
-if [ "$#" -gt 0 ]; then
+SELECTED=""
+while [ "$#" -gt 0 ]; do
     case "$1" in
-        --*) TARGET="${1#--}" ;;
-        *) printf "%b\n" "${RED}Error: Invalid argument: $1${NC}"; exit 1 ;;
+        --*) SELECTED="$SELECTED ${1#--}" ;;
+        *) printf "%bError: Invalid argument: %s%b\n" "$RED" "$1" "$NC"; exit 1 ;;
     esac
-fi
+    shift
+done
 
-if [ -n "$TARGET" ]; then
-    # Teardown acts on installed units, so accept a plugin that is registered OR
-    # still has an installed service (e.g. a leftover from a plugin removed upstream);
-    # reject only a name in neither set.
-    if ! is_known_target "$TARGET" service; then
-        printf "%b\n" "${RED}Error: Unknown plugin '$TARGET'.${NC}"
-        printf "%b\n" "Available plugins: ${CYAN}$(printf '%s ' $(known_targets service))${NC}"
-        exit 1
-    fi
-    PLUGINS="$TARGET"
+if [ -n "$SELECTED" ]; then
+    # Teardown acts on installed units. A name with an installed service (incl. an
+    # orphan leftover) is stopped. A name that is only registered (no service on
+    # disk) has nothing to stop - tell the user it is not installed instead of
+    # acting as if there were a unit. A name in neither set is a typo: reject it.
+    INSTALLED="$(list_installed_plugins service)"
+    PLUGINS=""
+    for sel in $SELECTED; do
+        if plugin_in_list "$sel" $INSTALLED; then
+            PLUGINS="$PLUGINS $sel"
+        elif is_known_target "$sel" service; then
+            printf "%b\n" "\n${YELLOW}[$sel] is registered but not installed - nothing to stop.${NC}"
+            printf "%b\n" "Install it first with: ${CYAN}./install.sh --$sel${NC}"
+        else
+            printf "%b\n" "${RED}Error: Unknown plugin '$sel'.${NC}"
+            printf "%b\n" "Available plugins: ${CYAN}$(printf '%s ' $(known_targets service))${NC}"
+            exit 1
+        fi
+    done
 else
-    PLUGINS="$(all_targets service)"
+    PLUGINS="$(list_installed_plugins service)"
 fi
 
 if [ -z "$PLUGINS" ]; then
-    printf "%b\n" "\n${GREEN}No scraper services found. Nothing to stop.${NC}\n"
+    # With explicit flags, any not-installed name was already reported per-plugin
+    # above; only the no-flag "nothing installed at all" case needs this notice.
+    [ -n "$SELECTED" ] || printf "%b\n" "\n${GREEN}No scraper services found. Nothing to stop.${NC}\n"
     exit 0
 fi
 

@@ -17,6 +17,28 @@ VENV_DIR="venv"
 REQUIREMENTS_FILE="requirements.txt"
 
 # ==============================================================================
+# HELPER FUNCTIONS
+# ==============================================================================
+
+print_help() {
+    printf '\n'
+    printf '%s\n' "Usage: install.sh [-h] [--<plugin> ...]"
+    printf '\n'
+    printf '%s\n' "Set up the Python virtual environment and install the systemd timer(s) and"
+    printf '%s\n' "service(s). With no plugin flag every registered scraper is installed and"
+    printf '%s\n' "enabled; pass one or more --<plugin> flags to install only those. You can"
+    printf '%s\n' "run this command as many times as you like - run it again in the future"
+    printf '%s\n' "to install additional scrapers."
+    printf '\n'
+    printf '%s\n' "Optional arguments:"
+    printf '%s\n' "  -h, --help        show this help message and exit"
+    for plugin in $(list_plugins 2>/dev/null || true); do
+        printf '  --%-15s Install and enable only the %s scraper\n' "$plugin" "$plugin"
+    done
+    printf '\n'
+}
+
+# ==============================================================================
 # ARGUMENTS
 # ==============================================================================
 # Usage:
@@ -35,6 +57,10 @@ SELECTED=""
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
+        -h|--help)
+            print_help
+            exit 0
+            ;;
         --update)
             IS_UPDATE=1
             ;;
@@ -43,7 +69,7 @@ while [ "$#" -gt 0 ]; do
             SELECTED="$SELECTED ${1#--}"
             ;;
         *)
-            printf "%b\n" "${RED}Error: Invalid argument: $1${NC}"
+            printf "%bError: Invalid argument: %s%b\n" "$RED" "$1" "$NC"
             exit 1
             ;;
     esac
@@ -250,13 +276,22 @@ done
 systemctl --user daemon-reload
 
 for plugin in $PLUGINS; do
-    enable_one "$plugin"
+    if ! enable_one "$plugin"; then
+        printf "%b\n" "${RED}Error: Failed to enable the timer for '$plugin'.${NC}\n"
+        exit 1
+    fi
 done
 
 if command -v loginctl >/dev/null 2>&1; then
-    if [ "$(loginctl show-user "$USER" --property=Linger 2>/dev/null)" != "Linger=yes" ]; then
+    # $USER is conventionally exported but not guaranteed (clean env, some
+    # containers/cron); fall back to `id -un` so `set -u` never aborts here.
+    LINGER_USER="${USER:-$(id -un)}"
+    if [ "$(loginctl show-user "$LINGER_USER" --property=Linger 2>/dev/null)" != "Linger=yes" ]; then
         printf "%b\n" "${CYAN}Enabling user lingering to allow timer to run when logged out...${NC}"
-        loginctl enable-linger "$USER"
+        # Non-fatal: lingering only lets timers run while logged out; without it the
+        # install is still valid (timers run while logged in), so a failure here
+        # (e.g. a system that requires root to enable linger) must not abort.
+        loginctl enable-linger "$LINGER_USER" || printf "%b\n" "${YELLOW}Warning: Could not enable user lingering; timers will run only while you are logged in.${NC}"
     fi
 fi
 
