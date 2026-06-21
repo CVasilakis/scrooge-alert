@@ -22,6 +22,7 @@
 5. [Configuration](#%EF%B8%8F-configuration)
    - [Notification Settings (.env)](#file-1-notification-settings-env)
    - [Product Tracking (config/<target>.json)](#file-2-product-tracking-configtargetjson)
+   - [Scraper Settings (settings)](#scraper-settings-settings)
 6. [Usage](#-usage)
    - [Automated Systemd Execution](#automated-systemd-execution)
    - [Manual Execution](#manual-execution)
@@ -143,6 +144,10 @@ Afterwards, open your config file (e.g., `config/skroutz.json`) and populate it 
 
 ```json
 {
+  "settings": {
+    "execution_interval": "1h",
+    "log_retention_days": 7
+  },
   "products": [
     {
       "name": "Awesome Monitor",
@@ -170,6 +175,28 @@ Afterwards, open your config file (e.g., `config/skroutz.json`) and populate it 
 
 > [!NOTE]
 > You do not need to manually add the internal fields. The script will generate and maintain them during execution.
+
+#### Scraper Settings (`settings`)
+
+The optional top-level `settings` object holds per-scraper preferences, separate from your product list:
+
+```json
+{
+  "settings": {
+    "execution_interval": "1h",
+    "log_retention_days": 7
+  },
+  "products": [ ... ]
+}
+```
+
+| Setting | Type | Description |
+| :--- | :--- | :--- |
+| `execution_interval` | String | How often the scraper's background timer runs. One of `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `24h`. Many spellings are accepted (e.g. `1h`, `1 hour`, `60m` and `hourly` all mean `1h`; `daily` and `1d` mean `24h`). If omitted, the scraper's built-in default is used; an unsupported value is reported and ignored. |
+| `log_retention_days` | Integer / String | How many days of log files the scraper keeps. An integer **1–30** (default `7`), written as a number (`7`) or a day string (`"7d"`, `"7 days"`). Only days are supported (no hours/weeks/months), and logging cannot be disabled. An out-of-range or unsupported value is rejected with a warning (shown in a [status check](#status-check) and the run log) and the default of 7 days is used. |
+
+> [!IMPORTANT]
+> Changing `execution_interval` does not take effect on its own. After editing it, apply it to the live timer with the [Set Execution Interval](#set-execution-interval) script: `./scripts/schedule.sh`. A [status check](#status-check) footnotes any scraper whose live timer no longer matches its configured interval.
 
 ## 💻 Usage
 
@@ -287,6 +314,18 @@ Re-enables and starts the background schedule (systemd timer) for the installed 
 | `-h`, `--help` | Show the help message and exit. |
 | `--<target>` | Enable only the specified target's scraper. You can pass one or more target flags simultaneously. If no flag is provided, every installed scraper's timer is enabled. |
 
+#### Set Execution Interval
+Applies each scraper's configured `execution_interval` (from the `settings` block of its `config/<target>.json`) to the installed systemd timer. Run it whenever you change an interval:
+
+```
+./scripts/schedule.sh [-h] [--<target> ...]
+```
+
+| Flag&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Action |
+| :--- | :--- |
+| `-h`, `--help` | Show the help message and exit. |
+| `--<target>` | Apply only the specified target's interval (e.g., `--skroutz`). You can pass one or more target flags simultaneously. If no flag is provided, every installed scraper's timer is updated to match its configured interval. A scraper whose config file is missing, or whose `execution_interval` is unsupported, is reported and left unchanged. |
+
 #### Remove Scrapers & Uninstall
 Performs a full or partial teardown of the background services:
 
@@ -359,7 +398,7 @@ You can easily test your notification setup using the `--ping` flag:
 
 The application maintains comprehensive logs to help you monitor background executions and diagnose issues. You can find these files in the `logs/` directory:
 
-*   **Background Execution Logs (`logs/<target>/output.log`):** When the script runs automatically in the background, all standard output is saved here (one subdirectory per scraper target). Log line timestamps are recorded in UTC (and labelled as such). These logs rotate daily at midnight UTC, and the system automatically retains the last 7 days of history to prevent excessive disk usage.
+*   **Background Execution Logs (`logs/<target>/output.log`):** When the script runs automatically in the background, all standard output is saved here (one subdirectory per scraper target). Log line timestamps are recorded in UTC (and labelled as such). These logs rotate daily at midnight UTC, and at each rotation the oldest files beyond your configured [`log_retention_days`](#scraper-settings-settings) (default 7) are pruned. Because pruning happens only at rotation, lowering the value takes effect at the next midnight-UTC rotation, while raising it keeps more history going forward without deleting anything.
 *   **Scraper Error Logs (`logs/<target>/errors.txt`):** When a specific scraper hits a critical exception during a run, the detailed stack trace and error information are saved to that scraper's own `errors.txt` (one per target, e.g., `logs/skroutz/errors.txt`).
 *   **General Error Logs (`logs/errors.txt`):** Top-level failures that occur with no specific scraper context (e.g. a total crash before any target starts) are saved to the root `logs/errors.txt` instead. Both error logs are timestamped in UTC.
 

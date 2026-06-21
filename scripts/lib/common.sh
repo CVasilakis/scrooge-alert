@@ -106,18 +106,40 @@ PY
 }
 
 # list_plugin_timer_directives: print "<plugin><TAB><Key>=<Value>" for every
-# systemd [Timer] directive of every registered plugin (one per line), from
-# plugin.get_timer_directives(). The plugin name is machine-readable (no
-# whitespace), so a literal tab cleanly separates it from the directive, whose
-# value may itself contain spaces (e.g. an OnCalendar like "*-*-* 06:00:00").
-# Same venv requirement as list_plugins.
+# systemd [Timer] directive of every registered plugin (one per line). The value
+# is the plugin's *effective* cadence: ScraperRegistry.resolve_timer_directives()
+# starts from plugin.get_timer_directives() and overrides OnCalendar with the
+# user's config "settings.execution_interval" when it is set and valid (otherwise
+# the plugin default). The plugin name is machine-readable (no whitespace), so a
+# literal tab cleanly separates it from the directive, whose value may itself
+# contain spaces (e.g. an OnCalendar like "*-*-* 00/2:00:00"). Same venv
+# requirement as list_plugins.
 list_plugin_timer_directives() {
     [ -x "$BASE_DIR/venv/bin/python3" ] || return 1
     PYTHONPATH="$BASE_DIR/src/core" "$BASE_DIR/venv/bin/python3" - 2>/dev/null <<'PY'
+from constants import CONFIG_DIR
 from scrapers.registry import ScraperRegistry
 for target in ScraperRegistry.registered_targets():
-    for key, value in ScraperRegistry.get_plugin(target).get_timer_directives().items():
+    for key, value in ScraperRegistry.resolve_timer_directives(target, CONFIG_DIR).items():
         print(f"{target}\t{key}={value}")
+PY
+}
+
+# list_interval_status: print "<plugin><TAB><status>" for every registered plugin
+# (one per line), where status is how its execution_interval resolved:
+#   ok      - config present with a valid, supported interval
+#   default - no interval set; the plugin default is in effect
+#   invalid - config sets an unsupported/unparseable interval
+#   nocfg   - the config file is missing entirely
+# schedule.sh uses this to decide whether to apply, warn, or skip a plugin's timer.
+# Same venv requirement as list_plugins.
+list_interval_status() {
+    [ -x "$BASE_DIR/venv/bin/python3" ] || return 1
+    PYTHONPATH="$BASE_DIR/src/core" "$BASE_DIR/venv/bin/python3" - 2>/dev/null <<'PY'
+from constants import CONFIG_DIR
+from scrapers.registry import ScraperRegistry
+for target in ScraperRegistry.registered_targets():
+    print(f"{target}\t{ScraperRegistry.resolve_interval_status(target, CONFIG_DIR).status}")
 PY
 }
 
@@ -204,4 +226,112 @@ disable_one() {
     systemctl --user stop    "$_svc" 2>/dev/null || true
     systemctl --user disable "$_svc" 2>/dev/null || true
     systemctl --user reset-failed "$_svc" "$_tmr" 2>/dev/null || true
+}
+
+# ------------------------------------------------------------------------------
+# SYSTEMD UNIT FILE GENERATION
+# ------------------------------------------------------------------------------
+# Both install.sh (provisioning) and schedule.sh (re-applying a changed cadence)
+# render the same per-plugin unit pair, so the unit format lives here in exactly
+# one place.
+
+# plugin_timer_block <plugin> <all_directives>: print <plugin>'s [Timer] *trigger*
+# directives, one "Key=Value" per line (no trailing newline, so the value is safe
+# to capture with $(...)). <all_directives> is the tab-separated
+# "<plugin>\t<Key>=<Value>" stream from list_plugin_timer_directives, captured once
+# by the caller. RandomizedDelaySec and Persistent are framework-managed (appended
+# by write_plugin_units), so any a plugin tries to set are dropped here. Prints
+# nothing when the plugin declares no trigger directives.
+plugin_timer_block() {
+    _ptb_plugin="$1"
+    _ptb_all="$2"
+    _ptb_tab="$(printf '\t')"
+    _ptb_block=""
+    _ptb_old_ifs="$IFS"
+    IFS='
+'
+    for _ptb_line in $_ptb_all; do
+        [ "${_ptb_line%%"$_ptb_tab"*}" = "$_ptb_plugin" ] || continue
+        _ptb_directive="${_ptb_line#*"$_ptb_tab"}"
+        case "$_ptb_directive" in
+            RandomizedDelaySec=*|Persistent=*) continue ;;
+        esac
+        if [ -z "$_ptb_block" ]; then
+            _ptb_block="$_ptb_directive"
+        else
+            _ptb_block="$_ptb_block
+$_ptb_directive"
+        fi
+    done
+    IFS="$_ptb_old_ifs"
+    printf '%s' "$_ptb_block"
+}
+
+# write_plugin_units <plugin> <timer_block>: (over)write the plugin's
+# <plugin>-scraper.{service,timer} unit files in SYSTEMD_USER_DIR. <timer_block> is
+# the plugin's [Timer] trigger directives (from plugin_timer_block); the
+# framework-managed RandomizedDelaySec/Persistent are appended identically for every
+# plugin, and the [Service] dispatches identically through run.sh. Requires BASE_DIR
+# (the repository root). Returns non-zero if either file was not written.
+write_plugin_units() {
+    _wpu_plugin="$1"
+    _wpu_block="$2"
+    _wpu_service_file="$SYSTEMD_USER_DIR/$(unit_name "$_wpu_plugin" service)"
+    _wpu_timer_file="$SYSTEMD_USER_DIR/$(unit_name "$_wpu_plugin" timer)"
+
+    cat > "$_wpu_service_file" << EOF
+[Unit]
+Description=Scrooge Alert notification task for $_wpu_plugin
+
+[Service]
+Type=oneshot
+WorkingDirectory=$BASE_DIR
+ExecStart="$BASE_DIR/scripts/run.sh" --quiet --$_wpu_plugin
+EOF
+
+    cat > "$_wpu_timer_file" << EOF
+[Unit]
+Description=Run $_wpu_plugin scraper
+
+[Timer]
+$_wpu_block
+RandomizedDelaySec=180s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    [ -f "$_wpu_service_file" ] && [ -f "$_wpu_timer_file" ]
+}
+
+# read_timer_block <plugin>: print the installed <plugin>-scraper.timer's [Timer]
+# *trigger* directives in the same normalized form as plugin_timer_block (one
+# "Key=Value" per line, no trailing newline, with the framework-managed
+# RandomizedDelaySec/Persistent and the section headers removed), or nothing if the
+# unit file is absent. Lets schedule.sh tell whether a re-resolved cadence actually
+# differs from what is already on disk, so an unchanged interval is a true no-op.
+read_timer_block() {
+    _rtb_file="$SYSTEMD_USER_DIR/$(unit_name "$1" timer)"
+    [ -f "$_rtb_file" ] || return 0
+    _rtb_in_timer=0
+    _rtb_block=""
+    while IFS= read -r _rtb_line; do
+        case "$_rtb_line" in
+            "[Timer]") _rtb_in_timer=1; continue ;;
+            "["*"]") _rtb_in_timer=0; continue ;;
+        esac
+        [ "$_rtb_in_timer" -eq 1 ] || continue
+        [ -n "$_rtb_line" ] || continue
+        case "$_rtb_line" in
+            RandomizedDelaySec=*|Persistent=*) continue ;;
+        esac
+        if [ -z "$_rtb_block" ]; then
+            _rtb_block="$_rtb_line"
+        else
+            _rtb_block="$_rtb_block
+$_rtb_line"
+        fi
+    done < "$_rtb_file"
+    printf '%s' "$_rtb_block"
 }

@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from constants import CONFIG_DIR
 from exit_status import classify_service_state
 from scrapers.registry import ScraperRegistry
+from scrapers.base.settings import STATUS_OK, STATUS_DEFAULT, STATUS_INVALID
 from logger import setup_global_logging
 from panel import StatusPanelBuilder
 from config_check import render_config_panel, load_targets
@@ -49,6 +50,32 @@ def get_installed_plugin_units() -> dict:
             name = os.path.basename(path)[:-len(marker)]
             found.setdefault(name, set()).add(suffix)
     return found
+
+def read_timer_oncalendar(target: str) -> str:
+    """Returns the ``OnCalendar`` value written in the target's installed timer unit.
+
+    Reads the generated ``<target>-scraper.timer`` file (the schedule actually on
+    disk) and returns its first ``OnCalendar=`` value, or ``""`` if the unit is
+    absent or declares none. Compared against the config-resolved schedule to detect
+    drift between the user's ``execution_interval`` and the live timer - the same
+    on-disk value ``schedule.sh`` reads and writes, so the two agree exactly.
+
+    Args:
+        target (str): The scraper target name (e.g. ``'skroutz'``).
+
+    Returns:
+        str: The unit's ``OnCalendar`` value, or ``""`` when none is present.
+    """
+    timer_path = os.path.join(get_systemd_user_dir(), f"{target}-scraper.timer")
+    try:
+        with open(timer_path, "r") as timer_file:
+            for line in timer_file:
+                stripped = line.strip()
+                if stripped.startswith("OnCalendar="):
+                    return stripped[len("OnCalendar="):].strip()
+    except OSError:
+        return ""
+    return ""
 
 def get_systemd_properties(unit: str, properties: str) -> dict:
     """Retrieves specified properties for a given systemd user unit.
@@ -159,6 +186,23 @@ def main():
             completed_str = f"[{verdict.color}]{verdict.label}{ref}[/{verdict.color}]"
             service_panel.add_row("✅", "Last Execution Time", last_exec_time)
             service_panel.add_row(verdict.icon, "Last Execution Status", completed_str)
+
+        # Flag schedule drift: the live timer's OnCalendar (what is on disk) versus
+        # the schedule the user's configured execution_interval resolves to. A config
+        # edited without re-running schedule.sh, or an unsupported interval value,
+        # surfaces here as a footnote on the Next Scheduled Execution row. A missing
+        # config is already reported by the Config panel above, so it adds nothing.
+        interval = ScraperRegistry.resolve_interval_status(target, CONFIG_DIR)
+        if interval.status == STATUS_INVALID:
+            next_exec += service_panel.add_note_ref(
+                "Unsupported execution_interval. Using the default 1h."
+            )
+        elif interval.status in (STATUS_OK, STATUS_DEFAULT):
+            active_oncalendar = read_timer_oncalendar(target)
+            if active_oncalendar and active_oncalendar != interval.oncalendar:
+                next_exec += service_panel.add_note_ref(
+                    "Timer differs from config. Run `./scripts/schedule.sh`."
+                )
 
         service_panel.add_row(next_exec_icon, "Next Scheduled Execution", next_exec)
 

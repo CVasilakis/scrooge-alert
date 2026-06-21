@@ -7,6 +7,9 @@ from urllib.parse import urlparse
 from typing import Dict, List, Optional, TYPE_CHECKING
 
 from exceptions import PluginDiscoveryError, PluginDependencyError
+from scrapers.base.settings import (
+    ResolvedInterval, resolve_interval, ResolvedRetention, resolve_retention,
+)
 
 if TYPE_CHECKING:
     from scrapers.base.plugin import BasePlugin
@@ -198,10 +201,10 @@ class ScraperRegistry:
                 f"Install them with: ./install.sh --{name}"
             ) from e
         except Exception as e:
-            raise PluginDiscoveryError(f"Target '{name}' failed to provide {getter_name}(): {e}") from e
+            raise PluginDiscoveryError(f"Plugin '{name}' failed to provide {getter_name}(): {e}") from e
         if not (isinstance(bound_class, type) and issubclass(bound_class, base)):
             raise PluginDiscoveryError(
-                f"Target '{name}': {getter_name}() must return a {base.__name__} subclass, got {bound_class!r}."
+                f"Plugin '{name}': {getter_name}() must return a {base.__name__} subclass, got {bound_class!r}."
             )
         return bound_class
 
@@ -268,8 +271,77 @@ class ScraperRegistry:
         """
         cls.discover()
         if target not in cls._plugins:
-            raise ValueError(f"Unsupported target: {target}")
+            raise ValueError(f"Unsupported plugin: {target}")
         return cls._plugins[target]
+
+    @classmethod
+    def resolve_interval_status(cls, target: str, config_dir: str) -> ResolvedInterval:
+        """Resolves a registered plugin's effective execution interval from its config.
+
+        Combines the plugin's default cadence (the ``OnCalendar`` from
+        :meth:`BasePlugin.get_timer_directives`) with the user's
+        ``settings.execution_interval`` in ``<config_dir>/<config filename>``. The
+        returned :class:`ResolvedInterval` carries both the systemd ``OnCalendar`` to
+        apply and a status (ok/default/invalid/nocfg), so callers can warn
+        (``schedule.sh``) or footnote (``--status``) accordingly. Import-light: it
+        reads the config JSON directly, without resolving the plugin's storage class.
+
+        Args:
+            target (str): The registered target name (e.g. ``'skroutz'``).
+            config_dir (str): The directory holding the scrapers' config files.
+
+        Returns:
+            ResolvedInterval: The effective schedule and how it was derived.
+        """
+        plugin = cls.get_plugin(target)
+        default_oncalendar = plugin.get_timer_directives().get("OnCalendar", "")
+        config_path = os.path.join(config_dir, plugin.get_config_filename())
+        return resolve_interval(default_oncalendar, config_path, plugin.get_settings_class())
+
+    @classmethod
+    def resolve_timer_directives(cls, target: str, config_dir: str) -> Dict[str, str]:
+        """The plugin's ``[Timer]`` directives with ``OnCalendar`` resolved from config.
+
+        Starts from the plugin's declared directives
+        (:meth:`BasePlugin.get_timer_directives`) and overrides only ``OnCalendar``
+        with the value resolved from the user's ``execution_interval`` setting,
+        falling back to the plugin default when the setting is unset, invalid, or the
+        config file is missing. This is the single source of truth for a plugin's
+        *effective* cadence, consumed by ``install.sh`` and ``schedule.sh`` (through
+        the shell one-liners) so a generated timer always reflects the user's choice.
+
+        Args:
+            target (str): The registered target name.
+            config_dir (str): The directory holding the scrapers' config files.
+
+        Returns:
+            Dict[str, str]: The effective ``[Timer]`` trigger directives.
+        """
+        directives = dict(cls.get_plugin(target).get_timer_directives())
+        directives["OnCalendar"] = cls.resolve_interval_status(target, config_dir).oncalendar
+        return directives
+
+    @classmethod
+    def resolve_log_retention(cls, target: str, config_dir: str) -> ResolvedRetention:
+        """Resolves a registered plugin's effective log retention from its config.
+
+        Reads the user's ``settings.log_retention_days`` from
+        ``<config_dir>/<config filename>`` and returns a :class:`ResolvedRetention`
+        (the day count to apply plus a status of ok/default/invalid/nocfg), so the
+        logger can apply ``backupCount`` and ``--status`` can footnote an invalid
+        value. Import-light: reads the config JSON directly, without resolving the
+        plugin's storage class. The companion of :meth:`resolve_interval_status`.
+
+        Args:
+            target (str): The registered target name (e.g. ``'skroutz'``).
+            config_dir (str): The directory holding the scrapers' config files.
+
+        Returns:
+            ResolvedRetention: The effective retention and how it was derived.
+        """
+        plugin = cls.get_plugin(target)
+        config_path = os.path.join(config_dir, plugin.get_config_filename())
+        return resolve_retention(config_path, plugin.get_settings_class())
 
     @classmethod
     def plugin_for_url(cls, url: str) -> Optional['BasePlugin']:
@@ -356,7 +428,7 @@ class ScraperRegistry:
         if target not in self._managers:
             self.discover()
             if target not in self._plugins:
-                raise ValueError(f"Unsupported storage target: {target}")
+                raise ValueError(f"Unsupported storage plugin: {target}")
 
             from scrapers.base.storage import BaseDataManager
             plugin = self._plugins[target]

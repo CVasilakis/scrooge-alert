@@ -212,63 +212,22 @@ printf "%b\n" "\n${CYAN}Setting up Systemd timer(s)...${NC}"
 mkdir -p "$SYSTEMD_USER_DIR"
 
 # Each plugin declares only its own [Timer] *trigger* (cadence) via
-# plugin.get_timer_directives(); RandomizedDelaySec and Persistent are
-# framework-managed (hardcoded in the timer below, identically for every plugin)
-# and the [Service] dispatches identically through run.sh. Fetched once, then
-# filtered per plugin.
-TAB="$(printf '\t')"
+# plugin.get_timer_directives(), resolved against the user's
+# settings.execution_interval (see list_plugin_timer_directives). RandomizedDelaySec
+# and Persistent are framework-managed and the [Service] dispatches identically
+# through run.sh; the shared write_plugin_units helper renders both unit files so
+# install.sh and schedule.sh stay byte-identical. Fetched once, then filtered per plugin.
 ALL_TIMER_DIRECTIVES="$(list_plugin_timer_directives || true)"
 
 for plugin in $PLUGINS; do
-    service_file="$SYSTEMD_USER_DIR/$(unit_name "$plugin" service)"
-    timer_file="$SYSTEMD_USER_DIR/$(unit_name "$plugin" timer)"
+    timer_block="$(plugin_timer_block "$plugin" "$ALL_TIMER_DIRECTIVES")"
 
-    # Collect this plugin's [Timer] trigger directives (one "Key=Value" per line).
-    timer_directives=""
-    OLD_IFS="$IFS"
-    IFS='
-'
-    for line in $ALL_TIMER_DIRECTIVES; do
-        [ "${line%%"$TAB"*}" = "$plugin" ] || continue
-        directive="${line#*"$TAB"}"
-        # RandomizedDelaySec and Persistent are framework-managed (hardcoded
-        # below), not plugin-configurable; drop any a plugin tries to set.
-        case "$directive" in
-            RandomizedDelaySec=*|Persistent=*) continue ;;
-        esac
-        timer_directives="$timer_directives$directive
-"
-    done
-    IFS="$OLD_IFS"
-
-    if [ -z "$timer_directives" ]; then
+    if [ -z "$timer_block" ]; then
         printf "%b\n" "${RED}Error: Target '$plugin' declares no [Timer] directives.${NC}\n"
         exit 1
     fi
 
-    cat > "$service_file" << EOF
-[Unit]
-Description=Scrooge Alert notification task for $plugin
-
-[Service]
-Type=oneshot
-WorkingDirectory=$BASE_DIR
-ExecStart="$BASE_DIR/scripts/run.sh" --quiet --$plugin
-EOF
-
-    cat > "$timer_file" << EOF
-[Unit]
-Description=Run $plugin scraper
-
-[Timer]
-${timer_directives}RandomizedDelaySec=180s
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-EOF
-
-    if [ ! -f "$service_file" ] || [ ! -f "$timer_file" ]; then
+    if ! write_plugin_units "$plugin" "$timer_block"; then
         printf "%b\n" "${RED}Error: Failed to create systemd configuration files for '$plugin'.${NC}\n"
         exit 1
     fi
