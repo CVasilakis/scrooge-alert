@@ -21,8 +21,9 @@
 4. [Installation](#-installation)
 5. [Configuration](#%EF%B8%8F-configuration)
    - [Notification Settings (.env)](#file-1-notification-settings-env)
-   - [Product Tracking (config/<target>.json)](#file-2-product-tracking-configtargetjson)
-   - [Scraper Settings (settings)](#scraper-settings-settings)
+   - [Scraper Configuration (config/<target>.json)](#file-2-scraper-configuration-configtargetjson)
+     - [Scraper Settings](#scraper-settings)
+     - [Monitored Products](#monitored-products)
 6. [Usage](#-usage)
    - [Automated Systemd Execution](#automated-systemd-execution)
    - [Manual Execution](#manual-execution)
@@ -110,7 +111,7 @@ The scraper supports all Skroutz domains, dynamically detecting the locale and c
 
 4. **Configure your settings:**
 
-    Proceed to the [Configuration](#%EF%B8%8F-configuration) section for more information regarding your [Push Notification Settings](#file-1-notification-settings-env) and your [Product Tracking List](#file-2-product-tracking-configtargetjson)
+    Proceed to the [Configuration](#%EF%B8%8F-configuration) section for more information regarding your [Push Notification Settings](#file-1-notification-settings-env) and your [Scraper Configuration](#file-2-scraper-configuration-configtargetjson)
 
 ## ⚙️ Configuration
 
@@ -131,16 +132,16 @@ You can specify multiple platforms by separating their URLs with commas. For ins
 NOTIFICATION_URLS = tgram://<token>/<chat_id>, discord://<webhook_id>/<webhook_token>
 ```
 
-### File 2: Product Tracking (`config/<target>.json`)
+### File 2: Scraper Configuration (`config/<target>.json`)
 
-The `config/` directory stores your product monitoring lists. Copy the provided `config/skroutz.json.example` template to create your initial tracking file for Skroutz:
+Each scraper reads a single JSON file in the `config/` directory (e.g., `config/skroutz.json` for Skroutz) that holds both its **settings** and the **products** it monitors. Copy the provided `config/skroutz.json.example` template to create your own:
 
 ```sh
 cp config/skroutz.json.example config/skroutz.json
 nano config/skroutz.json
 ```
 
-Afterwards, open your config file (e.g., `config/skroutz.json`) and populate it with the items you want to keep an eye on. For example, if you wish to track two products, your file should be structured like this:
+A complete file is structured like this:
 
 ```json
 {
@@ -163,7 +164,22 @@ Afterwards, open your config file (e.g., `config/skroutz.json`) and populate it 
 }
 ```
 
-#### Supported Fields:
+#### Scraper Settings
+
+The optional top-level `settings` holds per-scraper preferences, separate from your product list:
+
+| Setting | Type | Description |
+| :--- | :--- | :--- |
+| `execution_interval` | String | How often the scraper's background timer runs. One of `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `24h`. Many spellings are accepted (e.g. `1h`, `1 hour`, `60m` and `hourly` all mean `1h`; `daily` and `1d` mean `24h`). If omitted, the scraper's built-in default is used. |
+| `log_retention_days` | Integer / String | How many days of log files each scraper keeps. It should be an integer between **1–30**, written as a number or a day string (`"7d"`, `"7 days"`). Only days are supported (no hours/weeks/months), and logging cannot be disabled. If omitted or an unsupported value is used, the default of 7 days is used. |
+
+> [!NOTE]
+> Changing `execution_interval` does not take effect on its own. After editing it, apply it to the live timer with the [Set Execution Interval](#set-execution-interval) script: `./scripts/schedule.sh`. A [status check](#status-check) highlights any scraper whose live timer no longer matches its configured interval or if an unsupported value is used.
+
+#### Monitored Products
+
+The `products` array lists the items you want to keep an eye on. Each entry supports the following fields:
+
 | Field | Type | Source | Description |
 | :--- | :--- | :--- | :--- |
 | `name` | String | **User-defined** | A friendly naming label used inside the notifications. |
@@ -175,28 +191,6 @@ Afterwards, open your config file (e.g., `config/skroutz.json`) and populate it 
 
 > [!NOTE]
 > You do not need to manually add the internal fields. The script will generate and maintain them during execution.
-
-#### Scraper Settings (`settings`)
-
-The optional top-level `settings` object holds per-scraper preferences, separate from your product list:
-
-```json
-{
-  "settings": {
-    "execution_interval": "1h",
-    "log_retention_days": 7
-  },
-  "products": [ ... ]
-}
-```
-
-| Setting | Type | Description |
-| :--- | :--- | :--- |
-| `execution_interval` | String | How often the scraper's background timer runs. One of `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `24h`. Many spellings are accepted (e.g. `1h`, `1 hour`, `60m` and `hourly` all mean `1h`; `daily` and `1d` mean `24h`). If omitted, the scraper's built-in default is used; an unsupported value is reported and ignored. |
-| `log_retention_days` | Integer / String | How many days of log files the scraper keeps. An integer **1–30** (default `7`), written as a number (`7`) or a day string (`"7d"`, `"7 days"`). Only days are supported (no hours/weeks/months), and logging cannot be disabled. An out-of-range or unsupported value is rejected with a warning (shown in a [status check](#status-check) and the run log) and the default of 7 days is used. |
-
-> [!IMPORTANT]
-> Changing `execution_interval` does not take effect on its own. After editing it, apply it to the live timer with the [Set Execution Interval](#set-execution-interval) script: `./scripts/schedule.sh`. A [status check](#status-check) footnotes any scraper whose live timer no longer matches its configured interval.
 
 ## 💻 Usage
 
@@ -398,7 +392,7 @@ You can easily test your notification setup using the `--ping` flag:
 
 The application maintains comprehensive logs to help you monitor background executions and diagnose issues. You can find these files in the `logs/` directory:
 
-*   **Background Execution Logs (`logs/<target>/output.log`):** When the script runs automatically in the background, all standard output is saved here (one subdirectory per scraper target). Log line timestamps are recorded in UTC (and labelled as such). These logs rotate daily at midnight UTC, and at each rotation the oldest files beyond your configured [`log_retention_days`](#scraper-settings-settings) (default 7) are pruned. Because pruning happens only at rotation, lowering the value takes effect at the next midnight-UTC rotation, while raising it keeps more history going forward without deleting anything.
+*   **Background Execution Logs (`logs/<target>/output.log`):** When the script runs automatically in the background, all standard output is saved here (one subdirectory per scraper target). Log line timestamps are recorded in UTC (and labelled as such). These logs rotate daily at midnight UTC, and at each rotation the oldest files beyond your configured [`log_retention_days`](#scraper-settings) (default 7) are pruned. Because pruning happens only at rotation, lowering the value takes effect at the next midnight-UTC rotation, while raising it keeps more history going forward without deleting anything.
 *   **Scraper Error Logs (`logs/<target>/errors.txt`):** When a specific scraper hits a critical exception during a run, the detailed stack trace and error information are saved to that scraper's own `errors.txt` (one per target, e.g., `logs/skroutz/errors.txt`).
 *   **General Error Logs (`logs/errors.txt`):** Top-level failures that occur with no specific scraper context (e.g. a total crash before any target starts) are saved to the root `logs/errors.txt` instead. Both error logs are timestamped in UTC.
 
