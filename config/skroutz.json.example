@@ -1,8 +1,7 @@
 {
   "settings": {
     "execution_interval": "1h",
-    "log_retention_days": 7,
-    "reminder_interval": "off"
+    "log_retention_days": 7
   },
   "products": [
     {

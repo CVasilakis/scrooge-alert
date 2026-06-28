@@ -9,7 +9,6 @@ from typing import Dict, List, Optional, TYPE_CHECKING
 from exceptions import PluginDiscoveryError, PluginDependencyError
 from scrapers.base.settings import (
     ResolvedInterval, resolve_interval, ResolvedRetention, resolve_retention,
-    ResolvedReminder, resolve_reminder,
 )
 
 if TYPE_CHECKING:
@@ -343,28 +342,6 @@ class ScraperRegistry:
         plugin = cls.get_plugin(target)
         config_path = os.path.join(config_dir, plugin.get_config_filename())
         return resolve_retention(config_path, plugin.get_settings_class())
-
-    @classmethod
-    def resolve_reminder_status(cls, target: str, config_dir: str) -> ResolvedReminder:
-        """Resolves a registered plugin's status-reminder cadence from its config.
-
-        Reads the user's ``settings.reminder_interval`` from
-        ``<config_dir>/<config filename>`` and returns a :class:`ResolvedReminder`
-        (the cadence plus a status of ok/off/invalid/nocfg and a display label), so
-        ``--status`` can show the configured interval on the Service Status panel.
-        Import-light: reads the config JSON directly, without resolving the plugin's
-        storage class. The companion of :meth:`resolve_log_retention`.
-
-        Args:
-            target (str): The registered target name (e.g. ``'skroutz'``).
-            config_dir (str): The directory holding the scrapers' config files.
-
-        Returns:
-            ResolvedReminder: The effective cadence and how it was derived.
-        """
-        plugin = cls.get_plugin(target)
-        config_path = os.path.join(config_dir, plugin.get_config_filename())
-        return resolve_reminder(config_path, plugin.get_settings_class())
 
     @classmethod
     def plugin_for_url(cls, url: str) -> Optional['BasePlugin']:

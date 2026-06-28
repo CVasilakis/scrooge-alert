@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from constants import CONFIG_DIR
 from exit_status import classify_service_state
 from scrapers.registry import ScraperRegistry
-from scrapers.base.settings import STATUS_OK, STATUS_DEFAULT, STATUS_INVALID, reminder_invalid_message
+from scrapers.base.settings import STATUS_OK, STATUS_DEFAULT, STATUS_INVALID
 from logger import setup_global_logging
 from panel import StatusPanelBuilder
 from config_check import render_config_panel, load_targets
@@ -205,15 +205,6 @@ def main():
                 )
 
         service_panel.add_row(next_exec_icon, "Next Scheduled Execution", next_exec)
-
-        # Status-reminder cadence: green + the named interval when valid (or Off),
-        # yellow + a footnote when the configured value is unsupported.
-        reminder_status = ScraperRegistry.resolve_reminder_status(target, CONFIG_DIR)
-        if reminder_status.status == STATUS_INVALID:
-            ref = service_panel.add_note_ref(reminder_invalid_message())
-            service_panel.add_row("🟡", "Status Reminder", f"[yellow]{reminder_status.label}{ref}[/yellow]")
-        else:
-            service_panel.add_row("✅", "Status Reminder", reminder_status.label)
 
         console.print()
         service_panel.render(console)
