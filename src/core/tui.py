@@ -1,15 +1,18 @@
 import logging
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import List, Union
+from typing import List, Sequence, Union
 from rich.console import Console, Group
 from rich.live import Live
 from rich.table import Table
 from rich.panel import Panel
+from rich.rule import Rule
 from rich.text import Text
 from rich.markup import escape
 from rich.spinner import Spinner
 from rich.progress_bar import ProgressBar
+
+from scrapers.base.settings import SettingView, STATUS_OK, STATUS_INVALID
 
 # Accepts a single note string, a list of note strings, or None.
 Notes = Union[str, List[str], None]
@@ -61,8 +64,17 @@ class ExecutionStrategy(ABC):
         return [_ensure_period(n) for n in notes if n]
 
     @abstractmethod
-    def start_target(self, target_name: str, target_logger: logging.Logger) -> None:
-        """Called when a new scraping target begins."""
+    def start_target(self, target_name: str, target_logger: logging.Logger, settings_view: Sequence[SettingView] = ()) -> None:
+        """Called when a new scraping target begins.
+
+        Args:
+            target_name (str): The target being scraped.
+            target_logger (logging.Logger): The target's logger (used by the silent strategy).
+            settings_view (Sequence[SettingView]): The target's resolved settings,
+                rendered as a section atop the interactive panel (and logged once by the
+                silent strategy). The orchestrator resolves these so the strategies stay
+                presentation-only.
+        """
         pass
 
     @abstractmethod
@@ -190,6 +202,7 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
         self.console = Console()
         self.live = None
         self.rows = []
+        self.settings_rows = []
         self.notes = []
         self.target_name = ""
         self.sleep_total = 0.0
@@ -201,7 +214,7 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
         self.scraping_max = 1
         self.is_complete = False
 
-    def start_target(self, target_name: str, target_logger: logging.Logger) -> None:
+    def start_target(self, target_name: str, target_logger: logging.Logger, settings_view: Sequence[SettingView] = ()) -> None:
         """Starts a new live display session for the given target."""
         if self.live:
             self.live.stop()
@@ -216,8 +229,40 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
         self.sleep_label = "Sleeping"
         self.is_complete = False
 
+        # Build the static settings section after resetting notes, so its invalid-value
+        # footnotes take the first reference numbers, ahead of the scraping rows.
+        self.settings_rows = self._build_settings_rows(settings_view)
+
         self.live = Live(self._generate_panel(), refresh_per_second=10)
         self.live.start()
+
+    def _build_settings_rows(self, settings_view: Sequence[SettingView]) -> List[tuple]:
+        """Renders the resolved settings into ``(icon, label, value)`` rows.
+
+        A valid value shows as ``✅``; an unset value (or missing config) shows its
+        active default as ``✅`` with a dim ``(default)`` marker; an invalid value shows
+        the default it fell back to as ``🟡`` plus a footnote naming the problem.
+        """
+        rows: List[tuple] = []
+        for view in settings_view:
+            if view.status == STATUS_INVALID:
+                value = f"[yellow]{escape(view.display_value)}[/yellow]{self._build_note_refs(view.footnote)}"
+                rows.append(("🟡", escape(view.label), value))
+            else:
+                value = escape(view.display_value)
+                if view.status != STATUS_OK:
+                    value += " [dim](default)[/dim]"
+                rows.append(("✅", escape(view.label), value))
+        return rows
+
+    @staticmethod
+    def _new_display_table() -> Table:
+        """Builds an empty 3-column (icon, name, value) display table."""
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_column("Icon", justify="center")
+        table.add_column("Name", style="bold")
+        table.add_column("Value")
+        return table
 
     def start_scraping(self, name: str, attempt: int = 1, max_retries: int = 1) -> None:
         """Starts scraping the specified product and updates the live display.
@@ -270,10 +315,7 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
 
     def _generate_panel(self) -> Panel:
         """Generates the rich panel to be rendered on the live display."""
-        display_table = Table(show_header=False, box=None, padding=(0, 2))
-        display_table.add_column("Icon", justify="center")
-        display_table.add_column("Name", style="bold")
-        display_table.add_column("Value")
+        display_table = self._new_display_table()
 
         for row in self.rows:
             display_table.add_row(*row)
@@ -292,19 +334,31 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
                 scrape_text = "[cyan]Scraping...[/cyan]"
             display_table.add_row(Spinner("dots", style="cyan"), escape(self.scraping_name), scrape_text)
 
+        # The static settings section (set at start_target) renders above a divider,
+        # then the live scraping rows below it.
+        if self.settings_rows:
+            settings_table = self._new_display_table()
+            for row in self.settings_rows:
+                settings_table.add_row(*row)
+            body = Group(settings_table, Rule(style="dim"), display_table)
+        else:
+            body = display_table
+
         if self.notes:
             notes_group = [""]
             for i, note in enumerate(self.notes, 1):
                 notes_group.append(f"  [{i}] {escape(note)}")
-            renderable = Group(display_table, Text.from_markup("\n".join(notes_group), style="dim"))
+            renderable = Group(body, Text.from_markup("\n".join(notes_group), style="dim"))
         else:
-            renderable = display_table
+            renderable = body
 
         has_green = False
         has_red = False
         has_yellow = False
 
-        for row in self.rows:
+        # Settings rows count toward the border color too, so an invalid setting tints
+        # the panel yellow.
+        for row in (self.settings_rows + self.rows):
             icon = row[0]
             if icon == "🎉":
                 has_green = True
@@ -442,9 +496,20 @@ class SilentExecutionStrategy(ExecutionStrategy):
             return ""
         return " " + " ".join(f"({n})" for n in notes_list)
 
-    def start_target(self, target_name: str, target_logger: logging.Logger) -> None:
-        """Sets the underlying logger context to use for output."""
+    def start_target(self, target_name: str, target_logger: logging.Logger, settings_view: Sequence[SettingView] = ()) -> None:
+        """Sets the logger context and records the effective settings to the file log.
+
+        Logging the resolved settings once at target start gives background (service)
+        runs a record of what was in effect, and surfaces an invalid setting as a
+        warning (replacing the ad-hoc retention warning the logger used to emit).
+        """
         self.target_logger = target_logger
+        for view in settings_view:
+            if view.status == STATUS_INVALID:
+                target_logger.warning(f"❗ {view.label}: {view.display_value} ({view.footnote})")
+            else:
+                suffix = " (default)" if view.status != STATUS_OK else ""
+                target_logger.info(f"⚙️  {view.label}: {view.display_value}{suffix}")
 
     def start_scraping(self, name: str, attempt: int = 1, max_retries: int = 1) -> None:
         """Does nothing in silent mode."""

@@ -7,7 +7,6 @@ from typing import Dict, Any, List, Optional, Type, TYPE_CHECKING
 from urllib.parse import urlparse
 
 from scrapers.base.model import BaseTrackedItem
-from scrapers.base.settings import ScraperSettings
 from exceptions import StorageFileError
 from utils import parse_price
 
@@ -348,30 +347,17 @@ class JsonProductDataManager(BaseDataManager):
             self._updates[clean_url] = dict(updates)
 
     def get_items(self) -> List[Dict[str, Any]]:
-        """Returns the list of items as dictionaries."""
-        return self._data.get(self.ROOT_KEY, [])
+        """Returns the list of items as dictionaries.
 
-    def get_settings(self) -> ScraperSettings:
-        """Returns the parsed ``settings`` block from the loaded config (read-only).
-
-        The runtime read path for a scraper's settings, mirroring ``get_items`` for
-        the product list: it parses ``self._data["settings"]`` into the plugin's
-        settings dataclass (``plugin.get_settings_class()`` - the single source of
-        truth for which settings exist and how they parse), so scrape-time code reads
-        a typed object instead of poking at raw dicts. Call after :meth:`load` has
-        populated the in-memory state. Returns defaults when no plugin was injected or
-        the block is absent/malformed.
-
-        The ``settings`` block is **read-only at runtime**: it is authored by the user
-        and the application never writes it back. There is deliberately no
-        ``update_setting``/settings write path - machine-owned state belongs on item
-        rows via :meth:`update_item`, not in ``settings`` (see :class:`BaseTrackedItem`).
-
-        Returns:
-            ScraperSettings: The parsed settings (or its per-plugin subclass).
+        Note:
+            The config's top-level ``settings`` block is **not** read here. Settings are
+            a config-file concept resolved import-light through
+            :meth:`scrapers.registry.ScraperRegistry.resolve_settings` (and the
+            per-setting ``resolve_*`` helpers), so they are read uniformly for any
+            backend rather than through this JSON-only manager. This manager owns only
+            the *item* lifecycle; it never reads or writes ``settings``.
         """
-        settings_cls = self.plugin.get_settings_class() if self.plugin else ScraperSettings
-        return settings_cls.from_dict(self._data.get("settings"))
+        return self._data.get(self.ROOT_KEY, [])
 
     def _clean_products(self, products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Removes duplicates based on URL rules and cleans URLs."""

@@ -102,6 +102,27 @@ def get_systemd_properties(unit: str, properties: str) -> dict:
     except (subprocess.CalledProcessError, ValueError):
         return {}
 
+def add_setting_row(panel: StatusPanelBuilder, view) -> None:
+    """Renders one resolved setting as a row in the panel's settings section.
+
+    A valid, explicitly-set value shows as ``✅``. An unset value (or a missing config)
+    shows its active default as ``✅`` with a dim ``(default)`` marker. An invalid value
+    shows the default it fell back to as ``🟡`` plus a footnote naming the problem.
+
+    Args:
+        panel (StatusPanelBuilder): The panel being built.
+        view (SettingView): The resolved setting (label, display value, status, footnote).
+    """
+    if view.status == STATUS_INVALID:
+        value = f"{view.display_value}{panel.add_note_ref(view.footnote)}"
+        panel.add_row("🟡", view.label, value)
+        return
+
+    value = view.display_value
+    if view.status != STATUS_OK:
+        value += " [dim](default)[/dim]"
+    panel.add_row("✅", view.label, value)
+
 def main():
     """Main entry point for checking the status of the Scrooge Alert service.
 
@@ -149,6 +170,13 @@ def main():
 
         service_panel = StatusPanelBuilder(f"{target.capitalize()} Service Status")
 
+        # Settings section: report each scraper's settings (or its active default) on
+        # top, then a separator, then the systemd status rows. Only reached once the
+        # service is installed (the not-installed branch above already returned).
+        for view in ScraperRegistry.resolve_settings(target, CONFIG_DIR):
+            add_setting_row(service_panel, view)
+        service_panel.add_separator()
+
         timer_active_val = timer_props.get("ActiveState") == "active"
         timer_icon = "✅" if timer_active_val else "❗"
         timer_active = "[green]Yes[/green]" if timer_active_val else "[red]No[/red]"
@@ -187,19 +215,15 @@ def main():
             service_panel.add_row("✅", "Last Execution Time", last_exec_time)
             service_panel.add_row(verdict.icon, "Last Execution Status", completed_str)
 
-        # Flag schedule drift: the live timer's OnCalendar (what is on disk) versus
-        # the schedule the user's configured execution_interval resolves to. A config
-        # edited without re-running schedule.sh, or an unsupported interval value,
-        # surfaces here as a footnote on the Next Scheduled Execution row. A missing
-        # config is already reported by the Config panel above, so it adds nothing.
+        # Flag schedule *drift* only: the live timer's OnCalendar (what is on disk)
+        # versus the schedule the user's configured execution_interval resolves to. A
+        # config edited without re-running schedule.sh surfaces here as a footnote. An
+        # *invalid* execution_interval is no longer footnoted here — the Execution
+        # Interval row in the settings section above owns that report.
         interval = ScraperRegistry.resolve_interval_status(target, CONFIG_DIR)
-        if interval.status == STATUS_INVALID:
-            next_exec += service_panel.add_note_ref(
-                "Unsupported execution_interval. Using the default 1h."
-            )
-        elif interval.status in (STATUS_OK, STATUS_DEFAULT):
+        if interval.status in (STATUS_OK, STATUS_DEFAULT):
             active_oncalendar = read_timer_oncalendar(target)
-            if active_oncalendar and active_oncalendar != interval.oncalendar:
+            if active_oncalendar and active_oncalendar != interval.value:
                 next_exec += service_panel.add_note_ref(
                     "Timer differs from config. Run `./scripts/schedule.sh`."
                 )

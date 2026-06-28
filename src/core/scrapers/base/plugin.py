@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Type
 from urllib.parse import urlparse
 from scrapers.base.client import BaseScraperClient
 from scrapers.base.storage import BaseDataManager
-from scrapers.base.settings import ScraperSettings
+from scrapers.base.settings import ScraperSettings, SettingSpec, BASE_SETTING_SPECS
 
 
 class BasePlugin(ABC):
@@ -127,6 +127,24 @@ class BasePlugin(ABC):
             Type[ScraperSettings]: The settings dataclass for this plugin.
         """
         return ScraperSettings
+
+    def get_setting_specs(self) -> List[SettingSpec]:
+        """The ordered :class:`SettingSpec` list describing this plugin's settings.
+
+        Each spec declares how one ``settings`` field is resolved, validated and
+        displayed (see :mod:`scrapers.base.settings`). The registry and the settings
+        panel iterate exactly this list, so a scraper adds a store-specific setting by
+        returning ``BASE_SETTING_SPECS + [its specs]`` here (and a matching field on its
+        :meth:`get_settings_class` subclass) - the single extension point for
+        per-scraper settings, with no change to base ``registry``/``status`` code.
+
+        Kept import-light like the rest of the descriptor: specs are pure stdlib
+        dataclasses, so this never pulls in a transport stack.
+
+        Returns:
+            List[SettingSpec]: The settings this plugin exposes, in display order.
+        """
+        return BASE_SETTING_SPECS
 
     def matches_url(self, url: str) -> bool:
         """Returns True if the URL's host is one this plugin handles.

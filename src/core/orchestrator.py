@@ -10,7 +10,6 @@ from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RET
 from exceptions import RateLimitError, ServerError, ScraperParseError, LockAcquisitionError, StorageFileError, ProductNotFoundError, ProductUnavailableError, InvalidURLError, PluginDependencyError
 from scrapers.base.model import BaseTrackedItem
 from scrapers.base.storage import BaseDataManager
-from scrapers.base.settings import normalize_bool
 from scrapers.registry import ScraperRegistry
 from notifier import Notifier
 from logger import save_traceback, get_target_logger
@@ -439,13 +438,13 @@ class ScrapingOrchestrator:
 
             self._current_target = target
             # Resolve log retention here (the run owner already holds the registry) and
-            # hand it to the logging utility, which is kept free of any plugin-system
-            # dependency. An invalid value resolves to the default with STATUS_INVALID,
-            # which makes the logger emit a one-time warning into the file log.
+            # hand the day-count to the logging utility, which is kept free of any
+            # plugin-system dependency. The effective settings (including an invalid
+            # retention) are reported to the user via the settings section / silent log
+            # at start_target below, not by the logger itself.
             retention = ScraperRegistry.resolve_log_retention(target, CONFIG_DIR)
-            self._current_logger = get_target_logger(
-                target, self.quiet, retention.days, retention.status
-            )
+            self._current_logger = get_target_logger(target, self.quiet, retention.value)
+            settings_view = ScraperRegistry.resolve_settings(target, CONFIG_DIR)
 
             try:
                 data_manager = self.registry.get_manager(target)
@@ -456,7 +455,7 @@ class ScrapingOrchestrator:
                 # installed. Skip just this target with an actionable message
                 # (mirroring the client-instantiation handler below); other
                 # targets and the rest of the run proceed.
-                self.ui_strategy.start_target(target, self._current_logger)
+                self.ui_strategy.start_target(target, self._current_logger, settings_view)
                 self.ui_strategy.log_error("System", str(e))
                 self.ui_strategy.complete_target()
                 continue
@@ -466,7 +465,7 @@ class ScrapingOrchestrator:
             if data_manager.get_item_count() == 0:
                 continue
 
-            self.ui_strategy.start_target(target, self._current_logger)
+            self.ui_strategy.start_target(target, self._current_logger, settings_view)
 
             try:
                 with acquire_lock(target):
@@ -502,9 +501,10 @@ class ScrapingOrchestrator:
                     # Per-scraper opt-out: notify_scraping_errors=false silences the
                     # "Scraping Errors" push for this target. Stale-product and crash
                     # alerts are unaffected (and the rate-limit exit code is unchanged),
-                    # so a sustained failure still surfaces. Unset or unparseable values
-                    # default to notifying (warn + default, flagged in the config check).
-                    if normalize_bool(data_manager.get_settings().notify_scraping_errors) is not False:
+                    # so a sustained failure still surfaces. The resolver is the single
+                    # home for the default-ON rule: unset/unparseable values resolve to
+                    # True (notify), so only an explicit, valid `false` silences the push.
+                    if ScraperRegistry.resolve_notify_errors(target, self.config_dir).value:
                         self.notifier.notify_errors(failed_items)
 
             except LockAcquisitionError:

@@ -11,7 +11,6 @@ from utils import check_env_file, check_for_updates, classify_notification_urls
 from logger import get_target_logger
 from panel import StatusPanelBuilder
 from scrapers.registry import ScraperRegistry
-from scrapers.base.settings import STATUS_INVALID, retention_warning_message, notify_errors_warning_message
 
 
 @dataclass
@@ -23,14 +22,17 @@ class TargetLoad:
         count (int): The number of loaded items (0 when the load failed).
         faulty_indices (List[int]): 1-based indices of items failing validation.
         error (Optional[str]): The failure message if the storage could not be loaded.
-        settings_warnings (List[str]): Non-fatal warnings about the ``settings`` block
-            (e.g. an unsupported ``log_retention_days``), surfaced as config footnotes.
+
+    Note:
+        The ``settings`` block is intentionally not reported here. Settings health is
+        surfaced per-scraper in the settings section of the Service Status panel
+        (``--status``) and the interactive Scraping panel (a run), not on this
+        config-file panel.
     """
     target: str
     count: int = 0
     faulty_indices: List[int] = field(default_factory=list)
     error: Optional[str] = None
-    settings_warnings: List[str] = field(default_factory=list)
 
 
 def load_targets(registry: ScraperRegistry, targets: list) -> List[TargetLoad]:
@@ -63,14 +65,8 @@ def load_targets(registry: ScraperRegistry, targets: list) -> List[TargetLoad]:
             continue
         try:
             manager.load()
-            settings_warnings = []
-            if ScraperRegistry.resolve_log_retention(target, registry.config_dir).status == STATUS_INVALID:
-                settings_warnings.append(retention_warning_message())
-            if ScraperRegistry.resolve_notify_errors(target, registry.config_dir).status == STATUS_INVALID:
-                settings_warnings.append(notify_errors_warning_message())
             results.append(TargetLoad(
                 target, manager.get_item_count(), manager.get_faulty_indices(),
-                settings_warnings=settings_warnings,
             ))
         except StorageFileError as e:
             results.append(TargetLoad(target, error=str(e)))
@@ -119,12 +115,6 @@ def _append_config_rows(panel: StatusPanelBuilder, load_results: List[TargetLoad
         else:
             icon = "✅"
             value = f"{result.count} items loaded"
-
-        # A bad setting (e.g. log_retention_days) is non-fatal: footnote it on the
-        # same config row and downgrade the row to yellow.
-        for warning in result.settings_warnings:
-            value += panel.add_note_ref(warning)
-            icon = "🟡"
 
         panel.add_row(icon, label, value)
     return None
