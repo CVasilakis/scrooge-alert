@@ -10,6 +10,7 @@ from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RET
 from exceptions import RateLimitError, ServerError, ScraperParseError, LockAcquisitionError, StorageFileError, ProductNotFoundError, ProductUnavailableError, InvalidURLError, PluginDependencyError
 from scrapers.base.model import BaseTrackedItem
 from scrapers.base.storage import BaseDataManager
+from scrapers.base.settings import normalize_bool
 from scrapers.registry import ScraperRegistry
 from notifier import Notifier
 from logger import save_traceback, get_target_logger
@@ -498,7 +499,13 @@ class ScrapingOrchestrator:
                     self.notifier.notify_old_entries(self._stale_items, OLD_ENTRY_HOURS)
 
                 if not self.interrupted and failed_items:
-                    self.notifier.notify_errors(failed_items)
+                    # Per-scraper opt-out: notify_scraping_errors=false silences the
+                    # "Scraping Errors" push for this target. Stale-product and crash
+                    # alerts are unaffected (and the rate-limit exit code is unchanged),
+                    # so a sustained failure still surfaces. Unset or unparseable values
+                    # default to notifying (warn + default, flagged in the config check).
+                    if normalize_bool(data_manager.get_settings().notify_scraping_errors) is not False:
+                        self.notifier.notify_errors(failed_items)
 
             except LockAcquisitionError:
                 self.ui_strategy.log_error("System", "Another instance is currently running. Aborting...")

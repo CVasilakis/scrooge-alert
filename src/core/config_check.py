@@ -11,7 +11,7 @@ from utils import check_env_file, check_for_updates, classify_notification_urls
 from logger import get_target_logger
 from panel import StatusPanelBuilder
 from scrapers.registry import ScraperRegistry
-from scrapers.base.settings import STATUS_INVALID, retention_warning_message
+from scrapers.base.settings import STATUS_INVALID, retention_warning_message, notify_errors_warning_message
 
 
 @dataclass
@@ -66,6 +66,8 @@ def load_targets(registry: ScraperRegistry, targets: list) -> List[TargetLoad]:
             settings_warnings = []
             if ScraperRegistry.resolve_log_retention(target, registry.config_dir).status == STATUS_INVALID:
                 settings_warnings.append(retention_warning_message())
+            if ScraperRegistry.resolve_notify_errors(target, registry.config_dir).status == STATUS_INVALID:
+                settings_warnings.append(notify_errors_warning_message())
             results.append(TargetLoad(
                 target, manager.get_item_count(), manager.get_faulty_indices(),
                 settings_warnings=settings_warnings,

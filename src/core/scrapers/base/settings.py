@@ -167,6 +167,45 @@ def normalize_retention_days(raw) -> Optional[int]:
     return None
 
 
+# Boolean spellings accepted for a flag setting (e.g. ``notify_scraping_errors``).
+# Tokens are whitespace-free and lowercase; a raw value is folded to that form first.
+_TRUE_TOKENS = frozenset({"true", "yes", "on", "1"})
+_FALSE_TOKENS = frozenset({"false", "no", "off", "0"})
+
+
+def normalize_bool(raw) -> Optional[bool]:
+    """Normalizes a boolean setting value to ``True``/``False``, or ``None``.
+
+    Tolerant like the other normalizers, and deliberately *not* a bare ``bool(...)``
+    cast - ``bool("false")`` is ``True``, which would be a footgun. Accepts a real JSON
+    boolean, the ints ``1``/``0``, and the string spellings ``true/yes/on/1`` and
+    ``false/no/off/0`` (case- and whitespace-insensitive). Anything else - a typo, an
+    unsupported word, a float - returns ``None`` so the caller can default + flag it.
+
+    Args:
+        raw: The user's raw flag value (any type).
+
+    Returns:
+        Optional[bool]: ``True``/``False`` for a recognized value, or ``None``.
+    """
+    # bool is a subclass of int, so handle it before the int branch.
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, int):
+        if raw == 1:
+            return True
+        if raw == 0:
+            return False
+        return None
+    if isinstance(raw, str):
+        token = raw.strip().lower()
+        if token in _TRUE_TOKENS:
+            return True
+        if token in _FALSE_TOKENS:
+            return False
+    return None
+
+
 @dataclass
 class ScraperSettings:
     """The parsed ``settings`` block of a scraper's config file.
@@ -185,9 +224,17 @@ class ScraperSettings:
             :func:`normalize_retention_days` at the point it becomes a rotating-file
             ``backupCount``; the raw value is kept so the resolver can tell an
             *invalid* value apart from an *unset* one.
+        notify_scraping_errors: The user's raw opt-out for the per-run "Scraping
+            Errors" notification, or ``None`` when unset. Validated via
+            :func:`normalize_bool` where it gates the notification; it defaults to
+            *notify* (``True``) when unset or unparseable, so only an explicit, valid
+            ``false`` silences that push (stale-product and crash alerts are
+            unaffected). The raw value is kept so an *invalid* value can be told apart
+            from an *unset* one (footnoted in the config check).
     """
     execution_interval: Optional[str] = None
     log_retention_days: Optional[object] = None
+    notify_scraping_errors: Optional[object] = None
 
     @classmethod
     def from_dict(cls, data) -> "ScraperSettings":
@@ -210,6 +257,7 @@ class ScraperSettings:
         return cls(
             execution_interval=interval if isinstance(interval, str) else None,
             log_retention_days=data.get("log_retention_days"),
+            notify_scraping_errors=data.get("notify_scraping_errors"),
         )
 
 
@@ -397,3 +445,59 @@ def retention_warning_message() -> str:
         f"log_retention_days must be {MIN_LOG_RETENTION_DAYS}-{MAX_LOG_RETENTION_DAYS}. "
         f"Using default {DEFAULT_LOG_RETENTION_DAYS}."
     )
+
+
+@dataclass
+class ResolvedFlag:
+    """The effective value of a boolean ``settings`` flag, plus how it was derived.
+
+    The boolean analogue of :class:`ResolvedInterval`/:class:`ResolvedRetention`,
+    reusable by any flag setting.
+
+    Attributes:
+        value (bool): The effective flag value - the user's parsed boolean when valid,
+            otherwise the setting's default. Always usable.
+        status (str): One of :data:`STATUS_OK`, :data:`STATUS_DEFAULT`,
+            :data:`STATUS_INVALID`, :data:`STATUS_NOCFG`; lets callers footnote an
+            invalid value.
+        raw: The user's raw value, kept for messages.
+    """
+    value: bool
+    status: str
+    raw: object = None
+
+
+def resolve_notify_errors(
+    config_path: str,
+    settings_cls: Type[ScraperSettings] = ScraperSettings,
+) -> ResolvedFlag:
+    """Resolves a scraper's ``notify_scraping_errors`` flag from its config file.
+
+    Mirrors :func:`resolve_retention` (import-light, reads the config JSON directly).
+    Defaults to ``True`` (notify) when unset, unparseable, or the config is missing, so
+    only an explicit, valid ``false`` disables the "Scraping Errors" push. A valid
+    ``false`` resolves as :data:`STATUS_OK` (not invalid) because :func:`_resolve_setting`
+    tests ``normalize(...) is None``, not falsiness.
+
+    Args:
+        config_path (str): Absolute path to the scraper's JSON config file.
+        settings_cls (Type[ScraperSettings]): The settings class to parse with.
+
+    Returns:
+        ResolvedFlag: The effective flag value and how it was derived.
+    """
+    value, status, raw = _resolve_setting(
+        config_path, settings_cls, "notify_scraping_errors",
+        normalize=normalize_bool,
+        default_value=True,  # default ON: notifications enabled unless explicitly disabled
+    )
+    return ResolvedFlag(value, status, raw)
+
+
+def notify_errors_warning_message() -> str:
+    """The single user-facing message for an invalid ``notify_scraping_errors``.
+
+    Shared by the config check footnote so the wording lives in one place; kept short
+    to fit the status panel's footnote width.
+    """
+    return "Invalid notify_scraping_errors setting. Defaulting to true."

@@ -147,7 +147,8 @@ A complete file is structured like this:
 {
   "settings": {
     "execution_interval": "1h",
-    "log_retention_days": 7
+    "log_retention_days": 7,
+    "notify_scraping_errors": true
   },
   "products": [
     {
@@ -172,6 +173,7 @@ The optional top-level `settings` holds per-scraper preferences, separate from y
 | :--- | :--- | :--- |
 | `execution_interval` | String | How often the scraper's background timer runs. One of `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `24h`. Many spellings are accepted (e.g. `1h`, `1 hour`, `60m` and `hourly` all mean `1h`; `daily` and `1d` mean `24h`). If omitted, the scraper's built-in default is used. |
 | `log_retention_days` | Integer / String | How many days of log files each scraper keeps. It should be an integer between **1–30**, written as a number or a day string (`"7d"`, `"7 days"`). Only days are supported (no hours/weeks/months), and logging cannot be disabled. If omitted or an unsupported value is used, the default of 7 days is used. |
+| `notify_scraping_errors` | Boolean | Whether to send the **Scraping Errors** notification for this scraper. Defaults to `true`. Set it to `false` to stop those alerts (e.g. for a flaky target); the scraping errors are still logged, and the **Tracking Stale** and **Script Crash** alerts are unaffected — so a persistent problem still surfaces. If omitted or an unsupported value is used, the default (`true`, notify) applies; an unsupported value is reported in a [status check](#status-check). |
 
 > [!NOTE]
 > Changing `execution_interval` does not take effect on its own. After editing it, apply it to the live timer with the [Set Execution Interval](#set-execution-interval) script: `./scripts/schedule.sh`. A [status check](#status-check) highlights any scraper whose live timer no longer matches its configured interval or if an unsupported value is used.
@@ -347,7 +349,7 @@ You might receive the following push notification alerts throughout the lifecycl
 | :--- | :--- |
 | **Scrooge Alert - Price Drop!** | Sent when a product's price falls below your price limit. |
 | **Scrooge Alert - Tracking Stale** | Sent if a specific product continuously fails the scrape. |
-| **Scrooge Alert - Scraping Errors** | Sent if the application hits request limits or unhandled exceptions. |
+| **Scrooge Alert - Scraping Errors** | Sent if the application hits request limits or unhandled exceptions. Can be turned off per scraper via the [`notify_scraping_errors`](#scraper-settings) setting. |
 | **Scrooge Alert - Script Crash** | Sent if the script completely failed to run. |
 | **Scrooge Alert - Test Notification** | Sent when manually invoking the script with the `--ping` flag. |
 

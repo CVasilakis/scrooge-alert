@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, TYPE_CHECKING
 from exceptions import PluginDiscoveryError, PluginDependencyError
 from scrapers.base.settings import (
     ResolvedInterval, resolve_interval, ResolvedRetention, resolve_retention,
+    ResolvedFlag, resolve_notify_errors,
 )
 
 if TYPE_CHECKING:
@@ -351,6 +352,28 @@ class ScraperRegistry:
         plugin = cls.get_plugin(target)
         config_path = cls._config_path(plugin, config_dir)
         return resolve_retention(config_path, plugin.get_settings_class())
+
+    @classmethod
+    def resolve_notify_errors(cls, target: str, config_dir: str) -> ResolvedFlag:
+        """Resolves a registered plugin's ``notify_scraping_errors`` flag from its config.
+
+        Reads the user's ``settings.notify_scraping_errors`` from
+        ``<config_dir>/<config filename>`` and returns a :class:`ResolvedFlag` (the
+        effective boolean plus a status of ok/default/invalid/nocfg), so the config
+        check can footnote an invalid value. Import-light: reads the config JSON
+        directly, without resolving the plugin's storage class. The companion of
+        :meth:`resolve_log_retention`.
+
+        Args:
+            target (str): The registered target name (e.g. ``'skroutz'``).
+            config_dir (str): The directory holding the scrapers' config files.
+
+        Returns:
+            ResolvedFlag: The effective flag value and how it was derived.
+        """
+        plugin = cls.get_plugin(target)
+        config_path = cls._config_path(plugin, config_dir)
+        return resolve_notify_errors(config_path, plugin.get_settings_class())
 
     @classmethod
     def plugin_for_url(cls, url: str) -> Optional['BasePlugin']:

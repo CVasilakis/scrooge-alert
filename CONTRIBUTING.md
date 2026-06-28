@@ -362,7 +362,8 @@ block and a sample product:
 {
   "settings": {
     "execution_interval": "1h",
-    "log_retention_days": 7
+    "log_retention_days": 7,
+    "notify_scraping_errors": true
   },
   "products": [
     {
@@ -428,8 +429,8 @@ def get_timer_directives(self) -> dict:
 ### Add a store-specific setting
 
 Every scraper inherits the shared settings (`execution_interval`,
-`log_retention_days`) for free. To add your own, subclass `ScraperSettings` and
-return it from `get_settings_class()`:
+`log_retention_days`, `notify_scraping_errors`) for free. To add your own, subclass
+`ScraperSettings` and return it from `get_settings_class()`:
 
 ```python
 # src/core/scrapers/acme/settings.py

@@ -1,7 +1,8 @@
 {
   "settings": {
     "execution_interval": "1h",
-    "log_retention_days": 7
+    "log_retention_days": 7,
+    "notify_scraping_errors": true
   },
   "products": [
     {
