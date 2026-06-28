@@ -15,6 +15,7 @@ from notifier import Notifier
 from logger import save_traceback, get_target_logger
 from tui import ExecutionStrategy, SilentExecutionStrategy, Notes, PriceOutcome
 from utils import describe_signal
+from reminder import maybe_send_reminder
 
 
 def _utc_now() -> datetime.datetime:
@@ -462,6 +463,12 @@ class ScrapingOrchestrator:
 
             try:
                 with acquire_lock(target):
+                    # Periodic "still running" reminder (best-effort, throttled to the
+                    # configured reminder_interval). Runs under the lock so its
+                    # last_reminder_sent write is persisted by the save() below.
+                    if maybe_send_reminder(data_manager, self.notifier, _utc_now()):
+                        needs_save = True
+
                     # Normalize the in-memory snapshot the loop iterates. The
                     # actual rewrite happens in save() below, under this same lock,
                     # so a concurrent instance can't race the read-merge-rewrite.

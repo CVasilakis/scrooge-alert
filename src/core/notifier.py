@@ -179,6 +179,24 @@ class Notifier:
             body='The script failed unexpectedly. Please review the error logs for more details on the crash.'
         )
 
+    def notify_status_reminder(self, scraper_name: str, update_available: bool) -> bool:
+        """Sends the periodic "still running in the background" status reminder.
+
+        Reassures the user that the scraper's background service is alive; when a
+        newer project version exists, appends a line prompting an update.
+
+        Args:
+            scraper_name (str): The scraper's display name (e.g. 'Skroutz').
+            update_available (bool): Whether a newer project version is available.
+
+        Returns:
+            bool: True if the notification was sent successfully, False otherwise.
+        """
+        body = f"The {scraper_name} scraper is still running in the background."
+        if update_available:
+            body += "\nA new version of Scrooge Alert is available - run ./update.sh to update."
+        return self.notify(title='Scrooge Alert - Status Reminder', body=body)
+
     def notify_test(self) -> list:
         """Sends a test notification to all configured URLs to verify setup.
 

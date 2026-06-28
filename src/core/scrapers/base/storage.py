@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional, Type, TYPE_CHECKING
 from urllib.parse import urlparse
 
 from scrapers.base.model import BaseTrackedItem
+from scrapers.base.settings import ScraperSettings
 from exceptions import StorageFileError
 from utils import parse_price
 
@@ -247,6 +248,7 @@ class JsonProductDataManager(BaseDataManager):
         super().__init__(filepath, plugin)
         self._data: Dict[str, Any] = {}
         self._updates: Dict[str, Dict[str, Any]] = {}
+        self._settings_updates: Dict[str, Any] = {}
 
     @property
     def _config_label(self) -> str:
@@ -340,6 +342,36 @@ class JsonProductDataManager(BaseDataManager):
     def get_items(self) -> List[Dict[str, Any]]:
         """Returns the list of items as dictionaries."""
         return self._data.get(self.ROOT_KEY, [])
+
+    def get_settings(self) -> ScraperSettings:
+        """Returns the parsed ``settings`` block from the loaded config.
+
+        The read counterpart of :meth:`update_item` for the ``settings`` block:
+        it parses ``self._data["settings"]`` into the plugin's settings dataclass
+        (the single source of truth for which settings exist and how they parse),
+        so runtime code reads a typed object instead of poking at raw dicts. Returns
+        defaults when no plugin was injected or the block is absent/malformed.
+
+        Returns:
+            ScraperSettings: The parsed settings (or its subclass for this plugin).
+        """
+        settings_cls = self.plugin.get_settings_class() if self.plugin else ScraperSettings
+        return settings_cls.from_dict(self._data.get("settings"))
+
+    def update_setting(self, key: str, value: Any) -> None:
+        """Caches an update to a top-level ``settings`` field.
+
+        The settings-block counterpart of :meth:`update_item`: the change is not
+        written until :meth:`save` is called, which merges it into the ``settings``
+        object via the same atomic read-merge-rewrite used for items (so a
+        machine-owned setting like ``last_reminder_sent`` persists without clobbering
+        the user's other settings).
+
+        Args:
+            key (str): The settings field name.
+            value (Any): The value to persist.
+        """
+        self._settings_updates[key] = value
 
     def _clean_products(self, products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Removes duplicates based on URL rules and cleans URLs."""
@@ -453,6 +485,15 @@ class JsonProductDataManager(BaseDataManager):
 
             # We also need to clean duplicates when saving to ensure any user edits during scraping are handled.
             fresh_data[self.ROOT_KEY] = self._clean_products(fresh_data[self.ROOT_KEY])
+
+        # Merge any cached settings updates (e.g. last_reminder_sent) into the
+        # re-read snapshot, preserving the user's other settings keys.
+        if self._settings_updates:
+            existing = fresh_data.get("settings")
+            if not isinstance(existing, dict):
+                existing = {}
+            existing.update(self._settings_updates)
+            fresh_data["settings"] = existing
 
         self._data = fresh_data
         self._save_json_atomically(self._data)

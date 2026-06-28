@@ -172,9 +172,17 @@ class ScraperSettings:
             :func:`normalize_retention_days` at the point it becomes a rotating-file
             ``backupCount``; the raw value is kept so the resolver can tell an
             *invalid* value apart from an *unset* one.
+        reminder_interval: The user's raw status-reminder cadence (e.g. ``"1 month"``
+            or ``"off"``), or ``None`` when unset. Validated via
+            :func:`normalize_reminder_interval` where it is used.
+        last_reminder_sent (Optional[str]): Machine-owned state — the UTC timestamp
+            (``TIMESTAMP_FORMAT``) of the last status reminder, written back by the
+            scraper. ``None`` until the first reminder is sent.
     """
     execution_interval: Optional[str] = None
     log_retention_days: Optional[object] = None
+    reminder_interval: Optional[object] = None
+    last_reminder_sent: Optional[str] = None
 
     @classmethod
     def from_dict(cls, data) -> "ScraperSettings":
@@ -194,9 +202,12 @@ class ScraperSettings:
         if not isinstance(data, dict):
             return cls()
         interval = data.get("execution_interval")
+        last_sent = data.get("last_reminder_sent")
         return cls(
             execution_interval=interval if isinstance(interval, str) else None,
             log_retention_days=data.get("log_retention_days"),
+            reminder_interval=data.get("reminder_interval"),
+            last_reminder_sent=last_sent if isinstance(last_sent, str) else None,
         )
 
 
@@ -205,6 +216,7 @@ STATUS_OK = "ok"            # config present with a valid, supported interval
 STATUS_DEFAULT = "default"  # no interval set; the plugin default is in effect
 STATUS_INVALID = "invalid"  # config sets an unsupported/unparseable interval
 STATUS_NOCFG = "nocfg"      # the config file is missing entirely
+STATUS_OFF = "off"          # setting explicitly off or unset (a valid disabled state)
 
 
 @dataclass
@@ -336,3 +348,132 @@ def retention_warning_message() -> str:
         f"log_retention_days must be {MIN_LOG_RETENTION_DAYS}-{MAX_LOG_RETENTION_DAYS}. "
         f"Using default {DEFAULT_LOG_RETENTION_DAYS}."
     )
+
+
+# ---------------------------------------------------------------------------
+# Status reminder (per-scraper "still running" liveness notification)
+# ---------------------------------------------------------------------------
+
+#: Sentinel for a disabled reminder (the default).
+REMINDER_OFF = "off"
+
+#: Canonical reminder cadences (the fixed menu): normalized value -> display label.
+_REMINDER_LABELS = {
+    REMINDER_OFF: "Off",
+    7: "1 week",
+    30: "1 month",
+    90: "3 months",
+    365: "1 year",
+}
+
+# Accepted spellings -> canonical value (REMINDER_OFF or a day-count). Keys are
+# whitespace-free and lowercase; a raw value is folded to that form before lookup.
+_REMINDER_ALIASES = {
+    "off": REMINDER_OFF, "none": REMINDER_OFF, "disabled": REMINDER_OFF, "never": REMINDER_OFF,
+    # 1 week
+    "1week": 7, "1weeks": 7, "1w": 7, "1wk": 7, "7d": 7, "7day": 7, "7days": 7, "7": 7, "weekly": 7,
+    # 1 month
+    "1month": 30, "1months": 30, "1mo": 30, "30d": 30, "30day": 30, "30days": 30, "30": 30, "monthly": 30,
+    # 3 months
+    "3month": 90, "3months": 90, "3mo": 90, "90d": 90, "90day": 90, "90days": 90, "90": 90, "quarterly": 90,
+    # 1 year
+    "1year": 365, "1years": 365, "1y": 365, "1yr": 365, "12month": 365, "12months": 365, "12mo": 365,
+    "365d": 365, "365day": 365, "365days": 365, "365": 365, "yearly": 365, "annually": 365,
+}
+
+
+def normalize_reminder_interval(raw) -> Optional[object]:
+    """Normalizes a reminder cadence to ``REMINDER_OFF``, a day-count, or ``None``.
+
+    Accepts the fixed menu - off, 1 week, 1 month, 3 months, 1 year - and their
+    alternate spellings (``7d``/``1w``/``weekly``, ``30d``/``monthly``, ``90d``,
+    ``365d``/``12 months``/``yearly``, plus bare ints). Case-insensitive and
+    whitespace-tolerant. Returns ``REMINDER_OFF`` for a disabled reminder, the day
+    count (7/30/90/365) for a valid cadence, or ``None`` for an unsupported value.
+
+    Args:
+        raw: The user's raw ``reminder_interval`` value (any type).
+
+    Returns:
+        Optional[object]: ``REMINDER_OFF``, an int day-count, or ``None`` if invalid.
+    """
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw if raw in (7, 30, 90, 365) else None
+    if not isinstance(raw, str):
+        return None
+    token = re.sub(r"\s+", "", raw).lower()
+    if not token:
+        return None
+    return _REMINDER_ALIASES.get(token)
+
+
+def reminder_label(value) -> str:
+    """Returns the human-readable label for a normalized reminder value."""
+    return _REMINDER_LABELS.get(value, "Invalid")
+
+
+@dataclass
+class ResolvedReminder:
+    """The effective status-reminder cadence for one scraper, and how it derived.
+
+    Attributes:
+        value: ``REMINDER_OFF`` or a day-count (7/30/90/365). Any non-``ok`` status
+            yields ``REMINDER_OFF`` so callers always have a safe value.
+        status (str): One of :data:`STATUS_OK`, :data:`STATUS_OFF`,
+            :data:`STATUS_INVALID`, :data:`STATUS_NOCFG`.
+        label (str): A display label for ``--status`` (e.g. ``"1 month"``, ``"Off"``,
+            ``"Invalid"``).
+        raw: The user's raw value, kept for messages.
+    """
+    value: object
+    status: str
+    label: str
+    raw: object = None
+
+
+def resolve_reminder(
+    config_path: str,
+    settings_cls: Type[ScraperSettings] = ScraperSettings,
+) -> ResolvedReminder:
+    """Resolves a scraper's status-reminder cadence from its config file.
+
+    Mirrors :func:`resolve_retention`: reads the config JSON directly (import-light,
+    no storage class), so ``--status`` can use it cheaply. An unset key (or a missing
+    config) is the default disabled state; an unsupported value is flagged invalid.
+
+    Args:
+        config_path (str): Absolute path to the scraper's JSON config file.
+        settings_cls (Type[ScraperSettings]): The settings class to parse with.
+
+    Returns:
+        ResolvedReminder: The effective cadence and how it was derived.
+    """
+    off_label = _REMINDER_LABELS[REMINDER_OFF]
+    if not os.path.isfile(config_path):
+        return ResolvedReminder(REMINDER_OFF, STATUS_NOCFG, off_label)
+
+    try:
+        with open(config_path, "r") as file:
+            data = json.load(file)
+    except (OSError, json.JSONDecodeError):
+        return ResolvedReminder(REMINDER_OFF, STATUS_OFF, off_label)
+
+    settings = settings_cls.from_dict(data.get("settings") if isinstance(data, dict) else None)
+    raw = settings.reminder_interval
+    if raw is None:
+        return ResolvedReminder(REMINDER_OFF, STATUS_OFF, off_label)
+
+    value = normalize_reminder_interval(raw)
+    if value is None:
+        return ResolvedReminder(REMINDER_OFF, STATUS_INVALID, "Invalid", raw=raw)
+    if value == REMINDER_OFF:
+        return ResolvedReminder(REMINDER_OFF, STATUS_OFF, off_label, raw=raw)
+
+    return ResolvedReminder(value, STATUS_OK, reminder_label(value), raw=raw)
+
+
+def reminder_invalid_message() -> str:
+    """The single user-facing footnote for an invalid ``reminder_interval``."""
+    return "reminder_interval is invalid; defaults to off"
