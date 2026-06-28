@@ -8,7 +8,7 @@ from logging.handlers import TimedRotatingFileHandler
 from rich.console import Console
 from rich.padding import Padding
 from rich.text import Text
-from constants import LOGS_DIR, CONFIG_DIR
+from constants import LOGS_DIR
 from scrapers.base.settings import (
     STATUS_INVALID, STATUS_DEFAULT, DEFAULT_LOG_RETENTION_DAYS, retention_warning_message,
 )
@@ -65,37 +65,30 @@ def setup_global_logging(quiet: bool = False) -> None:
     logging.getLogger('apprise').setLevel(logging.CRITICAL)
     logging.getLogger('urllib3').setLevel(logging.CRITICAL)
 
-def _resolve_retention(target_name: str):
-    """Best-effort per-target log retention (the rotating handler's ``backupCount``).
-
-    Resolves ``settings.log_retention_days`` through the registry (import-light: it
-    reads the config JSON, never the storage stack). On any failure - a broken venv,
-    an unknown target - it falls back to the default so logging never breaks. The
-    registry import is deferred so the console-only ``setup_global_logging`` path
-    (used by ``--status``/``--ping``) never loads it.
-
-    Returns:
-        tuple[int, str]: ``(days, status)`` where status is one of the settings
-            ``STATUS_*`` codes (only ``STATUS_INVALID`` triggers a warning).
-    """
-    try:
-        from scrapers.registry import ScraperRegistry
-        res = ScraperRegistry.resolve_log_retention(target_name, CONFIG_DIR)
-        return res.days, res.status
-    except Exception:
-        return DEFAULT_LOG_RETENTION_DAYS, STATUS_DEFAULT
-
-
-def get_target_logger(target_name: str, quiet: bool = False) -> logging.Logger:
+def get_target_logger(
+    target_name: str,
+    quiet: bool = False,
+    retention_days: int = DEFAULT_LOG_RETENTION_DAYS,
+    retention_status: str = STATUS_DEFAULT,
+) -> logging.Logger:
     """Creates or retrieves a configured logger for a specific scraper target.
 
     If 'quiet' is True, logs are written to a daily rotating file
     ('logs/{target_name}/output.log').
     Otherwise, logs are output to the terminal via the root logger.
 
+    Log retention (the rotating handler's ``backupCount``) is passed in by the caller
+    rather than resolved here, so this logging utility stays free of any dependency on
+    the scraper/plugin system. The component that owns the run (the orchestrator)
+    resolves ``settings.log_retention_days`` via the registry and hands the result
+    down; callers that don't care (e.g. abort-path error logging) get the default.
+
     Args:
         target_name (str): The identifier for the scraper (e.g., 'skroutz').
         quiet (bool): If True, logs to file silently. Otherwise, logs to terminal.
+        retention_days (int): How many daily log files to keep (``backupCount``).
+        retention_status (str): The settings ``STATUS_*`` code for the resolved
+            retention; ``STATUS_INVALID`` makes the logger emit a one-time warning.
 
     Returns:
         logging.Logger: The configured logger instance.
@@ -123,11 +116,10 @@ def get_target_logger(target_name: str, quiet: bool = False) -> logging.Logger:
         os.makedirs(target_logs_dir, exist_ok=True)
         log_path = os.path.join(target_logs_dir, "output.log")
 
-        # How many daily files to keep comes from the scraper's configured
-        # log_retention_days (default 7). An unsupported value falls back to the
-        # default and is flagged below - once, since the handler is built once.
-        retention_days, retention_status = _resolve_retention(target_name)
-
+        # How many daily files to keep is the caller-supplied retention (resolved from
+        # the scraper's configured log_retention_days; default 7). An unsupported value
+        # arrives as STATUS_INVALID and is flagged below - once, since the handler is
+        # built once.
         rotating_handler = TimedRotatingFileHandler(
             log_path, when="midnight", interval=1, backupCount=retention_days, encoding='utf-8', utc=True
         )

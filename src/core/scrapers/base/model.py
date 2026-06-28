@@ -41,6 +41,11 @@ class BaseTrackedItem:
         ``target_price`` sentinel (see ``from_dict``). Subclasses may add
         store-specific fields and override ``from_dict`` to read them; to persist a
         machine-owned field, pass it to ``update_item`` — no ``to_dict`` is needed.
+
+        Item rows are the *only* place the application writes machine-owned state.
+        The config's top-level ``settings`` block is read-only user input — never
+        written back — so runtime state belongs here (on the item, via
+        ``update_item``), not in ``settings`` (see :mod:`scrapers.base.settings`).
     """
     name: str = "Unknown"
     url: str = ""

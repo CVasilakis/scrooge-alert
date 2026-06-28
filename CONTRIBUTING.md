@@ -461,9 +461,25 @@ def get_settings_class(self):
     return AcmeSettings
 ```
 
-`settings.py` must stay **import-light** (stdlib only). How your client/storage
-*consumes* a custom value at scrape time is up to you (the loaded config is
-available to the data manager).
+`settings.py` must stay **import-light** (stdlib only).
+
+To *consume* a custom value at scrape time, read it through the data manager's
+`get_settings()` (it parses the config's `settings` block into your `AcmeSettings`).
+Call it after `load()` has populated the in-memory state — e.g. inside your data
+manager subclass:
+
+```python
+# in your data manager subclass — read a custom setting at scrape time
+settings = self.get_settings()      # typed AcmeSettings
+if settings.region == "eu":
+    ...
+```
+
+Settings are **read-only**: they are authored by the user and the application never
+writes them back, so there is no `update_setting`. A custom setting must be a plain
+user input — never persist runtime state into `settings`. Machine-owned state (a
+last price, a timestamp) belongs on item rows via `update_item(url, **fields)`
+(see [Store-specific model fields](#store-specific-model-fields)).
 
 ### Store-specific model fields
 
@@ -476,7 +492,10 @@ keys and preserves everything the user authored.
 
 For a database or remote API, subclass `BaseDataManager` directly and implement its
 abstract lifecycle (`load`, `save`, `update_item`, `get_items`, `parse_item`,
-`is_valid_item`, `is_scrappable_item`, `clean_storage`). Most stores won't need
+`is_valid_item`, `is_scrappable_item`, `clean_storage`). Note this is not a blank-slate
+generic store: `BaseDataManager` still models a **product identified by a URL with a
+`target_price`** (its `is_scrappable_item` / `has_valid_target_price` helpers assume
+exactly that) — you're swapping the *backend*, not the domain. Most stores won't need
 this — `JsonProductDataManager` covers file-backed scrapers.
 
 ---

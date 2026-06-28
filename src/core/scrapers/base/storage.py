@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional, Type, TYPE_CHECKING
 from urllib.parse import urlparse
 
 from scrapers.base.model import BaseTrackedItem
+from scrapers.base.settings import ScraperSettings
 from exceptions import StorageFileError
 from utils import parse_price
 
@@ -15,7 +16,14 @@ if TYPE_CHECKING:
 
 
 class BaseDataManager(ABC):
-    """Abstract base class for managing data storage and retrieval.
+    """Abstract base class for storing the items one scraper tracks.
+
+    This is the *storage backend* contract, not a fully generic key-value store: it
+    models a **product identified by a URL and carrying a ``target_price``**, which is
+    this application's only domain. That assumption is baked into the shared helpers —
+    ``has_valid_target_price``, ``is_scrappable_item`` and ``_url_on_supported_domain``
+    are about product URLs and target prices — so a subclass inherits those semantics;
+    it does not get a blank slate.
 
     Subclasses must call ``super().__init__(filepath, plugin)`` in their
     ``__init__`` and use ``self.filepath`` for all file operations. The manager
@@ -24,11 +32,13 @@ class BaseDataManager(ABC):
     rather than importing a concrete plugin.
 
     Note:
-        Most plugins back their storage with a JSON file. Such plugins should
-        extend :class:`JsonProductDataManager` (below) instead of this class
-        directly — it implements the entire generic JSON lifecycle and leaves
-        only ``_matches_product_path`` (the store-specific URL-path rule) abstract.
-        Subclass this class directly only for non-JSON backends (DB, API).
+        Almost every store backs its data with a JSON file and should extend
+        :class:`JsonProductDataManager` (below), not this class directly — it
+        implements the entire JSON lifecycle (load/validate, cache-and-merge updates,
+        atomic save, dedup) and leaves only ``_matches_product_path`` (the
+        store-specific URL-path rule) abstract. Subclass this class directly only for
+        a non-file backend (a database or remote API) — and even then you are still
+        implementing the same product-over-URL contract, just against a different store.
     """
     def __init__(self, filepath: str, plugin: Optional['BasePlugin'] = None) -> None:
         """Initializes the data manager.
@@ -340,6 +350,28 @@ class JsonProductDataManager(BaseDataManager):
     def get_items(self) -> List[Dict[str, Any]]:
         """Returns the list of items as dictionaries."""
         return self._data.get(self.ROOT_KEY, [])
+
+    def get_settings(self) -> ScraperSettings:
+        """Returns the parsed ``settings`` block from the loaded config (read-only).
+
+        The runtime read path for a scraper's settings, mirroring ``get_items`` for
+        the product list: it parses ``self._data["settings"]`` into the plugin's
+        settings dataclass (``plugin.get_settings_class()`` - the single source of
+        truth for which settings exist and how they parse), so scrape-time code reads
+        a typed object instead of poking at raw dicts. Call after :meth:`load` has
+        populated the in-memory state. Returns defaults when no plugin was injected or
+        the block is absent/malformed.
+
+        The ``settings`` block is **read-only at runtime**: it is authored by the user
+        and the application never writes it back. There is deliberately no
+        ``update_setting``/settings write path - machine-owned state belongs on item
+        rows via :meth:`update_item`, not in ``settings`` (see :class:`BaseTrackedItem`).
+
+        Returns:
+            ScraperSettings: The parsed settings (or its per-plugin subclass).
+        """
+        settings_cls = self.plugin.get_settings_class() if self.plugin else ScraperSettings
+        return settings_cls.from_dict(self._data.get("settings"))
 
     def _clean_products(self, products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Removes duplicates based on URL rules and cleans URLs."""

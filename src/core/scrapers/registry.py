@@ -274,6 +274,15 @@ class ScraperRegistry:
             raise ValueError(f"Unsupported plugin: {target}")
         return cls._plugins[target]
 
+    @staticmethod
+    def _config_path(plugin: 'BasePlugin', config_dir: str) -> str:
+        """Builds the absolute path to a plugin's config file under ``config_dir``.
+
+        The one place ``<config_dir>/<config filename>`` is assembled, shared by every
+        settings resolver so the join rule never drifts between them.
+        """
+        return os.path.join(config_dir, plugin.get_config_filename())
+
     @classmethod
     def resolve_interval_status(cls, target: str, config_dir: str) -> ResolvedInterval:
         """Resolves a registered plugin's effective execution interval from its config.
@@ -295,7 +304,7 @@ class ScraperRegistry:
         """
         plugin = cls.get_plugin(target)
         default_oncalendar = plugin.get_timer_directives().get("OnCalendar", "")
-        config_path = os.path.join(config_dir, plugin.get_config_filename())
+        config_path = cls._config_path(plugin, config_dir)
         return resolve_interval(default_oncalendar, config_path, plugin.get_settings_class())
 
     @classmethod
@@ -340,7 +349,7 @@ class ScraperRegistry:
             ResolvedRetention: The effective retention and how it was derived.
         """
         plugin = cls.get_plugin(target)
-        config_path = os.path.join(config_dir, plugin.get_config_filename())
+        config_path = cls._config_path(plugin, config_dir)
         return resolve_retention(config_path, plugin.get_settings_class())
 
     @classmethod

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from locks import acquire_lock
-from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, TIMESTAMP_FORMAT
+from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, TIMESTAMP_FORMAT, CONFIG_DIR
 from exceptions import RateLimitError, ServerError, ScraperParseError, LockAcquisitionError, StorageFileError, ProductNotFoundError, ProductUnavailableError, InvalidURLError, PluginDependencyError
 from scrapers.base.model import BaseTrackedItem
 from scrapers.base.storage import BaseDataManager
@@ -437,7 +437,14 @@ class ScrapingOrchestrator:
                 break
 
             self._current_target = target
-            self._current_logger = get_target_logger(target, self.quiet)
+            # Resolve log retention here (the run owner already holds the registry) and
+            # hand it to the logging utility, which is kept free of any plugin-system
+            # dependency. An invalid value resolves to the default with STATUS_INVALID,
+            # which makes the logger emit a one-time warning into the file log.
+            retention = ScraperRegistry.resolve_log_retention(target, CONFIG_DIR)
+            self._current_logger = get_target_logger(
+                target, self.quiet, retention.days, retention.status
+            )
 
             try:
                 data_manager = self.registry.get_manager(target)

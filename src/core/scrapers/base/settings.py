@@ -14,8 +14,21 @@ plugin descriptors (and, transitively, by the lightweight shell one-liners and
 ``--status``), so it must stay **import-light** - stdlib only, never a
 transport/parsing library - in line with the BasePlugin import-light contract.
 
+Read-only by design:
+    The ``settings`` block is **authored by the user and never written back by the
+    application**. Settings are read - at config/schedule time through the
+    ``resolve_*`` helpers, and at scrape time through
+    ``JsonProductDataManager.get_settings`` - but there is deliberately no
+    ``update_setting``/settings write path. Machine-owned runtime state (the latest
+    price, a check timestamp) is persisted on *item rows* via ``update_item``, not in
+    ``settings`` (see :class:`scrapers.base.model.BaseTrackedItem`). Keep new settings
+    plain user inputs; do not introduce stateful settings.
+
 Adding a setting:
     * give :class:`ScraperSettings` a new field (and parse it in ``from_dict``);
+    * add a ``resolve_<setting>`` wrapper that delegates to :func:`_resolve_setting`
+      with the field name, a normalizer and a default (the file read, the
+      unset/invalid/ok status machine and the fallback are all handled there);
     * a scraper that needs a store-specific setting subclasses
       :class:`ScraperSettings` and returns it from ``BasePlugin.get_settings_class``
       (mirroring how ``MODEL``/``ROOT_KEY`` specialize the data manager).
@@ -25,7 +38,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Dict, Optional, Type
+from typing import Any, Callable, Dict, Optional, Tuple, Type
 
 
 # Canonical execution intervals, in first-seen order, each mapped to the systemd
@@ -225,6 +238,81 @@ class ResolvedInterval:
     raw: Optional[str] = None
 
 
+def _load_config_settings(
+    config_path: str,
+    settings_cls: Type[ScraperSettings],
+) -> Tuple[Optional[ScraperSettings], Optional[str]]:
+    """Reads a scraper config file and parses its ``settings`` block, once.
+
+    The shared file stage of every ``resolve_*`` helper, factored out so each
+    setting's resolver only declares its field, normalizer and default. Reads the
+    JSON directly (import-light - never the storage stack), so it stays safe to call
+    from the shell one-liners and ``--status``.
+
+    Returns:
+        Tuple[Optional[ScraperSettings], Optional[str]]: ``(settings, None)`` on a
+            clean read; ``(None, STATUS_NOCFG)`` when the file is missing;
+            ``(None, "readerror")`` when it is unreadable or not valid JSON (the
+            corrupt config is surfaced elsewhere - here it degrades to the default).
+    """
+    if not os.path.isfile(config_path):
+        return None, STATUS_NOCFG
+    try:
+        with open(config_path, "r") as file:
+            data = json.load(file)
+    except (OSError, json.JSONDecodeError):
+        return None, "readerror"
+    return settings_cls.from_dict(data.get("settings") if isinstance(data, dict) else None), None
+
+
+def _resolve_setting(
+    config_path: str,
+    settings_cls: Type[ScraperSettings],
+    field_name: str,
+    normalize: Callable[[Any], Optional[Any]],
+    default_value: Any,
+    is_unset: Callable[[Any], bool] = lambda value: value is None,
+) -> Tuple[Any, str, Any]:
+    """Resolves one ``settings`` field to ``(value, status, raw)``, generically.
+
+    The single home for the resolve state machine shared by every setting: missing
+    config -> NOCFG; unreadable/corrupt -> DEFAULT; unset -> DEFAULT; a value that
+    ``normalize`` rejects (returns ``None``) -> INVALID; otherwise OK. Every non-OK
+    branch yields ``default_value`` so the caller always has a usable value. Adding a
+    new setting is one call to this with its field name, normalizer and default.
+
+    Args:
+        config_path (str): Absolute path to the scraper's JSON config file.
+        settings_cls (Type[ScraperSettings]): The settings class to parse with.
+        field_name (str): The :class:`ScraperSettings` attribute to read.
+        normalize (Callable): Maps the raw value to its effective value, or ``None``
+            when the value is unsupported.
+        default_value (Any): The fallback returned for every non-OK status.
+        is_unset (Callable): Predicate for "the user did not set this" (default:
+            ``is None``). ``execution_interval`` passes ``not value`` so an empty
+            string counts as unset (default) rather than invalid.
+
+    Returns:
+        Tuple[Any, str, Any]: ``(value, status, raw)`` where status is one of the
+            ``STATUS_*`` codes and ``raw`` is the user's value (``None`` unless the
+            status is OK or INVALID).
+    """
+    settings, load_status = _load_config_settings(config_path, settings_cls)
+    if load_status is not None:
+        # nocfg -> NOCFG so the caller can footnote a missing file; a read/parse
+        # error degrades to DEFAULT (the corrupt config is surfaced by the load path).
+        return default_value, STATUS_NOCFG if load_status == STATUS_NOCFG else STATUS_DEFAULT, None
+
+    raw = getattr(settings, field_name)
+    if is_unset(raw):
+        return default_value, STATUS_DEFAULT, None
+
+    value = normalize(raw)
+    if value is None:
+        return default_value, STATUS_INVALID, raw
+    return value, STATUS_OK, raw
+
+
 def resolve_interval(
     default_oncalendar: str,
     config_path: str,
@@ -246,27 +334,13 @@ def resolve_interval(
     Returns:
         ResolvedInterval: The effective schedule and how it was derived.
     """
-    if not os.path.isfile(config_path):
-        return ResolvedInterval(default_oncalendar, STATUS_NOCFG)
-
-    try:
-        with open(config_path, "r") as file:
-            data = json.load(file)
-    except (OSError, json.JSONDecodeError):
-        # An unreadable/corrupt config is surfaced elsewhere (the data manager's
-        # load reports it in --status); for scheduling, fall back to the default.
-        return ResolvedInterval(default_oncalendar, STATUS_DEFAULT)
-
-    settings = settings_cls.from_dict(data.get("settings") if isinstance(data, dict) else None)
-    raw = settings.execution_interval
-    if not raw:
-        return ResolvedInterval(default_oncalendar, STATUS_DEFAULT)
-
-    canonical = normalize_interval(raw)
-    if canonical is None:
-        return ResolvedInterval(default_oncalendar, STATUS_INVALID, raw=raw)
-
-    return ResolvedInterval(oncalendar_for(canonical), STATUS_OK, raw=raw)
+    oncalendar, status, raw = _resolve_setting(
+        config_path, settings_cls, "execution_interval",
+        normalize=lambda r: oncalendar_for(c) if (c := normalize_interval(r)) else None,
+        default_value=default_oncalendar,
+        is_unset=lambda r: not r,  # an empty/blank interval is unset, not invalid
+    )
+    return ResolvedInterval(oncalendar, status, raw)
 
 
 @dataclass
@@ -304,25 +378,12 @@ def resolve_retention(
     Returns:
         ResolvedRetention: The effective retention and how it was derived.
     """
-    if not os.path.isfile(config_path):
-        return ResolvedRetention(DEFAULT_LOG_RETENTION_DAYS, STATUS_NOCFG)
-
-    try:
-        with open(config_path, "r") as file:
-            data = json.load(file)
-    except (OSError, json.JSONDecodeError):
-        return ResolvedRetention(DEFAULT_LOG_RETENTION_DAYS, STATUS_DEFAULT)
-
-    settings = settings_cls.from_dict(data.get("settings") if isinstance(data, dict) else None)
-    raw = settings.log_retention_days
-    if raw is None:
-        return ResolvedRetention(DEFAULT_LOG_RETENTION_DAYS, STATUS_DEFAULT)
-
-    days = normalize_retention_days(raw)
-    if days is None:
-        return ResolvedRetention(DEFAULT_LOG_RETENTION_DAYS, STATUS_INVALID, raw=raw)
-
-    return ResolvedRetention(days, STATUS_OK, raw=raw)
+    days, status, raw = _resolve_setting(
+        config_path, settings_cls, "log_retention_days",
+        normalize=normalize_retention_days,
+        default_value=DEFAULT_LOG_RETENTION_DAYS,
+    )
+    return ResolvedRetention(days, status, raw)
 
 
 def retention_warning_message() -> str:
