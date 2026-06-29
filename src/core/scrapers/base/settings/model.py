@@ -75,6 +75,17 @@ class SettingView:
         return "🟡" if self.status == STATUS_INVALID else "✅"
 
     @property
+    def has_warning(self) -> bool:
+        """True when an invalid value should surface its warning footnote.
+
+        The single home for the "this row needs its footnote" decision, so render
+        sites query the view instead of each re-deriving ``status == STATUS_INVALID``
+        (and importing the constant). Distinct from :attr:`is_default`, which marks an
+        unset value that fell back silently.
+        """
+        return self.status == STATUS_INVALID
+
+    @property
     def is_default(self) -> bool:
         """True when the active value is the spec's default (unset or missing config).
 
@@ -93,18 +104,29 @@ class ResolvedSettings:
     resolution rather than re-reading the file per setting.
 
     It holds the ordered ``(spec, ResolvedSetting)`` pairs so it can yield both the
-    presentation :class:`SettingView` list and typed effective values.
+    presentation :class:`SettingView` list and typed effective values. It also carries
+    an optional :attr:`block_warning` describing a structurally malformed ``settings``
+    block (present but not an object), surfaced once by the render sites — distinct from
+    a per-setting invalid *value*, which each :class:`SettingView` flags itself.
     """
 
-    def __init__(self, pairs: List[Tuple["SettingSpec", ResolvedSetting]]) -> None:
+    def __init__(self, pairs: List[Tuple["SettingSpec", ResolvedSetting]],
+                 block_warning: Optional[str] = None) -> None:
         """Stores the resolved pairs and indexes them by spec key.
 
         Args:
             pairs: ``(spec, resolved)`` for each of the plugin's settings, in display
                 order.
+            block_warning: A one-line message when the config's ``settings`` block is
+                present but not an object (so it was ignored and every setting fell back
+                to its default), else ``None``. Render sites show it once, above the
+                per-setting rows.
         """
         self._pairs = list(pairs)
         self._by_key = {spec.key: resolved for spec, resolved in self._pairs}
+        #: A malformed-``settings``-block message (block present but not an object), or
+        #: ``None``. Additive to the per-setting rows, which still show their defaults.
+        self.block_warning = block_warning
 
     def get(self, key: str, default: Any = None) -> Any:
         """Returns the effective value for ``key``, or ``default`` if not present.

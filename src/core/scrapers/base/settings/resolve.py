@@ -195,7 +195,23 @@ def resolve_all(specs: List[SettingSpec], config_path: str, plugin: Any = None) 
     """
     block, load_status = load_settings_block(config_path)
     pairs = [(spec, resolve_spec(spec, block, load_status, plugin)) for spec in specs]
-    return ResolvedSettings(pairs)
+    return ResolvedSettings(pairs, block_warning=_block_warning(block, load_status))
+
+
+def _block_warning(block: Any, load_status: Optional[str]) -> Optional[str]:
+    """A one-line warning when the ``settings`` block is present but not an object.
+
+    On a clean read (``load_status`` is ``None``) the block may still be the wrong
+    shape — the user wrote ``"settings": "1h"`` or a list/number instead of an object.
+    :func:`resolve_spec` silently coerces that to ``{}`` (every setting falls back to its
+    default), which would otherwise discard the user's whole settings intent with no
+    signal. This returns the additive block-level message the render sites show once;
+    ``None`` for an absent, null, or well-formed (dict) block, or any non-clean read
+    (missing/corrupt config is surfaced elsewhere).
+    """
+    if load_status is not None or block is None or isinstance(block, dict):
+        return None
+    return "settings block is not an object; using defaults"
 
 
 def setting_view(spec: SettingSpec, resolved: ResolvedSetting) -> SettingView:
@@ -221,10 +237,13 @@ def _interval_default(plugin: Any) -> str:
     """The display default for ``execution_interval``: the plugin's cadence as a key.
 
     Folds the plugin's declared ``OnCalendar`` default back to the canonical interval key
-    the user recognizes (e.g. ``"hourly"`` -> ``"1h"``), falling back to the raw
-    expression for a custom cadence outside the supported set. Used only for *display* of
-    the default - the systemd schedule itself is taken from the plugin's directives at
-    the timer boundary (``registry.resolve_timer_directives``), never from this value.
+    the user recognizes (e.g. ``"hourly"`` -> ``"1h"``). Discovery now rejects any plugin
+    whose ``OnCalendar`` is not one of the canonical cadences (see
+    ``registry._validate_plugin_contract``), so for a registered plugin this always
+    resolves to a key; the ``or oncalendar`` fallback is defensive only — it covers
+    ``plugin=None`` (e.g. a unit test) and never leaks raw systemd syntax into the panel.
+    Used only for *display* of the default — the schedule itself is taken from the
+    plugin's directives at the timer boundary (``registry.resolve_timer_directives``).
     """
     oncalendar = ""
     if plugin is not None:

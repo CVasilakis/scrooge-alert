@@ -458,7 +458,7 @@ class ScrapingOrchestrator:
                 # installed. Skip just this target with an actionable message
                 # (mirroring the client-instantiation handler below); other
                 # targets and the rest of the run proceed.
-                self.ui_strategy.start_target(target, self._current_logger, settings_view)
+                self.ui_strategy.start_target(target, self._current_logger, settings_view, settings.block_warning)
                 self.ui_strategy.log_error("System", str(e))
                 self.ui_strategy.complete_target()
                 continue
@@ -468,7 +468,7 @@ class ScrapingOrchestrator:
             if data_manager.get_item_count() == 0:
                 continue
 
-            self.ui_strategy.start_target(target, self._current_logger, settings_view)
+            self.ui_strategy.start_target(target, self._current_logger, settings_view, settings.block_warning)
 
             try:
                 with acquire_lock(target):

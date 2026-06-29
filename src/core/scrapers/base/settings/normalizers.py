@@ -12,7 +12,7 @@ MIN_LOG_RETENTION_DAYS = 1
 MAX_LOG_RETENTION_DAYS = 30
 
 
-def normalize_retention_days(raw) -> Optional[int]:
+def normalize_retention_days(raw: object) -> Optional[int]:
     """Validates a log-retention value to a day-count in 1-30, or ``None``.
 
     Accepts a JSON integer (``7``) or a day-duration string - ``"4"``, ``"4d"``,
@@ -51,7 +51,7 @@ _TRUE_TOKENS = frozenset({"true", "yes", "on", "1"})
 _FALSE_TOKENS = frozenset({"false", "no", "off", "0"})
 
 
-def normalize_bool(raw) -> Optional[bool]:
+def normalize_bool(raw: object) -> Optional[bool]:
     """Normalizes a boolean setting value to ``True``/``False``, or ``None``.
 
     Tolerant like the other normalizers, and deliberately *not* a bare ``bool(...)``

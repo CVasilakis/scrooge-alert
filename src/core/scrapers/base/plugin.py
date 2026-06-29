@@ -101,9 +101,17 @@ class BasePlugin(ABC):
         plugin) and are deliberately *not* settable per plugin — any such keys
         returned here are dropped when the timer is generated.
 
+        Canonical cadence required: the ``OnCalendar`` must be one of the supported
+        cadences (the ``OnCalendar`` values in
+        ``scrapers.base.settings.SUPPORTED_INTERVALS``, e.g. ``"hourly"``, ``"daily"``,
+        ``"*-*-* 00/2:00:00"``). Discovery rejects a non-canonical value
+        (``registry._validate_plugin_contract``) so the settings panel can always render
+        the effective cadence as a friendly key and a user's ``execution_interval``
+        override stays within one vocabulary.
+
         Returns:
             Dict[str, str]: ``[Timer]`` trigger ``key -> value`` directives. Must
-                contain at least one ``OnCalendar`` (or other) trigger for a valid timer.
+                contain an ``OnCalendar`` set to one of the canonical cadences.
         """
         return {
             "OnCalendar": "hourly",

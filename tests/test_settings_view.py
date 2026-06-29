@@ -61,6 +61,16 @@ class TestSettingView(unittest.TestCase):
         self.assertEqual(view.icon, "🟡")
         self.assertFalse(view.is_default)  # invalid is flagged, not marked "(default)"
 
+    def test_has_warning_tracks_invalid_only(self):
+        # has_warning is the single "this row needs its footnote" decision the render
+        # sites share; True only for an invalid value, not for ok or default.
+        invalid = setting_view(SPEC_RETENTION, resolve_one(SPEC_RETENTION, _write_config({"log_retention_days": 99})))
+        ok = setting_view(SPEC_RETENTION, resolve_one(SPEC_RETENTION, _write_config({"log_retention_days": 4})))
+        default = setting_view(SPEC_RETENTION, resolve_one(SPEC_RETENTION, _write_config({})))
+        self.assertTrue(invalid.has_warning)
+        self.assertFalse(ok.has_warning)
+        self.assertFalse(default.has_warning)
+
 
 # --- Per-scraper extension: a plugin-defined setting, end to end ----------------
 # A custom setting is exactly one SettingSpec - no settings dataclass, no from_dict.

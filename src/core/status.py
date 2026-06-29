@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from constants import CONFIG_DIR
 from exit_status import classify_service_state
 from scrapers.registry import ScraperRegistry
-from scrapers.base.settings import STATUS_OK, STATUS_DEFAULT, STATUS_INVALID, KEY_INTERVAL
+from scrapers.base.settings import STATUS_OK, STATUS_DEFAULT, KEY_INTERVAL
 from logger import setup_global_logging
 from panel import StatusPanelBuilder
 from config_check import render_config_panel, load_targets
@@ -113,7 +113,7 @@ def add_setting_row(panel: StatusPanelBuilder, view) -> None:
         panel (StatusPanelBuilder): The panel being built.
         view (SettingView): The resolved setting (label, display value, status, footnote).
     """
-    if view.status == STATUS_INVALID:
+    if view.has_warning:
         value = f"{view.display_value}{panel.add_note_ref(view.footnote)}"
     else:
         value = view.display_value
@@ -171,7 +171,13 @@ def main():
         # Settings section: report each scraper's settings (or its active default) on
         # top, then a separator, then the systemd status rows. Only reached once the
         # service is installed (the not-installed branch above already returned).
-        for view in ScraperRegistry.resolve_settings(target, CONFIG_DIR):
+        # Resolve once via the registry instance (its read is cached and reused below
+        # for the schedule-drift check), rather than re-reading the config per query.
+        resolved = registry.settings_for(target)
+        if resolved.block_warning:
+            ref = service_panel.add_note_ref(resolved.block_warning)
+            service_panel.add_row("🟡", "Settings", f"[yellow]Block ignored{ref}[/yellow]")
+        for view in resolved.views():
             add_setting_row(service_panel, view)
         service_panel.add_separator()
 
@@ -220,9 +226,11 @@ def main():
         # surfaces here as a footnote. An *invalid*/missing execution_interval is not
         # flagged here — the Execution Interval row in the settings section above owns that
         # report — so the check is gated to a usable (ok/default) interval.
-        interval = ScraperRegistry.resolve_value(target, KEY_INTERVAL, CONFIG_DIR)
+        interval = resolved.resolved(KEY_INTERVAL)
         if interval.status in (STATUS_OK, STATUS_DEFAULT):
-            expected_oncalendar = ScraperRegistry.resolve_timer_directives(target, CONFIG_DIR).get("OnCalendar", "")
+            expected_oncalendar = ScraperRegistry._timer_directives_for(
+                ScraperRegistry.get_plugin(target), interval
+            ).get("OnCalendar", "")
             active_oncalendar = read_timer_oncalendar(target)
             if active_oncalendar and active_oncalendar != expected_oncalendar:
                 next_exec += service_panel.add_note_ref(

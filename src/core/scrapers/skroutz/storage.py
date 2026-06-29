@@ -18,15 +18,19 @@ class SkroutzDataManager(JsonProductDataManager):
     ROOT_KEY = "products"
 
     def _matches_product_path(self, url: str) -> bool:
-        """Returns True if the URL path has a Skroutz numeric product-id segment.
+        """Returns True if the URL path is a Skroutz product page (``/s/<id>``).
 
         The domain has already been confirmed supported by the base class, so this
-        only needs to inspect the path.
+        only needs to inspect the path. The rule is the same ``/s/<numeric-id>`` shape
+        the client parses (:meth:`SkroutzClient.scrape_product`), so "scrapable"
+        (storage) and "parseable" (client) agree: a non-product numeric URL (e.g.
+        ``/c/123/foo.html``) is correctly rejected here rather than passing storage and
+        then failing the client with ``InvalidURLError``.
 
         Args:
             url (str): A URL already confirmed to be on a supported Skroutz domain.
 
         Returns:
-            bool: True if the path contains a numeric product-id segment.
+            bool: True if the path has a ``/s/<id>`` product segment.
         """
-        return bool(re.search(r'/\d+/', urlparse(url).path))
+        return bool(re.search(r'/s/\d+', urlparse(url).path))

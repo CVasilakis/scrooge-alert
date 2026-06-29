@@ -9,8 +9,8 @@ from typing import Dict, List, Optional, TYPE_CHECKING
 from exceptions import PluginDiscoveryError, PluginDependencyError
 from scrapers.base.settings import (
     SettingSpec, ResolvedSetting, ResolvedSettings, SettingView,
-    resolve_one, resolve_all, oncalendar_for,
-    KEY_INTERVAL, STATUS_OK,
+    resolve_one, resolve_all, oncalendar_for, canonical_for_oncalendar,
+    SUPPORTED_INTERVALS, BASE_SETTING_SPECS, KEY_INTERVAL, STATUS_OK,
 )
 
 if TYPE_CHECKING:
@@ -189,6 +189,33 @@ class ScraperRegistry:
                     f"(built-in or custom) must have a unique key."
                 )
             seen_keys.add(spec.key)
+
+        # A plugin must EXTEND the base settings, not replace them: the framework reads
+        # its own built-ins through the strict accessor (the orchestrator's retention /
+        # notify gates, resolve_timer_directives' interval), which raises KeyError if a
+        # base key is absent. Enforce their presence here so "return [my_spec]" instead
+        # of "BASE_SETTING_SPECS + [my_spec]" fails loudly at discovery, not at runtime.
+        missing = {base.key for base in BASE_SETTING_SPECS} - seen_keys
+        if missing:
+            raise PluginDiscoveryError(
+                f"Plugin '{name}' ({where}): get_setting_specs() is missing the built-in "
+                f"setting(s) {sorted(missing)}. Extend, don't replace — return "
+                f"BASE_SETTING_SPECS + [your specs] so the framework's own settings stay present."
+            )
+
+        # The plugin's default schedule must be one of the canonical cadences the user
+        # vocabulary supports (SUPPORTED_INTERVALS), so the settings panel can always
+        # render it as a friendly key and an execution_interval override stays within one
+        # vocabulary. A non-canonical OnCalendar is rejected here rather than silently
+        # leaking raw systemd syntax into the Execution Interval row at display time.
+        directives = plugin.get_timer_directives()
+        oncalendar = directives.get("OnCalendar") if isinstance(directives, dict) else None
+        if not oncalendar or canonical_for_oncalendar(oncalendar) is None:
+            raise PluginDiscoveryError(
+                f"Plugin '{name}' ({where}): get_timer_directives() must declare an OnCalendar "
+                f"that is one of the canonical cadences {sorted(SUPPORTED_INTERVALS.values())} "
+                f"(got {oncalendar!r})."
+            )
 
     @staticmethod
     def _resolve_bound_class(plugin: 'BasePlugin', getter_name: str, base: type) -> type:
@@ -385,20 +412,31 @@ class ScraperRegistry:
         spec = cls._spec_for(plugin, key)
         return resolve_one(spec, cls._config_path(plugin, config_dir), plugin)
 
+    @staticmethod
+    def _timer_directives_for(plugin: 'BasePlugin', interval: ResolvedSetting) -> Dict[str, str]:
+        """Applies an already-resolved ``execution_interval`` to a plugin's directives.
+
+        The single boundary where the settings layer's user-facing vocabulary becomes a
+        systemd schedule: starts from the plugin's declared directives and overrides
+        ``OnCalendar`` only when the interval resolved to a supported cadence (translating
+        the canonical key to its systemd expression). When the interval is unset/invalid,
+        the plugin's declared ``OnCalendar`` default is kept. Takes the resolved interval
+        rather than reading the config, so a caller that already holds it (``--status``)
+        reuses its one read instead of re-resolving.
+        """
+        directives = dict(plugin.get_timer_directives())
+        if interval.status == STATUS_OK:
+            directives["OnCalendar"] = oncalendar_for(interval.value)
+        return directives
+
     @classmethod
     def resolve_timer_directives(cls, target: str, config_dir: str) -> Dict[str, str]:
         """The plugin's ``[Timer]`` directives with ``OnCalendar`` resolved from config.
 
-        Starts from the plugin's declared directives
-        (:meth:`BasePlugin.get_timer_directives`) and overrides ``OnCalendar`` only when
-        the user's ``execution_interval`` resolves to a supported cadence, translating the
-        canonical interval key to its systemd expression here - the single boundary where
-        the settings layer's user-facing vocabulary becomes a systemd schedule. When the
-        setting is unset, invalid, or the config file is missing, the plugin's declared
-        ``OnCalendar`` default is kept (this preserves a plugin's right to declare a
-        custom, non-canonical cadence). This is the single source of truth for a plugin's
-        *effective* cadence, consumed by ``install.sh`` and ``schedule.sh`` through the
-        shell one-liners.
+        Reads the target's ``execution_interval`` and folds it through
+        :meth:`_timer_directives_for` (the canonical-key -> systemd translation). This is
+        the single source of truth for a plugin's *effective* cadence, consumed by
+        ``install.sh`` and ``schedule.sh`` through the shell one-liners.
 
         Args:
             target (str): The registered target name.
@@ -407,11 +445,8 @@ class ScraperRegistry:
         Returns:
             Dict[str, str]: The effective ``[Timer]`` trigger directives.
         """
-        directives = dict(cls.get_plugin(target).get_timer_directives())
         interval = cls.resolve_value(target, KEY_INTERVAL, config_dir)
-        if interval.status == STATUS_OK:
-            directives["OnCalendar"] = oncalendar_for(interval.value)
-        return directives
+        return cls._timer_directives_for(cls.get_plugin(target), interval)
 
     @classmethod
     def plugin_for_url(cls, url: str) -> Optional['BasePlugin']:
@@ -524,7 +559,7 @@ class ScraperRegistry:
             from scrapers.base.storage import BaseDataManager
             plugin = self._plugins[target]
             storage_cls = self._resolve_bound_class(plugin, "get_storage_class", BaseDataManager)
-            path = os.path.join(self.config_dir, plugin.get_config_filename())
+            path = self._config_path(plugin, self.config_dir)
             # Inject the plugin so the manager resolves supported domains through it (the
             # single source of truth) instead of importing a concrete plugin, and the
             # target's resolved settings so a store-specific setting is readable at scrape

@@ -1,7 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import List, Sequence, Union
+from typing import List, Optional, Sequence, Union
 from rich.console import Console, Group
 from rich.live import Live
 from rich.table import Table
@@ -12,7 +12,7 @@ from rich.markup import escape
 from rich.spinner import Spinner
 from rich.progress_bar import ProgressBar
 
-from scrapers.base.settings import SettingView, STATUS_INVALID
+from scrapers.base.settings import SettingView
 
 # Accepts a single note string, a list of note strings, or None.
 Notes = Union[str, List[str], None]
@@ -64,7 +64,9 @@ class ExecutionStrategy(ABC):
         return [_ensure_period(n) for n in notes if n]
 
     @abstractmethod
-    def start_target(self, target_name: str, target_logger: logging.Logger, settings_view: Sequence[SettingView] = ()) -> None:
+    def start_target(self, target_name: str, target_logger: logging.Logger,
+                     settings_view: Sequence[SettingView] = (),
+                     block_warning: Optional[str] = None) -> None:
         """Called when a new scraping target begins.
 
         Args:
@@ -74,6 +76,9 @@ class ExecutionStrategy(ABC):
                 rendered as a section atop the interactive panel (and logged once by the
                 silent strategy). The orchestrator resolves these so the strategies stay
                 presentation-only.
+            block_warning (Optional[str]): A one-line message when the config's
+                ``settings`` block was malformed (present but not an object) and ignored,
+                surfaced once above the per-setting rows; ``None`` when well-formed.
         """
         pass
 
@@ -214,7 +219,9 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
         self.scraping_max = 1
         self.is_complete = False
 
-    def start_target(self, target_name: str, target_logger: logging.Logger, settings_view: Sequence[SettingView] = ()) -> None:
+    def start_target(self, target_name: str, target_logger: logging.Logger,
+                     settings_view: Sequence[SettingView] = (),
+                     block_warning: Optional[str] = None) -> None:
         """Starts a new live display session for the given target."""
         if self.live:
             self.live.stop()
@@ -231,22 +238,27 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
 
         # Build the static settings section after resetting notes, so its invalid-value
         # footnotes take the first reference numbers, ahead of the scraping rows.
-        self.settings_rows = self._build_settings_rows(settings_view)
+        self.settings_rows = self._build_settings_rows(settings_view, block_warning)
 
         self.live = Live(self._generate_panel(), refresh_per_second=10)
         self.live.start()
 
-    def _build_settings_rows(self, settings_view: Sequence[SettingView]) -> List[tuple]:
+    def _build_settings_rows(self, settings_view: Sequence[SettingView],
+                             block_warning: Optional[str] = None) -> List[tuple]:
         """Renders the resolved settings into ``(icon, label, value)`` rows.
 
         A valid value shows as ``✅``; an unset value (or missing config) shows its
         active default as ``✅`` with a dim ``(default)`` marker; an invalid value shows
-        the default it fell back to as ``🟡`` plus a footnote naming the problem.
+        the default it fell back to as ``🟡`` plus a footnote naming the problem. A
+        malformed ``settings`` block (when ``block_warning`` is set) is surfaced once as a
+        leading ``🟡`` row, since every per-setting row below it then shows its default.
         """
         rows: List[tuple] = []
+        if block_warning:
+            rows.append(("🟡", "Settings", f"[yellow]Block ignored[/yellow]{self._build_note_refs(block_warning)}"))
         for view in settings_view:
-            if view.status == STATUS_INVALID:
-                value = f"[yellow]{escape(view.display_value)}[/yellow]{self._build_note_refs(view.footnote)}"
+            if view.has_warning:
+                value = f"{escape(view.display_value)}{self._build_note_refs(view.footnote)}"
             else:
                 value = escape(view.display_value)
                 if view.is_default:
@@ -495,16 +507,21 @@ class SilentExecutionStrategy(ExecutionStrategy):
             return ""
         return " " + " ".join(f"({n})" for n in notes_list)
 
-    def start_target(self, target_name: str, target_logger: logging.Logger, settings_view: Sequence[SettingView] = ()) -> None:
+    def start_target(self, target_name: str, target_logger: logging.Logger,
+                     settings_view: Sequence[SettingView] = (),
+                     block_warning: Optional[str] = None) -> None:
         """Sets the logger context and records the effective settings to the file log.
 
         Logging the resolved settings once at target start gives background (service)
         runs a record of what was in effect, and surfaces an invalid setting as a
-        warning (replacing the ad-hoc retention warning the logger used to emit).
+        warning (replacing the ad-hoc retention warning the logger used to emit). A
+        malformed ``settings`` block is logged once as a warning ahead of the rows.
         """
         self.target_logger = target_logger
+        if block_warning:
+            target_logger.warning(f"❗ Settings: {block_warning}")
         for view in settings_view:
-            if view.status == STATUS_INVALID:
+            if view.has_warning:
                 target_logger.warning(f"❗ {view.label}: {view.display_value} ({view.footnote})")
             else:
                 suffix = " (default)" if view.is_default else ""

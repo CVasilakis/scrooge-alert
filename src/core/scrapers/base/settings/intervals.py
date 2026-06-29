@@ -47,7 +47,7 @@ _UNIT_MINUTES = (
 )
 
 
-def normalize_interval(raw: str) -> Optional[str]:
+def normalize_interval(raw: object) -> Optional[str]:
     """Normalizes a broad user interval string to a canonical key, or ``None``.
 
     Folds the many ways a user might write a cadence onto one of the
@@ -56,7 +56,7 @@ def normalize_interval(raw: str) -> Optional[str]:
     ``"1d"`` and ``"1440m"`` return ``"24h"``. Whitespace and case are ignored.
 
     Args:
-        raw (str): The user-supplied interval value.
+        raw: The user-supplied interval value (any type; a non-string is rejected).
 
     Returns:
         Optional[str]: The canonical key (e.g. ``"1h"``), or ``None`` if the value

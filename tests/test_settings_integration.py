@@ -102,9 +102,19 @@ def _spec(key, label="X"):
 
 
 class _SpecPlugin(BasePlugin):
-    """A concrete plugin whose only interesting behavior is its setting specs."""
-    def __init__(self, specs):
+    """A concrete plugin whose only interesting behavior is its setting specs.
+
+    Optionally overrides the timer directives so the cadence-validation path can be
+    exercised; ``directives=None`` keeps the canonical ``BasePlugin`` default.
+    """
+    def __init__(self, specs, directives=None):
         self._specs = specs
+        self._directives = directives
+
+    def get_timer_directives(self):
+        if self._directives is not None:
+            return self._directives
+        return super().get_timer_directives()
 
     @staticmethod
     def get_name():
@@ -156,6 +166,55 @@ class TestDiscoverySpecValidation(unittest.TestCase):
         plugin = _SpecPlugin(list(BASE_SETTING_SPECS))
         # Should not raise.
         ScraperRegistry._validate_plugin_contract("specfake", plugin)
+
+    def test_missing_base_spec_rejected(self):
+        # A plugin that REPLACES instead of EXTENDS drops the base settings the
+        # framework reads with the strict accessor — rejected loudly at discovery.
+        plugin = _SpecPlugin([_spec("region")])
+        with self.assertRaises(PluginDiscoveryError) as ctx:
+            ScraperRegistry._validate_plugin_contract("specfake", plugin)
+        self.assertIn("missing", str(ctx.exception).lower())
+
+    def test_base_plus_custom_passes(self):
+        plugin = _SpecPlugin(list(BASE_SETTING_SPECS) + [_spec("region")])
+        # Extending the base set is the supported shape; should not raise.
+        ScraperRegistry._validate_plugin_contract("specfake", plugin)
+
+
+class TestDiscoveryCadenceValidation(unittest.TestCase):
+    """A plugin's default OnCalendar must be one of the canonical cadences."""
+
+    def test_canonical_cadence_passes(self):
+        plugin = _SpecPlugin(list(BASE_SETTING_SPECS), {"OnCalendar": "daily"})
+        ScraperRegistry._validate_plugin_contract("specfake", plugin)  # no raise
+
+    def test_non_canonical_cadence_rejected(self):
+        plugin = _SpecPlugin(list(BASE_SETTING_SPECS), {"OnCalendar": "*-*-* 03:00:00"})
+        with self.assertRaises(PluginDiscoveryError) as ctx:
+            ScraperRegistry._validate_plugin_contract("specfake", plugin)
+        self.assertIn("oncalendar", str(ctx.exception).lower())
+
+    def test_missing_oncalendar_rejected(self):
+        plugin = _SpecPlugin(list(BASE_SETTING_SPECS), {"OnBootSec": "5min"})
+        with self.assertRaises(PluginDiscoveryError):
+            ScraperRegistry._validate_plugin_contract("specfake", plugin)
+
+
+class TestMalformedSettingsBlock(unittest.TestCase):
+    """A present-but-non-object settings block sets block_warning and uses defaults."""
+
+    def test_non_dict_block_sets_warning_and_defaults(self):
+        cfg_dir = _write_skroutz_config("1h")  # a string, not an object
+        resolved = resolve_all(BASE_SETTING_SPECS, os.path.join(cfg_dir, "skroutz.json"), _FakePlugin())
+        self.assertIsNotNone(resolved.block_warning)
+        # Every setting still falls back to its default.
+        self.assertEqual(resolved.value(KEY_RETENTION), DEFAULT_LOG_RETENTION_DAYS)
+        self.assertEqual(resolved.value(KEY_NOTIFY), True)
+
+    def test_well_formed_block_no_warning(self):
+        cfg_dir = _write_skroutz_config({"log_retention_days": 5})
+        resolved = resolve_all(BASE_SETTING_SPECS, os.path.join(cfg_dir, "skroutz.json"), _FakePlugin())
+        self.assertIsNone(resolved.block_warning)
 
 
 class TestSettingsInjection(unittest.TestCase):
