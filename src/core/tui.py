@@ -12,7 +12,7 @@ from rich.markup import escape
 from rich.spinner import Spinner
 from rich.progress_bar import ProgressBar
 
-from scrapers.base.settings import SettingView, STATUS_OK, STATUS_INVALID
+from scrapers.base.settings import SettingView, STATUS_INVALID
 
 # Accepts a single note string, a list of note strings, or None.
 Notes = Union[str, List[str], None]
@@ -247,12 +247,11 @@ class InteractiveExecutionStrategy(ExecutionStrategy):
         for view in settings_view:
             if view.status == STATUS_INVALID:
                 value = f"[yellow]{escape(view.display_value)}[/yellow]{self._build_note_refs(view.footnote)}"
-                rows.append(("🟡", escape(view.label), value))
             else:
                 value = escape(view.display_value)
-                if view.status != STATUS_OK:
+                if view.is_default:
                     value += " [dim](default)[/dim]"
-                rows.append(("✅", escape(view.label), value))
+            rows.append((view.icon, escape(view.label), value))
         return rows
 
     @staticmethod
@@ -508,7 +507,7 @@ class SilentExecutionStrategy(ExecutionStrategy):
             if view.status == STATUS_INVALID:
                 target_logger.warning(f"❗ {view.label}: {view.display_value} ({view.footnote})")
             else:
-                suffix = " (default)" if view.status != STATUS_OK else ""
+                suffix = " (default)" if view.is_default else ""
                 target_logger.info(f"⚙️  {view.label}: {view.display_value}{suffix}")
 
     def start_scraping(self, name: str, attempt: int = 1, max_retries: int = 1) -> None:

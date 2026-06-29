@@ -1,11 +1,15 @@
-"""The generic resolve state machine, the :class:`SettingSpec`, and the built-in specs.
+"""The generic resolve machinery, the :class:`SettingSpec`, and the built-in specs.
 
-This is the heart of the settings layer: a single state machine (:func:`_resolve_setting`)
-and a single result type (:class:`scrapers.base.settings.model.ResolvedSetting`) serve
-every setting, declared as :class:`SettingSpec` objects in :data:`BASE_SETTING_SPECS`.
-Adding a setting is one spec; a per-scraper setting is ``BASE_SETTING_SPECS + [extra]``
-returned from ``BasePlugin.get_setting_specs`` - no new ``Resolved*`` type, registry
-passthrough or config-check block.
+This is the heart of the settings layer: a single resolver (:func:`resolve_spec`) and a
+single result type (:class:`scrapers.base.settings.model.ResolvedSetting`) serve every
+setting, declared as :class:`SettingSpec` objects in :data:`BASE_SETTING_SPECS`.
+
+A setting is exactly **one** ``SettingSpec``: it owns its JSON ``key``, normalizer,
+default, display formatter and invalid-value message. There is no parallel settings
+dataclass to subclass and no ``from_dict`` to override - resolution reads the config's
+raw ``settings`` block by ``key``. A per-scraper setting is therefore
+``BASE_SETTING_SPECS + [extra]`` returned from ``BasePlugin.get_setting_specs`` - with no
+new ``Resolved*`` type, registry passthrough or config-check block.
 
 Import-light: reads the config JSON directly (stdlib ``json``/``os``), never the storage
 stack, so it is safe to call from the shell one-liners and ``--status``.
@@ -14,35 +18,46 @@ stack, so it is safe to call from the shell one-liners and ``--status``.
 import json
 import os
 from dataclasses import dataclass
-from typing import Any, Callable, List, Optional, Tuple, Type
+from typing import Any, Callable, List, Optional, Tuple
 
 from scrapers.base.settings.model import (
-    ScraperSettings, ResolvedSetting, SettingView,
+    ResolvedSetting, ResolvedSettings, SettingView,
     STATUS_OK, STATUS_DEFAULT, STATUS_INVALID, STATUS_NOCFG,
 )
 from scrapers.base.settings.normalizers import (
     normalize_retention_days, normalize_bool, DEFAULT_LOG_RETENTION_DAYS,
 )
 from scrapers.base.settings.intervals import (
-    normalize_interval, oncalendar_for, canonical_for_oncalendar,
+    normalize_interval, canonical_for_oncalendar,
 )
 from scrapers.base.settings.messages import (
     interval_warning_message, retention_warning_message, notify_errors_warning_message,
 )
 
 
+# Built-in setting keys (the JSON keys in a config's ``settings`` block). Exported so
+# framework code consuming its own built-in settings references them by name instead of
+# a string literal; a plugin's custom setting never needs these.
+KEY_INTERVAL = "execution_interval"
+KEY_RETENTION = "log_retention_days"
+KEY_NOTIFY = "notify_scraping_errors"
+
+
 @dataclass(frozen=True)
 class SettingSpec:
-    """A declarative description of one ``settings`` field.
+    """A declarative description of one ``settings`` field - the whole setting.
 
-    One spec fully describes how a setting is resolved, validated and displayed, so the
-    generic machinery (:func:`resolve_setting`, :func:`setting_view`) needs no
-    per-setting code. The built-in settings live in :data:`BASE_SETTING_SPECS`; a
-    plugin adds its own by returning ``BASE_SETTING_SPECS + [extra]`` from
-    ``BasePlugin.get_setting_specs``.
+    One spec fully describes how a setting is read, validated, defaulted and displayed,
+    so the generic machinery (:func:`resolve_spec`, :func:`setting_view`) needs no
+    per-setting code. The built-in settings live in :data:`BASE_SETTING_SPECS`; a plugin
+    adds its own by returning ``BASE_SETTING_SPECS + [extra]`` from
+    ``BasePlugin.get_setting_specs`` - the single extension point for per-scraper
+    settings, with no shared-file edit.
 
     Attributes:
-        field (str): The :class:`ScraperSettings` attribute this spec reads.
+        key (str): The JSON key this spec reads from the config's ``settings`` block.
+            Also the setting's identity (must be unique within a plugin's spec list) and
+            the key used to look up its resolved value via :class:`ResolvedSettings`.
         label (str): The human-readable name shown in the settings panel.
         normalize (Callable): Maps the raw value to its effective value, or ``None``
             when the value is unsupported (which yields :data:`STATUS_INVALID`).
@@ -51,12 +66,12 @@ class SettingSpec:
         default (Any): The effective fallback when the value is unset/invalid/missing.
         default_factory (Optional[Callable]): A plugin-aware default, used instead of
             ``default`` when set (e.g. ``execution_interval`` defaults to the plugin's
-            own ``OnCalendar``). Receives the owning ``BasePlugin``.
+            own cadence). Receives the owning ``BasePlugin``.
         is_unset (Callable): Predicate for "the user did not set this" (default:
             ``is None``). ``execution_interval`` uses ``not value`` so an empty string
             counts as unset (default) rather than invalid.
     """
-    field: str
+    key: str
     label: str
     normalize: Callable[[Any], Optional[Any]]
     display: Callable[[Any], str]
@@ -72,22 +87,24 @@ class SettingSpec:
         return self.default
 
 
-def _load_config_settings(
-    config_path: str,
-    settings_cls: Type[ScraperSettings],
-) -> Tuple[Optional[ScraperSettings], Optional[str]]:
-    """Reads a scraper config file and parses its ``settings`` block, once.
+def load_settings_block(config_path: str) -> Tuple[Optional[Any], Optional[str]]:
+    """Reads a scraper config file and returns its raw ``settings`` block, once.
 
-    The shared file stage of :func:`resolve_setting`, factored out so each setting's
-    spec only declares its field, normalizer and default. Reads the JSON directly
-    (import-light - never the storage stack), so it stays safe to call from the shell
-    one-liners and ``--status``.
+    The shared file stage of resolution, factored out so a target's whole settings set
+    is read in a single pass (:func:`resolve_all`) rather than re-opening the file per
+    setting. Reads the JSON directly (import-light - never the storage stack), so it
+    stays safe to call from the shell one-liners and ``--status``.
+
+    Args:
+        config_path (str): Absolute path to the scraper's JSON config file.
 
     Returns:
-        Tuple[Optional[ScraperSettings], Optional[str]]: ``(settings, None)`` on a
-            clean read; ``(None, STATUS_NOCFG)`` when the file is missing;
-            ``(None, "readerror")`` when it is unreadable or not valid JSON (the
-            corrupt config is surfaced elsewhere - here it degrades to the default).
+        Tuple[Optional[Any], Optional[str]]: ``(settings_block, None)`` on a clean read
+            (``settings_block`` is the raw value of the ``settings`` key, which may be a
+            dict, ``None``, or any other type the user wrote); ``(None, STATUS_NOCFG)``
+            when the file is missing; ``(None, "readerror")`` when it is unreadable or
+            not valid JSON (the corrupt config is surfaced elsewhere - here it degrades
+            to the default).
     """
     if not os.path.isfile(config_path):
         return None, STATUS_NOCFG
@@ -96,88 +113,89 @@ def _load_config_settings(
             data = json.load(file)
     except (OSError, json.JSONDecodeError):
         return None, "readerror"
-    return settings_cls.from_dict(data.get("settings") if isinstance(data, dict) else None), None
+    return (data.get("settings") if isinstance(data, dict) else None), None
 
 
-def _resolve_setting(
-    config_path: str,
-    settings_cls: Type[ScraperSettings],
-    field_name: str,
-    normalize: Callable[[Any], Optional[Any]],
-    default_value: Any,
-    is_unset: Callable[[Any], bool] = lambda value: value is None,
-) -> Tuple[Any, str, Any]:
-    """Resolves one ``settings`` field to ``(value, status, raw)``, generically.
+def resolve_spec(spec: SettingSpec, block: Any, load_status: Optional[str], plugin: Any = None) -> ResolvedSetting:
+    """Resolves one spec against an already-loaded ``settings`` block.
 
     The single home for the resolve state machine shared by every setting: missing
-    config -> NOCFG; unreadable/corrupt -> DEFAULT; unset -> DEFAULT; a value that
-    ``normalize`` rejects (returns ``None``) -> INVALID; otherwise OK. Every non-OK
-    branch yields ``default_value`` so the caller always has a usable value.
+    config -> NOCFG; unreadable/corrupt -> DEFAULT; a non-dict or absent block, or an
+    unset key -> DEFAULT; a value that ``normalize`` rejects (returns ``None``) ->
+    INVALID; otherwise OK. Every non-OK branch yields the spec's (plugin-aware) default
+    so the caller always has a usable value.
 
     Args:
-        config_path (str): Absolute path to the scraper's JSON config file.
-        settings_cls (Type[ScraperSettings]): The settings class to parse with.
-        field_name (str): The :class:`ScraperSettings` attribute to read.
-        normalize (Callable): Maps the raw value to its effective value, or ``None``
-            when the value is unsupported.
-        default_value (Any): The fallback returned for every non-OK status.
-        is_unset (Callable): Predicate for "the user did not set this" (default:
-            ``is None``). ``execution_interval`` passes ``not value`` so an empty
-            string counts as unset (default) rather than invalid.
+        spec (SettingSpec): The setting to resolve.
+        block (Any): The raw ``settings`` block from :func:`load_settings_block` (a dict,
+            ``None``, or any other type). Coerced to ``{}`` when not a dict.
+        load_status (Optional[str]): The load status from :func:`load_settings_block`
+            (``None`` on a clean read, ``STATUS_NOCFG``, or ``"readerror"``).
+        plugin (Any): The owning plugin, for a spec whose default is plugin-aware.
 
     Returns:
-        Tuple[Any, str, Any]: ``(value, status, raw)`` where status is one of the
-            ``STATUS_*`` codes and ``raw`` is the user's value (``None`` unless the
-            status is OK or INVALID).
+        ResolvedSetting: The effective value and how it was derived.
     """
-    settings, load_status = _load_config_settings(config_path, settings_cls)
+    default = spec.default_for(plugin)
+    if load_status == STATUS_NOCFG:
+        return ResolvedSetting(default, STATUS_NOCFG, None)
     if load_status is not None:
-        # nocfg -> NOCFG so the caller can footnote a missing file; a read/parse
-        # error degrades to DEFAULT (the corrupt config is surfaced by the load path).
-        return default_value, STATUS_NOCFG if load_status == STATUS_NOCFG else STATUS_DEFAULT, None
+        # A read/parse error degrades to DEFAULT (the corrupt config is surfaced by the
+        # storage load path, not here).
+        return ResolvedSetting(default, STATUS_DEFAULT, None)
 
-    raw = getattr(settings, field_name)
-    if is_unset(raw):
-        return default_value, STATUS_DEFAULT, None
+    settings = block if isinstance(block, dict) else {}
+    raw = settings.get(spec.key)
+    if spec.is_unset(raw):
+        return ResolvedSetting(default, STATUS_DEFAULT, None)
 
-    value = normalize(raw)
+    value = spec.normalize(raw)
     if value is None:
-        return default_value, STATUS_INVALID, raw
-    return value, STATUS_OK, raw
+        return ResolvedSetting(default, STATUS_INVALID, raw)
+    return ResolvedSetting(value, STATUS_OK, raw)
 
 
-def resolve_setting(
-    spec: SettingSpec,
-    config_path: str,
-    settings_cls: Type[ScraperSettings] = ScraperSettings,
-    plugin: Any = None,
-) -> ResolvedSetting:
-    """Resolves one :class:`SettingSpec` against a scraper's config file.
+def resolve_one(spec: SettingSpec, config_path: str, plugin: Any = None) -> ResolvedSetting:
+    """Resolves a single :class:`SettingSpec` against a scraper's config file.
 
-    The single generic resolver: it folds the spec's field, normalizer, default
-    (plugin-aware via :meth:`SettingSpec.default_for`) and unset-predicate through the
-    shared state machine (:func:`_resolve_setting`). Import-light - reads the config
-    JSON directly, never the storage class - so it is safe from the shell one-liners
-    and ``--status``. Any problem degrades gracefully to the spec's default with a
-    status the caller can act on.
+    Reads the config once and folds the spec through :func:`resolve_spec`. Use
+    :func:`resolve_all` when several settings of the same target are needed, so the file
+    is read only once. Import-light - reads the config JSON directly, never the storage
+    class - so it is safe from the shell one-liners and ``--status``.
 
     Args:
         spec (SettingSpec): The setting to resolve.
         config_path (str): Absolute path to the scraper's JSON config file.
-        settings_cls (Type[ScraperSettings]): The settings class to parse with.
         plugin (Any): The owning plugin, for a spec whose default is plugin-aware
             (e.g. ``execution_interval``).
 
     Returns:
         ResolvedSetting: The effective value and how it was derived.
     """
-    value, status, raw = _resolve_setting(
-        config_path, settings_cls, spec.field,
-        normalize=spec.normalize,
-        default_value=spec.default_for(plugin),
-        is_unset=spec.is_unset,
-    )
-    return ResolvedSetting(value, status, raw)
+    block, load_status = load_settings_block(config_path)
+    return resolve_spec(spec, block, load_status, plugin)
+
+
+def resolve_all(specs: List[SettingSpec], config_path: str, plugin: Any = None) -> ResolvedSettings:
+    """Resolves every spec against a scraper's config file in a single read.
+
+    The single entry point for a target's whole settings set: it reads the config file
+    once (:func:`load_settings_block`) and resolves each spec against that one snapshot,
+    returning a :class:`ResolvedSettings` accessor that yields both presentation views
+    and typed effective values. This is what lets the panel, the orchestrator's gates,
+    and a plugin's injected ``self.settings`` all share one resolution.
+
+    Args:
+        specs (List[SettingSpec]): The settings to resolve, in display order.
+        config_path (str): Absolute path to the scraper's JSON config file.
+        plugin (Any): The owning plugin, for plugin-aware defaults.
+
+    Returns:
+        ResolvedSettings: The resolved settings, queryable by key and as views.
+    """
+    block, load_status = load_settings_block(config_path)
+    pairs = [(spec, resolve_spec(spec, block, load_status, plugin)) for spec in specs]
+    return ResolvedSettings(pairs)
 
 
 def setting_view(spec: SettingSpec, resolved: ResolvedSetting) -> SettingView:
@@ -199,24 +217,40 @@ def setting_view(spec: SettingSpec, resolved: ResolvedSetting) -> SettingView:
     )
 
 
-# The built-in settings shared by every scraper, in display order. A plugin returns
-# this (optionally extended) from ``BasePlugin.get_setting_specs``; the registry and
-# the settings panel iterate whatever it returns, so a per-scraper setting needs no
-# framework change.
+def _interval_default(plugin: Any) -> str:
+    """The display default for ``execution_interval``: the plugin's cadence as a key.
+
+    Folds the plugin's declared ``OnCalendar`` default back to the canonical interval key
+    the user recognizes (e.g. ``"hourly"`` -> ``"1h"``), falling back to the raw
+    expression for a custom cadence outside the supported set. Used only for *display* of
+    the default - the systemd schedule itself is taken from the plugin's directives at
+    the timer boundary (``registry.resolve_timer_directives``), never from this value.
+    """
+    oncalendar = ""
+    if plugin is not None:
+        oncalendar = plugin.get_timer_directives().get("OnCalendar", "")
+    return canonical_for_oncalendar(oncalendar) or oncalendar
+
+
+# The built-in settings shared by every scraper, in display order. A plugin returns this
+# (optionally extended) from ``BasePlugin.get_setting_specs``; the registry and the
+# settings panel iterate whatever it returns, so a per-scraper setting needs no framework
+# change.
 SPEC_INTERVAL = SettingSpec(
-    field="execution_interval",
+    key=KEY_INTERVAL,
     label="Execution Interval",
-    # The effective value is the systemd OnCalendar; display folds it back to the
-    # canonical key the user recognizes (falling back to the raw expression).
-    normalize=lambda raw: oncalendar_for(c) if (c := normalize_interval(raw)) else None,
-    display=lambda oncalendar: canonical_for_oncalendar(oncalendar) or oncalendar,
+    # The settings layer speaks the user's vocabulary: the effective value is the
+    # canonical interval key (e.g. "1h"). Translation to a systemd OnCalendar happens at
+    # the timer boundary (registry.resolve_timer_directives), not here.
+    normalize=normalize_interval,
+    display=lambda canonical: canonical,
     warning=interval_warning_message(),
-    default_factory=lambda plugin: plugin.get_timer_directives().get("OnCalendar", ""),
+    default_factory=_interval_default,
     is_unset=lambda raw: not raw,  # an empty/blank interval is unset, not invalid
 )
 
 SPEC_RETENTION = SettingSpec(
-    field="log_retention_days",
+    key=KEY_RETENTION,
     label="Log Retention",
     normalize=normalize_retention_days,
     display=lambda days: f"{days} day{'s' if days != 1 else ''}",
@@ -225,7 +259,7 @@ SPEC_RETENTION = SettingSpec(
 )
 
 SPEC_NOTIFY = SettingSpec(
-    field="notify_scraping_errors",
+    key=KEY_NOTIFY,
     label="Notify On Errors",
     normalize=normalize_bool,
     display=lambda value: "true" if value else "false",

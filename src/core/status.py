@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from constants import CONFIG_DIR
 from exit_status import classify_service_state
 from scrapers.registry import ScraperRegistry
-from scrapers.base.settings import STATUS_OK, STATUS_DEFAULT, STATUS_INVALID
+from scrapers.base.settings import STATUS_OK, STATUS_DEFAULT, STATUS_INVALID, KEY_INTERVAL
 from logger import setup_global_logging
 from panel import StatusPanelBuilder
 from config_check import render_config_panel, load_targets
@@ -115,13 +115,11 @@ def add_setting_row(panel: StatusPanelBuilder, view) -> None:
     """
     if view.status == STATUS_INVALID:
         value = f"{view.display_value}{panel.add_note_ref(view.footnote)}"
-        panel.add_row("🟡", view.label, value)
-        return
-
-    value = view.display_value
-    if view.status != STATUS_OK:
-        value += " [dim](default)[/dim]"
-    panel.add_row("✅", view.label, value)
+    else:
+        value = view.display_value
+        if view.is_default:
+            value += " [dim](default)[/dim]"
+    panel.add_row(view.icon, view.label, value)
 
 def main():
     """Main entry point for checking the status of the Scrooge Alert service.
@@ -216,14 +214,17 @@ def main():
             service_panel.add_row(verdict.icon, "Last Execution Status", completed_str)
 
         # Flag schedule *drift* only: the live timer's OnCalendar (what is on disk)
-        # versus the schedule the user's configured execution_interval resolves to. A
-        # config edited without re-running schedule.sh surfaces here as a footnote. An
-        # *invalid* execution_interval is no longer footnoted here — the Execution
-        # Interval row in the settings section above owns that report.
-        interval = ScraperRegistry.resolve_interval_status(target, CONFIG_DIR)
+        # versus the effective schedule the user's configured execution_interval resolves
+        # to (resolve_timer_directives owns the canonical-key -> OnCalendar translation and
+        # the plugin-default fallback). A config edited without re-running schedule.sh
+        # surfaces here as a footnote. An *invalid*/missing execution_interval is not
+        # flagged here — the Execution Interval row in the settings section above owns that
+        # report — so the check is gated to a usable (ok/default) interval.
+        interval = ScraperRegistry.resolve_value(target, KEY_INTERVAL, CONFIG_DIR)
         if interval.status in (STATUS_OK, STATUS_DEFAULT):
+            expected_oncalendar = ScraperRegistry.resolve_timer_directives(target, CONFIG_DIR).get("OnCalendar", "")
             active_oncalendar = read_timer_oncalendar(target)
-            if active_oncalendar and active_oncalendar != interval.value:
+            if active_oncalendar and active_oncalendar != expected_oncalendar:
                 next_exec += service_panel.add_note_ref(
                     "Timer differs from config. Run `./scripts/schedule.sh`."
                 )

@@ -1,65 +1,20 @@
-"""Settings data model: the parsed ``settings`` block, resolved values, and status codes.
+"""Settings data model: resolved values, status codes, the presentation view, and the
+per-target resolved-settings accessor.
 
 Pure stdlib dataclasses with no dependency on the rest of the settings package, so this
 stays the leaf of the import graph (import-light).
+
+There is deliberately **no** parsed ``settings`` dataclass here: a setting is fully
+described by a single :class:`~scrapers.base.settings.resolve.SettingSpec` (its JSON
+``key``, normalizer, default, display and warning), and resolution reads the raw
+``settings`` block by key. The objects below are the *outputs* of resolution.
 """
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, List, Optional, Tuple, TYPE_CHECKING
 
-
-@dataclass
-class ScraperSettings:
-    """The parsed ``settings`` block of a scraper's config file.
-
-    The base set of settings shared by every scraper. A scraper that needs its own
-    knobs subclasses this (adding fields and extending :meth:`from_dict`) and
-    returns the subclass from ``BasePlugin.get_settings_class``.
-
-    Attributes:
-        execution_interval (Optional[str]): The user's raw cadence string (as
-            typed), or ``None`` when unset. It is normalized via
-            ``normalize_interval`` only at the point it becomes a systemd schedule, so
-            the file keeps the user's original spelling.
-        log_retention_days: The user's raw log-retention value (an int or a
-            day-duration string), or ``None`` when unset. Validated via
-            ``normalize_retention_days`` at the point it becomes a rotating-file
-            ``backupCount``; the raw value is kept so the resolver can tell an
-            *invalid* value apart from an *unset* one.
-        notify_scraping_errors: The user's raw opt-out for the per-run "Scraping
-            Errors" notification, or ``None`` when unset. Validated via
-            ``normalize_bool`` where it gates the notification; it defaults to *notify*
-            (``True``) when unset or unparseable, so only an explicit, valid ``false``
-            silences that push (stale-product and crash alerts are unaffected). The raw
-            value is kept so an *invalid* value can be told apart from an *unset* one.
-    """
-    execution_interval: Optional[str] = None
-    log_retention_days: Optional[object] = None
-    notify_scraping_errors: Optional[object] = None
-
-    @classmethod
-    def from_dict(cls, data) -> "ScraperSettings":
-        """Builds settings from a raw ``settings`` mapping, tolerating bad input.
-
-        A missing or non-dict ``settings`` block (or a missing key) yields field
-        defaults rather than an error; unknown keys are ignored. Each value is stored
-        *raw*; validation of its *meaning* (a supported interval, a 1-30 retention)
-        happens later, where it is used, so the model stays a pure container.
-
-        Args:
-            data: The value of the config's top-level ``settings`` key.
-
-        Returns:
-            ScraperSettings: The parsed settings.
-        """
-        if not isinstance(data, dict):
-            return cls()
-        interval = data.get("execution_interval")
-        return cls(
-            execution_interval=interval if isinstance(interval, str) else None,
-            log_retention_days=data.get("log_retention_days"),
-            notify_scraping_errors=data.get("notify_scraping_errors"),
-        )
+if TYPE_CHECKING:
+    from scrapers.base.settings.resolve import SettingSpec
 
 
 # Resolution status codes for a scraper's effective setting value.
@@ -74,8 +29,8 @@ class ResolvedSetting:
     """The effective value of one setting, plus how it was derived.
 
     The single result type shared by every setting (interval, retention, flag, and any
-    per-scraper setting). For ``execution_interval`` the ``value`` is the systemd
-    ``OnCalendar`` expression; for other settings it is the setting's effective value.
+    per-scraper setting). For ``execution_interval`` the ``value`` is the canonical
+    interval key (e.g. ``"1h"``); for other settings it is the setting's effective value.
 
     Attributes:
         value: The effective value to apply - the validated user value when OK,
@@ -98,7 +53,8 @@ class SettingView:
     Built by ``setting_view`` from a ``SettingSpec`` and its :class:`ResolvedSetting`.
     Render sites (the ``--status`` Service Status panel and the interactive Scraping
     panel) map this to their own row/icon idiom, so resolution and rendering stay
-    decoupled.
+    decoupled. The :attr:`icon` / :attr:`is_default` helpers centralize the
+    status -> row-decoration decision so the render sites do not each re-derive it.
 
     Attributes:
         label (str): The human-readable setting name (e.g. ``"Execution Interval"``).
@@ -112,3 +68,71 @@ class SettingView:
     display_value: str
     status: str
     footnote: Optional[str] = None
+
+    @property
+    def icon(self) -> str:
+        """The status icon: a warning sign for an invalid value, else a check."""
+        return "🟡" if self.status == STATUS_INVALID else "✅"
+
+    @property
+    def is_default(self) -> bool:
+        """True when the active value is the spec's default (unset or missing config).
+
+        Distinct from an *invalid* value (which also falls back to the default but is
+        flagged with a footnote, not a dim "(default)" marker).
+        """
+        return self.status not in (STATUS_OK, STATUS_INVALID)
+
+
+class ResolvedSettings:
+    """A target's fully-resolved settings, read once and queried by key.
+
+    Built by :func:`scrapers.base.settings.resolve.resolve_all` from a single config-file
+    read, so every consumer (the panel views, the orchestrator's retention/notify gates,
+    and a plugin's own client/storage via the injected ``self.settings``) shares one
+    resolution rather than re-reading the file per setting.
+
+    It holds the ordered ``(spec, ResolvedSetting)`` pairs so it can yield both the
+    presentation :class:`SettingView` list and typed effective values.
+    """
+
+    def __init__(self, pairs: List[Tuple["SettingSpec", ResolvedSetting]]) -> None:
+        """Stores the resolved pairs and indexes them by spec key.
+
+        Args:
+            pairs: ``(spec, resolved)`` for each of the plugin's settings, in display
+                order.
+        """
+        self._pairs = list(pairs)
+        self._by_key = {spec.key: resolved for spec, resolved in self._pairs}
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Returns the effective value for ``key``, or ``default`` if not present.
+
+        The forgiving accessor for plugin code: a key the plugin never declared yields
+        ``default`` rather than raising.
+        """
+        resolved = self._by_key.get(key)
+        return resolved.value if resolved is not None else default
+
+    def value(self, key: str) -> Any:
+        """Returns the effective value for ``key`` (raises ``KeyError`` if absent).
+
+        The strict accessor for framework code resolving a known built-in setting.
+        """
+        return self._by_key[key].value
+
+    def status(self, key: str) -> str:
+        """Returns the ``STATUS_*`` code for ``key`` (raises ``KeyError`` if absent)."""
+        return self._by_key[key].status
+
+    def resolved(self, key: str) -> ResolvedSetting:
+        """Returns the full :class:`ResolvedSetting` for ``key``."""
+        return self._by_key[key]
+
+    def views(self) -> List["SettingView"]:
+        """Returns one :class:`SettingView` per setting, in the plugin's declared order."""
+        # Imported here (not at module top) to keep this model module the import leaf;
+        # setting_view lives with the spec/resolve machinery.
+        from scrapers.base.settings.resolve import setting_view
+        return [setting_view(spec, resolved) for spec, resolved in self._pairs]

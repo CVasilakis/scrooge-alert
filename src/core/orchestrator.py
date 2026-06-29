@@ -6,10 +6,11 @@ from dataclasses import dataclass
 from typing import Optional
 
 from locks import acquire_lock
-from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, TIMESTAMP_FORMAT, CONFIG_DIR
+from constants import MIN_DELAY_SECONDS, RANDOM_DELAY_MIN, RANDOM_DELAY_MAX, RETRY_DELAY_MULTIPLIER, MAX_RETRIES, OLD_ENTRY_HOURS, EXIT_CODE_RATE_LIMIT_ERROR, EXIT_CODE_INTERRUPT, EXIT_CODE_SKIPPED, EXIT_CODE_SUCCESS, TIMESTAMP_FORMAT
 from exceptions import RateLimitError, ServerError, ScraperParseError, LockAcquisitionError, StorageFileError, ProductNotFoundError, ProductUnavailableError, InvalidURLError, PluginDependencyError
 from scrapers.base.model import BaseTrackedItem
 from scrapers.base.storage import BaseDataManager
+from scrapers.base.settings import KEY_RETENTION, KEY_NOTIFY
 from scrapers.registry import ScraperRegistry
 from notifier import Notifier
 from logger import save_traceback, get_target_logger
@@ -339,7 +340,7 @@ class ScrapingOrchestrator:
             self.ui_strategy.log_result("✅", item.name, "Skipped", "The skip field was set to true in the configuration file.")
             return item, None, False
 
-        if not data_manager.is_scrappable_item(row):
+        if not data_manager.is_scrapable_item(row):
             stale_note = self._check_and_repair_timestamp(item, data_manager)
             self.ui_strategy.log_warning(item.name, "Invalid URL. Skipping product...", stale_note)
             return item, None, False
@@ -437,14 +438,16 @@ class ScrapingOrchestrator:
                 break
 
             self._current_target = target
-            # Resolve log retention here (the run owner already holds the registry) and
-            # hand the day-count to the logging utility, which is kept free of any
-            # plugin-system dependency. The effective settings (including an invalid
-            # retention) are reported to the user via the settings section / silent log
-            # at start_target below, not by the logger itself.
-            retention = ScraperRegistry.resolve_log_retention(target, CONFIG_DIR)
-            self._current_logger = get_target_logger(target, self.quiet, retention.value)
-            settings_view = ScraperRegistry.resolve_settings(target, CONFIG_DIR)
+            # Resolve this target's settings once for the whole run; the registry caches
+            # the read and shares the very same accessor with the client and storage. The
+            # logger, the start_target settings section, and the notify-on-errors gate
+            # below are all derived from this single snapshot. The day-count is handed to
+            # the logging utility, which is kept free of any plugin-system dependency; an
+            # invalid value is reported to the user via the settings section / silent log
+            # at start_target, not by the logger itself.
+            settings = self.registry.settings_for(target)
+            self._current_logger = get_target_logger(target, self.quiet, settings.value(KEY_RETENTION))
+            settings_view = settings.views()
 
             try:
                 data_manager = self.registry.get_manager(target)
@@ -504,7 +507,7 @@ class ScrapingOrchestrator:
                     # so a sustained failure still surfaces. The resolver is the single
                     # home for the default-ON rule: unset/unparseable values resolve to
                     # True (notify), so only an explicit, valid `false` silences the push.
-                    if ScraperRegistry.resolve_notify_errors(target, self.config_dir).value:
+                    if settings.value(KEY_NOTIFY):
                         self.notifier.notify_errors(failed_items)
 
             except LockAcquisitionError:

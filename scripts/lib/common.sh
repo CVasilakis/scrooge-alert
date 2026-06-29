@@ -138,8 +138,9 @@ list_interval_status() {
     PYTHONPATH="$BASE_DIR/src/core" "$BASE_DIR/venv/bin/python3" - 2>/dev/null <<'PY'
 from constants import CONFIG_DIR
 from scrapers.registry import ScraperRegistry
+from scrapers.base.settings import KEY_INTERVAL
 for target in ScraperRegistry.registered_targets():
-    print(f"{target}\t{ScraperRegistry.resolve_interval_status(target, CONFIG_DIR).status}")
+    print(f"{target}\t{ScraperRegistry.resolve_value(target, KEY_INTERVAL, CONFIG_DIR).status}")
 PY
 }
 

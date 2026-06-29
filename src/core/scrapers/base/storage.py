@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import os
 import shutil
@@ -12,6 +13,7 @@ from utils import parse_price
 
 if TYPE_CHECKING:
     from scrapers.base.plugin import BasePlugin
+    from scrapers.base.settings import ResolvedSettings
 
 
 class BaseDataManager(ABC):
@@ -20,15 +22,18 @@ class BaseDataManager(ABC):
     This is the *storage backend* contract, not a fully generic key-value store: it
     models a **product identified by a URL and carrying a ``target_price``**, which is
     this application's only domain. That assumption is baked into the shared helpers —
-    ``has_valid_target_price``, ``is_scrappable_item`` and ``_url_on_supported_domain``
+    ``has_valid_target_price``, ``is_scrapable_item`` and ``_url_on_supported_domain``
     are about product URLs and target prices — so a subclass inherits those semantics;
     it does not get a blank slate.
 
-    Subclasses must call ``super().__init__(filepath, plugin)`` in their
+    Subclasses must call ``super().__init__(filepath, plugin, settings)`` in their
     ``__init__`` and use ``self.filepath`` for all file operations. The manager
     is given its owning :class:`BasePlugin` so that domain matching resolves
     through ``plugin.get_supported_domains()`` (the single source of truth)
-    rather than importing a concrete plugin.
+    rather than importing a concrete plugin, and its target's resolved
+    ``self.settings`` so a store-specific setting is readable at scrape time
+    (e.g. ``self.settings.get("region")``) without extra plumbing. Both are
+    injected by the registry.
 
     Note:
         Almost every store backs its data with a JSON file and should extend
@@ -39,16 +44,22 @@ class BaseDataManager(ABC):
         a non-file backend (a database or remote API) — and even then you are still
         implementing the same product-over-URL contract, just against a different store.
     """
-    def __init__(self, filepath: str, plugin: Optional['BasePlugin'] = None) -> None:
+    def __init__(self, filepath: str, plugin: Optional['BasePlugin'] = None,
+                 settings: "Optional[ResolvedSettings]" = None) -> None:
         """Initializes the data manager.
 
         Args:
             filepath (str): The path to the storage file.
             plugin (Optional[BasePlugin]): The owning plugin, used to resolve the
                 supported domains for URL matching. Injected by the registry.
+            settings (Optional[ResolvedSettings]): The target's resolved settings,
+                injected by the registry so a subclass can read a store-specific
+                setting at scrape time (e.g. ``self.settings.get("region")``). ``None``
+                when constructed outside the registry (e.g. a unit test).
         """
         self.filepath = filepath
         self.plugin = plugin
+        self.settings = settings
 
     # ------------------------------------------------------------------
     # Core lifecycle – must be implemented by every subclass
@@ -163,7 +174,7 @@ class BaseDataManager(ABC):
         pass
 
     @abstractmethod
-    def is_scrappable_item(self, item: Dict[str, Any]) -> bool:
+    def is_scrapable_item(self, item: Dict[str, Any]) -> bool:
         """Checks if the item has a valid, properly formatted URL.
 
         Args:
@@ -246,14 +257,17 @@ class JsonProductDataManager(BaseDataManager):
     #: The top-level JSON key whose value is the list of item dictionaries.
     ROOT_KEY: str = "products"
 
-    def __init__(self, filepath: str, plugin: Optional['BasePlugin'] = None) -> None:
+    def __init__(self, filepath: str, plugin: Optional['BasePlugin'] = None,
+                 settings: "Optional[ResolvedSettings]" = None) -> None:
         """Initializes the manager with the JSON file path.
 
         Args:
             filepath (str): The path to the JSON storage/config file.
             plugin (Optional[BasePlugin]): The owning plugin (see BaseDataManager).
+            settings (Optional[ResolvedSettings]): The target's resolved settings
+                (see BaseDataManager); injected by the registry.
         """
-        super().__init__(filepath, plugin)
+        super().__init__(filepath, plugin, settings)
         self._data: Dict[str, Any] = {}
         self._updates: Dict[str, Dict[str, Any]] = {}
 
@@ -335,11 +349,27 @@ class JsonProductDataManager(BaseDataManager):
     def update_item(self, url: str, **updates: Any) -> None:
         """Caches updates for an item based on its clean URL.
 
+        Every update key must name a field of :attr:`MODEL` (the store's
+        :class:`BaseTrackedItem` subclass). A key that does not is a programming error -
+        it would be persisted into the JSON row and then silently dropped on the next
+        ``from_dict`` read - so it is rejected loudly here rather than written as junk.
+
         Args:
             url (str): The URL of the item to update.
-            **updates: Arbitrary field updates (e.g. ``last_price=12.5``,
-                ``last_checked="11-06-2026 01:00:00"``).
+            **updates: Field updates (e.g. ``last_price=12.5``,
+                ``last_checked="11-06-2026 01:00:00"``); each key must be a ``MODEL`` field.
+
+        Raises:
+            ValueError: If an update key is not a field of ``MODEL``.
         """
+        allowed = {field.name for field in dataclasses.fields(self.MODEL)}
+        unknown = [key for key in updates if key not in allowed]
+        if unknown:
+            raise ValueError(
+                f"update_item received unknown field(s) {unknown} for {self.MODEL.__name__}; "
+                f"valid fields are {sorted(allowed)}."
+            )
+
         clean_url = self._get_clean_url(url)
         if clean_url in self._updates:
             self._updates[clean_url].update(updates)
@@ -368,8 +398,8 @@ class JsonProductDataManager(BaseDataManager):
                 product["skip"] = False
 
             url = str(product.get("url", ""))
-            # Group by clean URL if scrappable, otherwise fallback to string representation of raw url
-            clean_url = self._get_clean_url(url) if self.is_scrappable_item(product) else url
+            # Group by clean URL if scrapable, otherwise fallback to string representation of raw url
+            clean_url = self._get_clean_url(url) if self.is_scrapable_item(product) else url
             groups[clean_url].append((i, product))
 
         items_to_keep = set()
@@ -382,9 +412,9 @@ class JsonProductDataManager(BaseDataManager):
             if valid_indices:
                 items_to_keep.add(valid_indices[0])
             else:
-                scrappable_indices = [i for i, p in group if self.is_scrappable_item(p)]
-                if scrappable_indices:
-                    items_to_keep.add(scrappable_indices[0])
+                scrapable_indices = [i for i, p in group if self.is_scrapable_item(p)]
+                if scrapable_indices:
+                    items_to_keep.add(scrapable_indices[0])
                 else:
                     for i, p in group:
                         items_to_keep.add(i)
@@ -392,7 +422,7 @@ class JsonProductDataManager(BaseDataManager):
         cleaned_products = []
         for i, product in enumerate(products):
             if i in items_to_keep:
-                if self.is_scrappable_item(product):
+                if self.is_scrapable_item(product):
                     product["url"] = self._get_clean_url(str(product.get("url", "")))
                 cleaned_products.append(product)
 
@@ -486,12 +516,12 @@ class JsonProductDataManager(BaseDataManager):
             item (Dict[str, Any]): The item dictionary to validate.
 
         Returns:
-            bool: True if the item has a name, a scrappable URL, and a valid target price.
+            bool: True if the item has a name, a scrapable URL, and a valid target price.
         """
         if "name" not in item:
             return False
 
-        if not self.is_scrappable_item(item):
+        if not self.is_scrapable_item(item):
             return False
 
         if not self.has_valid_target_price(item):
@@ -499,8 +529,8 @@ class JsonProductDataManager(BaseDataManager):
 
         return True
 
-    def is_scrappable_item(self, item: Dict[str, Any]) -> bool:
-        """Checks whether the item has a scrappable product URL.
+    def is_scrapable_item(self, item: Dict[str, Any]) -> bool:
+        """Checks whether the item has a scrapable product URL.
 
         Composes the shared supported-domain check (inherited, driven by the
         plugin) with the store-specific path rule (:meth:`_matches_product_path`),

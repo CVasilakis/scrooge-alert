@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Type
 from urllib.parse import urlparse
 from scrapers.base.client import BaseScraperClient
 from scrapers.base.storage import BaseDataManager
-from scrapers.base.settings import ScraperSettings, SettingSpec, BASE_SETTING_SPECS
+from scrapers.base.settings import SettingSpec, BASE_SETTING_SPECS
 
 
 class BasePlugin(ABC):
@@ -109,34 +109,17 @@ class BasePlugin(ABC):
             "OnCalendar": "hourly",
         }
 
-    def get_settings_class(self) -> Type[ScraperSettings]:
-        """The :class:`ScraperSettings` class used to parse this plugin's ``settings``.
-
-        Every scraper's config file may carry a top-level ``settings`` block (see
-        :mod:`scrapers.base.settings`). This returns the dataclass that block is
-        parsed into. The default :class:`ScraperSettings` covers the settings shared
-        by every scraper (today: ``execution_interval``). A scraper that needs its
-        own knobs overrides this to return a :class:`ScraperSettings` subclass with
-        extra fields - the single extension point for scraper-specific settings,
-        mirroring how ``get_storage_class`` binds a store-specific data manager.
-
-        Kept import-light like the rest of the descriptor: settings classes are pure
-        stdlib dataclasses, so this never pulls in a transport stack.
-
-        Returns:
-            Type[ScraperSettings]: The settings dataclass for this plugin.
-        """
-        return ScraperSettings
-
     def get_setting_specs(self) -> List[SettingSpec]:
         """The ordered :class:`SettingSpec` list describing this plugin's settings.
 
-        Each spec declares how one ``settings`` field is resolved, validated and
-        displayed (see :mod:`scrapers.base.settings`). The registry and the settings
-        panel iterate exactly this list, so a scraper adds a store-specific setting by
-        returning ``BASE_SETTING_SPECS + [its specs]`` here (and a matching field on its
-        :meth:`get_settings_class` subclass) - the single extension point for
-        per-scraper settings, with no change to base ``registry``/``status`` code.
+        Each spec fully declares one ``settings`` field - its JSON key, normalizer,
+        default, display and warning (see :mod:`scrapers.base.settings`). The registry
+        and the settings panel iterate exactly this list, so a scraper adds a
+        store-specific setting by returning ``BASE_SETTING_SPECS + [its specs]`` here -
+        the single extension point for per-scraper settings, with no change to base
+        ``registry``/``status`` code and no parallel settings class to subclass. The
+        plugin reads a custom setting's effective value at scrape time through the
+        ``self.settings`` accessor injected into its client and storage.
 
         Kept import-light like the rest of the descriptor: specs are pure stdlib
         dataclasses, so this never pulls in a transport stack.

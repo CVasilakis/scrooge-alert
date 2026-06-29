@@ -8,8 +8,9 @@ from typing import Dict, List, Optional, TYPE_CHECKING
 
 from exceptions import PluginDiscoveryError, PluginDependencyError
 from scrapers.base.settings import (
-    ScraperSettings, SettingSpec, ResolvedSetting, SettingView,
-    resolve_setting, setting_view, SPEC_INTERVAL, SPEC_RETENTION, SPEC_NOTIFY,
+    SettingSpec, ResolvedSetting, ResolvedSettings, SettingView,
+    resolve_one, resolve_all, oncalendar_for,
+    KEY_INTERVAL, STATUS_OK,
 )
 
 if TYPE_CHECKING:
@@ -164,22 +165,30 @@ class ScraperRegistry:
         if any(not isinstance(d, str) or not d.strip() for d in domains):
             raise PluginDiscoveryError(f"Plugin '{name}' ({where}) returned an empty or non-string entry in get_supported_domains().")
 
-        # The settings extension points are import-light (pure stdlib dataclasses), so
-        # validate them here at discovery — unlike the client/storage classes, which are
-        # resolved lazily — so a mis-typed settings binding fails loudly at startup
-        # rather than at first config read.
-        settings_cls = plugin.get_settings_class()
-        if not (isinstance(settings_cls, type) and issubclass(settings_cls, ScraperSettings)):
-            raise PluginDiscoveryError(
-                f"Plugin '{name}' ({where}): get_settings_class() must return a ScraperSettings "
-                f"subclass, got {settings_cls!r}."
-            )
-
+        # The settings extension point is import-light (pure stdlib spec dataclasses), so
+        # validate it here at discovery — unlike the client/storage classes, which are
+        # resolved lazily — so a mis-typed settings binding fails loudly at startup rather
+        # than at first config read. A setting is fully described by its SettingSpec, so we
+        # check the list shape and that every key is a non-empty, unique string (a key is
+        # both the JSON field read and the lookup handle for the resolved value, so a blank
+        # or duplicated key would silently shadow another setting).
         specs = plugin.get_setting_specs()
         if not isinstance(specs, (list, tuple)) or any(not isinstance(spec, SettingSpec) for spec in specs):
             raise PluginDiscoveryError(
                 f"Plugin '{name}' ({where}): get_setting_specs() must return a list of SettingSpec."
             )
+        seen_keys: set = set()
+        for spec in specs:
+            if not isinstance(spec.key, str) or not spec.key.strip():
+                raise PluginDiscoveryError(
+                    f"Plugin '{name}' ({where}): every SettingSpec must declare a non-empty string key."
+                )
+            if spec.key in seen_keys:
+                raise PluginDiscoveryError(
+                    f"Plugin '{name}' ({where}): duplicate setting key '{spec.key}'. Each setting "
+                    f"(built-in or custom) must have a unique key."
+                )
+            seen_keys.add(spec.key)
 
     @staticmethod
     def _resolve_bound_class(plugin: 'BasePlugin', getter_name: str, base: type) -> type:
@@ -301,40 +310,95 @@ class ScraperRegistry:
         """
         return os.path.join(config_dir, plugin.get_config_filename())
 
-    @classmethod
-    def resolve_interval_status(cls, target: str, config_dir: str) -> ResolvedSetting:
-        """Resolves a registered plugin's effective execution interval from its config.
+    @staticmethod
+    def _spec_for(plugin: 'BasePlugin', key: str) -> SettingSpec:
+        """Returns the plugin's :class:`SettingSpec` for ``key`` (raises if absent)."""
+        for spec in plugin.get_setting_specs():
+            if spec.key == key:
+                return spec
+        raise KeyError(f"Plugin '{plugin.get_name()}' exposes no setting '{key}'.")
 
-        Combines the plugin's default cadence (the ``OnCalendar`` from
-        :meth:`BasePlugin.get_timer_directives`) with the user's
-        ``settings.execution_interval`` in ``<config_dir>/<config filename>``. The
-        returned :class:`ResolvedSetting` carries the systemd ``OnCalendar`` to apply
-        as its ``value`` and a status (ok/default/invalid/nocfg), so callers can warn
-        (``schedule.sh``) or footnote (``--status``) accordingly. Import-light: it
-        reads the config JSON directly, without resolving the plugin's storage class.
+    @classmethod
+    def resolve_all_settings(cls, target: str, config_dir: str) -> ResolvedSettings:
+        """Resolves every setting a plugin exposes, reading its config file once.
+
+        Iterates the plugin's :meth:`BasePlugin.get_setting_specs` and resolves each
+        against ``<config_dir>/<config filename>`` in a single read, returning a
+        :class:`ResolvedSettings` accessor that yields both presentation views
+        (:meth:`ResolvedSettings.views`) and typed effective values
+        (:meth:`ResolvedSettings.value` / :meth:`ResolvedSettings.get`). This is the one
+        resolution shared by the settings panel, the orchestrator's retention/notify
+        gates, and the ``self.settings`` injected into a plugin's client and storage, so a
+        per-scraper setting flows everywhere with no change here. Import-light: reads the
+        config JSON directly, without resolving the plugin's storage class.
 
         Args:
             target (str): The registered target name (e.g. ``'skroutz'``).
             config_dir (str): The directory holding the scrapers' config files.
 
         Returns:
-            ResolvedSetting: The effective schedule (``value`` is the ``OnCalendar``).
+            ResolvedSettings: The target's resolved settings, queryable by key and as views.
         """
         plugin = cls.get_plugin(target)
-        config_path = cls._config_path(plugin, config_dir)
-        return resolve_setting(SPEC_INTERVAL, config_path, plugin.get_settings_class(), plugin)
+        return resolve_all(plugin.get_setting_specs(), cls._config_path(plugin, config_dir), plugin)
+
+    @classmethod
+    def resolve_settings(cls, target: str, config_dir: str) -> List[SettingView]:
+        """One presentation-ready :class:`SettingView` per setting, in declared order.
+
+        The single source for the settings section rendered atop the ``--status`` Service
+        Status panel and the interactive Scraping panel; a thin view over
+        :meth:`resolve_all_settings`, so a per-scraper setting appears in both with no
+        change here.
+
+        Args:
+            target (str): The registered target name (e.g. ``'skroutz'``).
+            config_dir (str): The directory holding the scrapers' config files.
+
+        Returns:
+            List[SettingView]: One view per setting, in the plugin's declared order.
+        """
+        return cls.resolve_all_settings(target, config_dir).views()
+
+    @classmethod
+    def resolve_value(cls, target: str, key: str, config_dir: str) -> ResolvedSetting:
+        """Resolves a single setting by key for a registered plugin.
+
+        The generic typed accessor: framework code reads a built-in setting by its
+        ``KEY_*`` constant (e.g. ``KEY_INTERVAL``), and any caller that needs just one
+        value (the shell ``list_interval_status`` bridge, the timer resolver) avoids
+        resolving the whole set. Import-light: reads the config JSON directly, without
+        resolving the plugin's storage class.
+
+        Args:
+            target (str): The registered target name (e.g. ``'skroutz'``).
+            key (str): The setting's key (e.g. ``KEY_INTERVAL``).
+            config_dir (str): The directory holding the scrapers' config files.
+
+        Returns:
+            ResolvedSetting: The effective value and how it was derived.
+
+        Raises:
+            KeyError: If the plugin exposes no setting with that key.
+        """
+        plugin = cls.get_plugin(target)
+        spec = cls._spec_for(plugin, key)
+        return resolve_one(spec, cls._config_path(plugin, config_dir), plugin)
 
     @classmethod
     def resolve_timer_directives(cls, target: str, config_dir: str) -> Dict[str, str]:
         """The plugin's ``[Timer]`` directives with ``OnCalendar`` resolved from config.
 
         Starts from the plugin's declared directives
-        (:meth:`BasePlugin.get_timer_directives`) and overrides only ``OnCalendar``
-        with the value resolved from the user's ``execution_interval`` setting,
-        falling back to the plugin default when the setting is unset, invalid, or the
-        config file is missing. This is the single source of truth for a plugin's
-        *effective* cadence, consumed by ``install.sh`` and ``schedule.sh`` (through
-        the shell one-liners) so a generated timer always reflects the user's choice.
+        (:meth:`BasePlugin.get_timer_directives`) and overrides ``OnCalendar`` only when
+        the user's ``execution_interval`` resolves to a supported cadence, translating the
+        canonical interval key to its systemd expression here - the single boundary where
+        the settings layer's user-facing vocabulary becomes a systemd schedule. When the
+        setting is unset, invalid, or the config file is missing, the plugin's declared
+        ``OnCalendar`` default is kept (this preserves a plugin's right to declare a
+        custom, non-canonical cadence). This is the single source of truth for a plugin's
+        *effective* cadence, consumed by ``install.sh`` and ``schedule.sh`` through the
+        shell one-liners.
 
         Args:
             target (str): The registered target name.
@@ -344,79 +408,10 @@ class ScraperRegistry:
             Dict[str, str]: The effective ``[Timer]`` trigger directives.
         """
         directives = dict(cls.get_plugin(target).get_timer_directives())
-        directives["OnCalendar"] = cls.resolve_interval_status(target, config_dir).value
+        interval = cls.resolve_value(target, KEY_INTERVAL, config_dir)
+        if interval.status == STATUS_OK:
+            directives["OnCalendar"] = oncalendar_for(interval.value)
         return directives
-
-    @classmethod
-    def resolve_log_retention(cls, target: str, config_dir: str) -> ResolvedSetting:
-        """Resolves a registered plugin's effective log retention from its config.
-
-        Reads the user's ``settings.log_retention_days`` from
-        ``<config_dir>/<config filename>`` and returns a :class:`ResolvedSetting`
-        (the day count to apply as its ``value`` plus a status of
-        ok/default/invalid/nocfg), so the logger can apply ``backupCount``.
-        Import-light: reads the config JSON directly, without resolving the plugin's
-        storage class. The companion of :meth:`resolve_interval_status`.
-
-        Args:
-            target (str): The registered target name (e.g. ``'skroutz'``).
-            config_dir (str): The directory holding the scrapers' config files.
-
-        Returns:
-            ResolvedSetting: The effective retention (``value`` is the day count).
-        """
-        plugin = cls.get_plugin(target)
-        config_path = cls._config_path(plugin, config_dir)
-        return resolve_setting(SPEC_RETENTION, config_path, plugin.get_settings_class(), plugin)
-
-    @classmethod
-    def resolve_notify_errors(cls, target: str, config_dir: str) -> ResolvedSetting:
-        """Resolves a registered plugin's ``notify_scraping_errors`` flag from its config.
-
-        Reads the user's ``settings.notify_scraping_errors`` from
-        ``<config_dir>/<config filename>`` and returns a :class:`ResolvedSetting` (the
-        effective boolean as its ``value`` plus a status of ok/default/invalid/nocfg),
-        so the orchestrator can gate the "Scraping Errors" push. Defaults to ``True``
-        (notify) unless an explicit, valid ``false`` is set. Import-light: reads the
-        config JSON directly. The companion of :meth:`resolve_log_retention`.
-
-        Args:
-            target (str): The registered target name (e.g. ``'skroutz'``).
-            config_dir (str): The directory holding the scrapers' config files.
-
-        Returns:
-            ResolvedSetting: The effective flag (``value`` is the boolean).
-        """
-        plugin = cls.get_plugin(target)
-        config_path = cls._config_path(plugin, config_dir)
-        return resolve_setting(SPEC_NOTIFY, config_path, plugin.get_settings_class(), plugin)
-
-    @classmethod
-    def resolve_settings(cls, target: str, config_dir: str) -> List[SettingView]:
-        """Resolves every setting a plugin exposes into presentation-ready views.
-
-        Iterates the plugin's :meth:`BasePlugin.get_setting_specs` and resolves each
-        against ``<config_dir>/<config filename>``, returning one :class:`SettingView`
-        per setting (label, effective display value, status, optional invalid
-        footnote). This is the single source for the settings section rendered atop the
-        ``--status`` Service Status panel and the interactive Scraping panel, so a
-        per-scraper setting appears in both with no change here. Import-light: reads the
-        config JSON directly, without resolving the plugin's storage class.
-
-        Args:
-            target (str): The registered target name (e.g. ``'skroutz'``).
-            config_dir (str): The directory holding the scrapers' config files.
-
-        Returns:
-            List[SettingView]: One view per setting, in the plugin's declared order.
-        """
-        plugin = cls.get_plugin(target)
-        config_path = cls._config_path(plugin, config_dir)
-        settings_cls = plugin.get_settings_class()
-        return [
-            setting_view(spec, resolve_setting(spec, config_path, settings_cls, plugin))
-            for spec in plugin.get_setting_specs()
-        ]
 
     @classmethod
     def plugin_for_url(cls, url: str) -> Optional['BasePlugin']:
@@ -447,7 +442,22 @@ class ScraperRegistry:
         """
         self._scrapers: Dict[str, 'BaseScraperClient'] = {}
         self._managers: Dict[str, 'BaseDataManager'] = {}
+        self._settings: Dict[str, ResolvedSettings] = {}
         self.config_dir = config_dir
+
+    def settings_for(self, target: str) -> ResolvedSettings:
+        """Returns the target's resolved settings, resolved once per run and cached.
+
+        The per-run resolved-settings accessor: the client and the data manager are both
+        injected with this same object, and the orchestrator reads its retention/notify
+        gates from it, so a target's config file is read once for the whole run regardless
+        of how many of its settings (built-in or custom) are consulted. Stateless callers
+        with no registry instance (``--status``, the shell one-liners) use the
+        :meth:`resolve_all_settings` classmethod instead.
+        """
+        if target not in self._settings:
+            self._settings[target] = self.resolve_all_settings(target, self.config_dir)
+        return self._settings[target]
 
     def resolve_target(self, url: str) -> str:
         """Determines the scraper target based on the URL domain.
@@ -484,7 +494,13 @@ class ScraperRegistry:
             from scrapers.base.client import BaseScraperClient
             plugin = self._plugins[target]
             client_cls = self._resolve_bound_class(plugin, "get_client_class", BaseScraperClient)
-            self._scrapers[target] = client_cls()
+            client = client_cls()
+            # Inject the target's resolved settings so a store-specific knob declared in
+            # the plugin's get_setting_specs is readable at scrape time via self.settings.
+            # Attribute injection (not a constructor arg) keeps clients' varied __init__s
+            # untouched.
+            client.settings = self.settings_for(target)
+            self._scrapers[target] = client
 
         return self._scrapers[target]
 
@@ -509,9 +525,11 @@ class ScraperRegistry:
             plugin = self._plugins[target]
             storage_cls = self._resolve_bound_class(plugin, "get_storage_class", BaseDataManager)
             path = os.path.join(self.config_dir, plugin.get_config_filename())
-            # Inject the plugin so the manager resolves supported domains through
-            # it (the single source of truth) instead of importing a concrete plugin.
-            self._managers[target] = storage_cls(path, plugin)
+            # Inject the plugin so the manager resolves supported domains through it (the
+            # single source of truth) instead of importing a concrete plugin, and the
+            # target's resolved settings so a store-specific setting is readable at scrape
+            # time via self.settings.
+            self._managers[target] = storage_cls(path, plugin, self.settings_for(target))
 
         return self._managers[target]
 

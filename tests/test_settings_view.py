@@ -1,9 +1,10 @@
 """Tests for the settings view layer and the per-scraper extension mechanism.
 
 Verifies that :func:`setting_view` maps a resolved setting to a presentation record,
-that the registry exposes one view per built-in setting, and - crucially - that a
-plugin can add its own setting (a new ScraperSettings field + SettingSpec) and have it
-resolve and render with no change to base framework code.
+that :class:`SettingView` exposes the shared icon/default-marker decision, that the
+registry exposes one view per built-in setting, and - crucially - that a plugin can add
+its own setting (a single :class:`SettingSpec`) and have it resolve and render with no
+change to base framework code and no parallel settings class.
 """
 
 import json
@@ -11,14 +12,12 @@ import os
 import sys
 import tempfile
 import unittest
-from dataclasses import dataclass
-from typing import Optional
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src", "core")))
 
 from scrapers.base.settings import (  # noqa: E402
-    ScraperSettings, SettingSpec, BASE_SETTING_SPECS,
-    resolve_setting, setting_view,
+    SettingSpec, BASE_SETTING_SPECS,
+    resolve_one, setting_view,
     SPEC_RETENTION, STATUS_OK, STATUS_INVALID, STATUS_DEFAULT,
 )
 
@@ -33,43 +32,38 @@ def _write_config(settings):
 
 class TestSettingView(unittest.TestCase):
     def test_ok_has_no_footnote(self):
-        resolved = resolve_setting(SPEC_RETENTION, _write_config({"log_retention_days": 4}))
+        resolved = resolve_one(SPEC_RETENTION, _write_config({"log_retention_days": 4}))
         view = setting_view(SPEC_RETENTION, resolved)
         self.assertEqual(view.label, "Log Retention")
         self.assertEqual(view.display_value, "4 days")
         self.assertEqual(view.status, STATUS_OK)
         self.assertIsNone(view.footnote)
+        self.assertEqual(view.icon, "✅")
+        self.assertFalse(view.is_default)
 
     def test_singular_day_display(self):
-        resolved = resolve_setting(SPEC_RETENTION, _write_config({"log_retention_days": 1}))
+        resolved = resolve_one(SPEC_RETENTION, _write_config({"log_retention_days": 1}))
         self.assertEqual(setting_view(SPEC_RETENTION, resolved).display_value, "1 day")
 
+    def test_default_marks_is_default(self):
+        resolved = resolve_one(SPEC_RETENTION, _write_config({}))
+        view = setting_view(SPEC_RETENTION, resolved)
+        self.assertEqual(view.status, STATUS_DEFAULT)
+        self.assertTrue(view.is_default)
+        self.assertEqual(view.icon, "✅")
+
     def test_invalid_carries_warning_footnote(self):
-        resolved = resolve_setting(SPEC_RETENTION, _write_config({"log_retention_days": 99}))
+        resolved = resolve_one(SPEC_RETENTION, _write_config({"log_retention_days": 99}))
         view = setting_view(SPEC_RETENTION, resolved)
         self.assertEqual(view.status, STATUS_INVALID)
         self.assertEqual(view.footnote, SPEC_RETENTION.warning)
         self.assertEqual(view.display_value, "7 days")  # the default it fell back to
+        self.assertEqual(view.icon, "🟡")
+        self.assertFalse(view.is_default)  # invalid is flagged, not marked "(default)"
 
 
 # --- Per-scraper extension: a plugin-defined setting, end to end ----------------
-
-@dataclass
-class _PagedSettings(ScraperSettings):
-    """A settings subclass adding a store-specific ``max_pages`` knob."""
-    max_pages: Optional[object] = None
-
-    @classmethod
-    def from_dict(cls, data):
-        base = ScraperSettings.from_dict(data)
-        raw = data.get("max_pages") if isinstance(data, dict) else None
-        return cls(
-            execution_interval=base.execution_interval,
-            log_retention_days=base.log_retention_days,
-            notify_scraping_errors=base.notify_scraping_errors,
-            max_pages=raw,
-        )
-
+# A custom setting is exactly one SettingSpec - no settings dataclass, no from_dict.
 
 def _normalize_pages(raw):
     if isinstance(raw, bool):
@@ -80,7 +74,7 @@ def _normalize_pages(raw):
 
 
 _SPEC_PAGES = SettingSpec(
-    field="max_pages",
+    key="max_pages",
     label="Max Pages",
     normalize=_normalize_pages,
     display=lambda n: str(n),
@@ -91,16 +85,16 @@ _SPEC_PAGES = SettingSpec(
 
 class TestPerScraperSetting(unittest.TestCase):
     def test_custom_setting_resolves_ok(self):
-        resolved = resolve_setting(_SPEC_PAGES, _write_config({"max_pages": 5}), _PagedSettings)
+        resolved = resolve_one(_SPEC_PAGES, _write_config({"max_pages": 5}))
         self.assertEqual((resolved.value, resolved.status), (5, STATUS_OK))
         self.assertEqual(setting_view(_SPEC_PAGES, resolved).display_value, "5")
 
     def test_custom_setting_default_when_unset(self):
-        resolved = resolve_setting(_SPEC_PAGES, _write_config({}), _PagedSettings)
+        resolved = resolve_one(_SPEC_PAGES, _write_config({}))
         self.assertEqual((resolved.value, resolved.status), (3, STATUS_DEFAULT))
 
     def test_custom_setting_invalid(self):
-        resolved = resolve_setting(_SPEC_PAGES, _write_config({"max_pages": "lots"}), _PagedSettings)
+        resolved = resolve_one(_SPEC_PAGES, _write_config({"max_pages": "lots"}))
         self.assertEqual((resolved.value, resolved.status), (3, STATUS_INVALID))
         self.assertEqual(setting_view(_SPEC_PAGES, resolved).footnote, _SPEC_PAGES.warning)
 

@@ -429,52 +429,50 @@ def get_timer_directives(self) -> dict:
 ### Add a store-specific setting
 
 Every scraper inherits the shared settings (`execution_interval`,
-`log_retention_days`, `notify_scraping_errors`) for free. To add your own, subclass
-`ScraperSettings` and return it from `get_settings_class()`:
+`log_retention_days`, `notify_scraping_errors`) for free. A setting is described by a
+single `SettingSpec`: its JSON `key`, a `normalize` (raw value → effective value, or
+`None` when unsupported), a `display` formatter, an invalid-value `warning`, and a
+`default`. To add your own, declare a spec and return `BASE_SETTING_SPECS + [it]` from
+`get_setting_specs()` — there is no settings dataclass to subclass and no `from_dict` to
+write:
 
 ```python
-# src/core/scrapers/acme/settings.py
-from dataclasses import dataclass
-from typing import Optional
+# in plugin.py (import-light — stdlib only, like the rest of the descriptor)
+from scrapers.base.settings import BASE_SETTING_SPECS, SettingSpec
 
-from scrapers.base.settings import ScraperSettings
+SPEC_REGION = SettingSpec(
+    key="region",
+    label="Region",
+    normalize=lambda raw: raw if raw in {"eu", "us"} else None,
+    display=str,
+    warning="Invalid region. Using default.",
+    default="eu",
+)
 
 
-@dataclass
-class AcmeSettings(ScraperSettings):
-    region: Optional[str] = None
-
-    @classmethod
-    def from_dict(cls, data) -> "AcmeSettings":
-        base = ScraperSettings.from_dict(data)
-        region = data.get("region") if isinstance(data, dict) else None
-        return cls(
-            execution_interval=base.execution_interval,
-            log_retention_days=base.log_retention_days,
-            region=region if isinstance(region, str) else None,
-        )
+class AcmePlugin(BasePlugin):
+    ...
+    def get_setting_specs(self):
+        return BASE_SETTING_SPECS + [SPEC_REGION]
 ```
 
-```python
-# in plugin.py
-def get_settings_class(self):
-    from scrapers.acme.settings import AcmeSettings
-    return AcmeSettings
-```
+The new setting now resolves, validates, and renders in `--status` and the scraping
+panel automatically — no base/framework file changes — and discovery rejects a blank or
+duplicate `key` at startup.
 
-`settings.py` must stay **import-light** (stdlib only).
-
-To *consume* a custom value at scrape time, read it through the data manager's
-`get_settings()` (it parses the config's `settings` block into your `AcmeSettings`).
-Call it after `load()` has populated the in-memory state — e.g. inside your data
-manager subclass:
+To *consume* the effective value at scrape time, read it through `self.settings`: the
+registry injects the target's resolved settings into **both** your client and your data
+manager.
 
 ```python
-# in your data manager subclass — read a custom setting at scrape time
-settings = self.get_settings()      # typed AcmeSettings
-if settings.region == "eu":
+# in your client's scrape_product(), or in your data manager — read a custom setting
+if self.settings.get("region") == "eu":
     ...
 ```
+
+`self.settings.get(key, default)` returns the effective (already-validated) value,
+falling back to the spec's `default` on an unset or invalid value, so scrape-time code
+never re-validates.
 
 Settings are **read-only**: they are authored by the user and the application never
 writes them back, so there is no `update_setting`. A custom setting must be a plain
@@ -493,9 +491,9 @@ keys and preserves everything the user authored.
 
 For a database or remote API, subclass `BaseDataManager` directly and implement its
 abstract lifecycle (`load`, `save`, `update_item`, `get_items`, `parse_item`,
-`is_valid_item`, `is_scrappable_item`, `clean_storage`). Note this is not a blank-slate
+`is_valid_item`, `is_scrapable_item`, `clean_storage`). Note this is not a blank-slate
 generic store: `BaseDataManager` still models a **product identified by a URL with a
-`target_price`** (its `is_scrappable_item` / `has_valid_target_price` helpers assume
+`target_price`** (its `is_scrapable_item` / `has_valid_target_price` helpers assume
 exactly that) — you're swapping the *backend*, not the domain. Most stores won't need
 this — `JsonProductDataManager` covers file-backed scrapers.
 

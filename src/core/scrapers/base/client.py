@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Dict, Optional, TYPE_CHECKING
 from scrapers.base.model import ScrapeResult
+
+if TYPE_CHECKING:
+    from scrapers.base.settings import ResolvedSettings
 
 class BaseScraperClient(ABC):
     """Abstract base class for scraping clients.
@@ -32,7 +35,20 @@ class BaseScraperClient(ABC):
         (retried, counted as a failure, traceback saved). When a store-specific
         parsing step can fail (e.g. coercing a price string to ``float``), wrap it
         and re-raise as :class:`ScraperParseError` so it maps to a modeled outcome.
+
+    Settings access:
+        The registry injects this client's target settings as ``self.settings`` (a
+        :class:`~scrapers.base.settings.ResolvedSettings`) right after construction, so a
+        store-specific knob declared in the plugin's ``get_setting_specs`` is readable at
+        scrape time without any constructor plumbing — e.g.
+        ``self.settings.get("region")``. It is ``None`` only when a client is constructed
+        outside the registry (e.g. a unit test); guard accordingly or rely on
+        ``ResolvedSettings.get``'s default.
     """
+
+    #: The owning target's resolved settings, injected by the registry after construction
+    #: (``None`` until injected / when constructed outside the registry).
+    settings: "Optional[ResolvedSettings]" = None
 
     def __init__(self) -> None:
         """Base initializer. Subclasses performing setup should call super().__init__()."""
