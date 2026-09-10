@@ -6,6 +6,11 @@
 <p align="center">An open-source Skroutz web scraper and price monitor. Receive automated push notifications when products reach your desired price.</p>
 
 
+> [!WARNING]
+> **This project is under active development and is not currently usable.**
+> Price retrieval is broken by an upstream change and a fix is in progress.
+> Installation is not recommended until this notice is removed.
+
 > [!IMPORTANT]
 > Skroutz is a registered trademark of Skroutz S.A. This project is an independent, unofficial tool and is not affiliated with, authorized, maintained, sponsored, or endorsed by Skroutz S.A. in any way.
 
